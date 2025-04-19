@@ -18,7 +18,7 @@ def show_main_page():
 
     # Sidebar inputs
     st.sidebar.header("Input Parameters")
-    ticker = st.sidebar.text_input("Stock Ticker Symbol", "AAPL")
+    ticker = st.sidebar.text_input("Stock Ticker Symbol as used in Yfinance", "AAPL")
     start_date = st.sidebar.date_input("Start Date", datetime.now() - timedelta(days=3660))
     end_date = st.sidebar.date_input("End Date", datetime.now())
     analyze_button = st.sidebar.button("Analyze")
