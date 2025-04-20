@@ -169,10 +169,10 @@ def show_modeling_page():
                 garch_vol = np.sqrt(garch_var)/10
                 garch_vol_series = pd.Series(garch_vol, name="GARCH Forecast")
 
-                # ±1 Std Dev Confidence Band
+                # ±2 Std Dev Confidence Band
                 std_dev = garch_vol.std()
-                garch_upper = pd.Series(garch_vol + std_dev, name="GARCH Upper")
-                garch_lower = pd.Series(garch_vol - std_dev, name="GARCH Lower")
+                garch_upper = pd.Series(garch_vol + 2 * std_dev, name="GARCH Upper")
+                garch_lower = pd.Series(garch_vol - 2 * std_dev, name="GARCH Lower")
 
                 # EWMA Forecast
                 ewma_vol = st.session_state['ewma_vol_series']
