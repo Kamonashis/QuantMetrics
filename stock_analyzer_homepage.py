@@ -188,7 +188,7 @@ def show_modeling_page():
                     ewma_forecast[t] = lambda_ * ewma_forecast[t - 1] + (1 - lambda_) * last_ret_squared
 
                 # Convert back to standard deviation
-                ewma_forecast = np.sqrt(ewma_forecast)/100
+                ewma_forecast = np.sqrt(ewma_forecast)/10
                 ewma_vol_series = pd.Series(ewma_forecast, name="EWMA Forecast")
 
                 forecast_df = pd.concat([garch_vol_series, ewma_vol_series, garch_upper, garch_lower], axis=1)
