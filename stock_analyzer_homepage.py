@@ -101,9 +101,15 @@ def show_modeling_page():
             garch_model = arch_model(clean_returns, mean=mean, vol=vol_type.upper(), p=garch_p, q=garch_q, rescale=True)
             garch_fit = garch_model.fit(disp='off')
 
-            st.success("✅ GARCH model fitted successfully.")
-            st.text("Model Summary:")
-            st.text(garch_fit.summary())
+            # Format the summary nicely using HTML + CSS
+            garch_summary_html = f"""
+            <div style="background-color:#f7f7f7; padding:10px; border-radius:5px; border:1px solid #ccc; font-family:monospace; white-space:pre-wrap; overflow-x:auto;">
+            {garch_fit.summary()}
+            </div>
+            """
+
+            st.markdown("##GARCH Model Summary", unsafe_allow_html=True)
+            st.markdown(garch_summary_html, unsafe_allow_html=True)
 
             # --- EWMA ---
             ewma_vol = (returns).dropna().ewm(span=(2 / (1 - lambda_) - 1)).std()/10
