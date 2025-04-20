@@ -89,7 +89,7 @@ def show_modeling_page():
     mean_type = st.sidebar.selectbox("Mean Model", ["Constant", "AR", "Zero Mean"], index=0)
 
     st.sidebar.header("EWMA Parameters")
-    lambda_ = st.sidebar.slider("EWMA Lambda (λ)", min_value=0.85, max_value=0.99, value=0.94, step=0.01)
+    lambda_ = st.sidebar.slider("EWMA Lambda (λ)", min_value=0.85, max_value=0.99, value=0.90, step=0.01)
 
     # --- RUN BOTH MODELS ---
     st.subheader("📌 Run Models")
@@ -102,8 +102,7 @@ def show_modeling_page():
             garch_fit = garch_model.fit(disp='off')
             
             st.text("GARCH Model Summary:")
-            st.text(garch_fit.summary().as_text())
-            st.markdown(f"**GARCH Model AIC:** {garch_fit.aic:.4f}")
+            st.text(garch_fit.summary())
 
 
             # --- EWMA ---
@@ -142,10 +141,10 @@ def show_modeling_page():
             hist_vol = hist_vol[-min_len:] * scaling_factor
 
             # Plot
-            fig, ax = plt.subplots(figsize=(30, 10))
+            fig, ax = plt.subplots(figsize=(30, 10), dpi=500)
             ax.plot(garch_cond_vol.index, garch_cond_vol, label="GARCH Volatility", color="blue")
-            ax.plot(ewma_vol.index, ewma_vol, label="EWMA Volatility", color="green", linestyle="--")
-            ax.plot(hist_vol.index, hist_vol, label="30-Day Historical Volatility", color="black", linestyle=":")
+            ax.plot(ewma_vol.index, ewma_vol, label="EWMA Volatility", color="green", linestyle="dashed")
+            ax.plot(hist_vol.index, hist_vol, label="30-Day Historical Volatility", color="black", linestyle="dotted")
             ax.set_title("Volatility Estimates: GARCH vs EWMA vs Historical")
             ax.set_ylabel("Annualized Volatility" if annualize else "Daily Volatility")
             ax.legend()
