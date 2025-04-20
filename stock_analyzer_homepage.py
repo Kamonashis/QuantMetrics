@@ -101,8 +101,8 @@ def show_modeling_page():
             garch_model = arch_model(clean_returns, mean=mean, vol=vol_type.upper(), p=garch_p, q=garch_q, rescale=True)
             garch_fit = garch_model.fit(disp='off')
             
-            st.subheader("📋 GARCH Model Summary")
-            st.text_area("Model Summary", value=str(garch_fit.summary()), height=400)
+            st.text("GARCH Model Summary:")
+            st.text(garch_fit.summary().as_text())
 
 
             # --- EWMA ---
