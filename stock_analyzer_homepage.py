@@ -100,14 +100,10 @@ def show_modeling_page():
             clean_returns = returns.dropna()
             garch_model = arch_model(clean_returns, mean=mean, vol=vol_type.upper(), p=garch_p, q=garch_q, rescale=True)
             garch_fit = garch_model.fit(disp='off')
-            # Format GARCH summary using inherited theme styling
-            garch_summary_html = f"""
-            <div style="padding:10px; border-radius:5px; border:1px solid #ccc; font-family:monospace; ; overflow-x:auto; background-color:rgba(0, 0, 0, 0);">
-            {garch_fit.summary()}
-            </div>
-            """
-            st.markdown("### 📋 GARCH Model Summary", unsafe_allow_html=True)
-            st.markdown(garch_summary_html, unsafe_allow_html=True)
+            
+            st.subheader("📋 GARCH Model Summary")
+            st.text_area("Model Summary", value=str(garch_fit.summary()), height=400)
+
 
             # --- EWMA ---
             ewma_vol = (returns).dropna().ewm(span=(2 / (1 - lambda_) - 1)).std()/10
