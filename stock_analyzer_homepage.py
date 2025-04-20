@@ -102,7 +102,7 @@ def show_modeling_page():
             garch_fit = garch_model.fit(disp='off')
             # Format GARCH summary using inherited theme styling
             garch_summary_html = f"""
-            <div style="padding:10px; border-radius:5px; border:1px solid #ccc; font-family:monospace; white-space:pre-wrap; overflow-x:auto; background-color:rgba(0, 0, 0, 0);">
+            <div style="padding:10px; border-radius:5px; border:1px solid #ccc; font-family:monospace; ; overflow-x:auto; background-color:rgba(0, 0, 0, 0);">
             {garch_fit.summary()}
             </div>
             """
