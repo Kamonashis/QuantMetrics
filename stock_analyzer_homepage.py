@@ -102,7 +102,7 @@ def show_modeling_page():
             garch_fit = garch_model.fit(disp='off')
             
             st.text("GARCH Model Summary:")
-            st.text(garch_fit.summary().as_text(), unsafe_allow_html=True)
+            st.text(garch_fit.summary().as_text())
             st.markdown(f"**GARCH Model AIC:** {garch_fit.aic:.4f}")
 
 
