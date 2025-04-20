@@ -1,7 +1,3 @@
-Sure! Here's a README file for your stock analysis app:
-
----
-
 # Stock Analysis App with ACF & PACF, GARCH, and EWMA Volatility Models
 
 This application allows users to perform stock analysis using historical price data, calculate percentage returns, model volatility using GARCH (Generalized Autoregressive Conditional Heteroskedasticity) and EWMA (Exponentially Weighted Moving Average), and visualize the results.
@@ -81,7 +77,3 @@ Once the forecast is complete:
 ## Future Enhancements
 - Add a feature to compare multiple tickers at once (e.g., calculate and visualize correlation between stock returns).
 - Add more volatility models like EGARCH or HARCH.
-
----
-
-Feel free to modify the README to suit your app's specific requirements. Let me know if you'd like me to make any changes!
