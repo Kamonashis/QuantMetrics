@@ -4,7 +4,6 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
-import matplotlib.pyplot as plt
 from arch import arch_model
 from datetime import datetime, timedelta
 
@@ -124,8 +123,8 @@ def show_modeling_page():
             # --- Plot GARCH vs EWMA ---
             st.subheader("📉 Volatility Comparison (GARCH vs EWMA)")
 
-           # Sidebar toggle
-            annualize = st.sidebar.toggle("📅 Annualize Volatility", value=False)
+            # Sidebar toggle
+            annualize = st.sidebar.checkbox("📅 Annualize Volatility", value=False)
 
             # Unscaled volatilities
             garch_cond_vol = garch_fit.conditional_volatility
@@ -175,7 +174,7 @@ def show_modeling_page():
                 garch_upper = pd.Series(garch_vol + std_dev, name="GARCH Upper")
                 garch_lower = pd.Series(garch_vol - std_dev, name="GARCH Lower")
 
-            # EWMA Forecast
+                # EWMA Forecast
                 ewma_vol = st.session_state['ewma_vol_series']
                 last_ret_squared = returns.dropna().iloc[-1] ** 2
                 last_var = ewma_vol.iloc[-1] ** 2
@@ -197,7 +196,6 @@ def show_modeling_page():
 
                 st.dataframe(forecast_df.style.format("{:.4%}"))
 
-
                 # Plot
                 fig, ax = plt.subplots(figsize=(10, 5))
                 # Forecasts
@@ -213,15 +211,12 @@ def show_modeling_page():
                 ax.grid(True)
                 st.pyplot(fig)
 
-
             except Exception as e:
                 st.error(f"Forecasting failed: {e}")
 
     if st.button("Back to Analysis"):
         st.session_state.page = "main"
         st.rerun()
-
-
 
 
 # --- APP ROUTER ---
