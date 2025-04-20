@@ -106,7 +106,7 @@ def show_modeling_page():
             st.text(garch_fit.summary())
 
             # --- EWMA ---
-            ewma_vol = (returns).dropna().ewm(span=(2 / (1 - lambda_) - 1)).std()/1000
+            ewma_vol = (returns).dropna().ewm(span=(2 / (1 - lambda_) - 1)).std()/10
             st.subheader("📉 EWMA Volatility Estimate")
             st.markdown(f"""
                 - **Mean Volatility:** {ewma_vol.mean():.4%}  
@@ -141,7 +141,7 @@ def show_modeling_page():
             hist_vol = hist_vol[-min_len:] * scaling_factor
 
             # Plot
-            fig, ax = plt.subplots(figsize=(20, 10))
+            fig, ax = plt.subplots(figsize=(30, 10))
             ax.plot(garch_cond_vol.index, garch_cond_vol, label="GARCH Volatility", color="blue")
             ax.plot(ewma_vol.index, ewma_vol, label="EWMA Volatility", color="green", linestyle="--")
             ax.plot(hist_vol.index, hist_vol, label="30-Day Historical Volatility", color="black", linestyle=":")
@@ -166,7 +166,7 @@ def show_modeling_page():
                 garch_fit = st.session_state['garch_fit']
                 garch_forecast = garch_fit.forecast(horizon=n_days)
                 garch_var = garch_forecast.variance.values[-1]
-                garch_vol = np.sqrt(garch_var)/1000
+                garch_vol = np.sqrt(garch_var)/10
                 garch_vol_series = pd.Series(garch_vol, name="GARCH Forecast")
 
                 # ±1 Std Dev Confidence Band
@@ -188,7 +188,7 @@ def show_modeling_page():
                     ewma_forecast[t] = lambda_ * ewma_forecast[t - 1] + (1 - lambda_) * last_ret_squared
 
                 # Convert back to standard deviation
-                ewma_forecast = np.sqrt(ewma_forecast)/100
+                ewma_forecast = np.sqrt(ewma_forecast)
                 ewma_vol_series = pd.Series(ewma_forecast, name="EWMA Forecast")
 
                 forecast_df = pd.concat([garch_vol_series, ewma_vol_series, garch_upper, garch_lower], axis=1)
