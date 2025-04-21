@@ -77,3 +77,42 @@ Once the forecast is complete:
 ## Future Enhancements
 - Add a feature to compare multiple tickers at once (e.g., calculate and visualize correlation between stock returns).
 - Add more volatility models like EGARCH or HARCH.
+
+## 🚀 Updates & New Features (21 April, 2025)
+
+This app has been significantly enhanced to support more advanced quantitative analysis and interactivity. Here's what's new:
+
+### 🔁 Multi-Page Navigation
+- Structured the app into multiple pages using `app.py` as a router.
+- Sidebar navigation allows switching between:
+  - **Home**
+  - **Analysis**
+  - **Modeling**
+  - **Correlation Matrix**
+  - **Regression Analysis**
+
+### 📈 Volatility Modeling Enhancements
+- GARCH and EWMA volatility models now:
+  - Show **annualized** volatility.
+  - Display **EWMA statistics** (mean, min, max, latest).
+  - Present GARCH model summary with cleaner formatting.
+
+### 🧮 Correlation Matrix Page
+- Accepts multiple tickers via textarea input.
+- Displays an interactive heatmap.
+- **Correlation values stay centered** in their respective cells for clarity.
+
+### 📊 Regression Analysis Page
+- Automatically determines model type based on the number of tickers:
+  - Single independent variable: Simple Linear Regression.
+  - Multiple variables: Multiple Linear Regression.
+- Pulls historical price data using `yfinance`.
+- Includes full model diagnostics:
+  - Residual plots
+  - R-squared and adjusted R-squared
+  - AIC/BIC for model selection
+  - VIF for multicollinearity detection
+- Supports:
+  - **Robust Regression**
+  - **Rolling Window Regression**
+  - **Forecasting with prediction intervals**
