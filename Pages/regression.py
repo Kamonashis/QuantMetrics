@@ -12,7 +12,7 @@ def show_regression():
 
     # --- Ticker Inputs ---
     st.sidebar.header("Ticker Selection")
-    tickers = st.sidebar.text_area("Enter tickers separated by commas. The first symbol is the dependent variable!", "AAPL, MSFT, GOOG").split(",")
+    tickers = st.sidebar.text_area("Enter tickers separated by commas. The first symbol is the dependent variable!", "^IXIC, AAPL, MSFT, GOOG").split(",")
     tickers = [t.strip().upper() for t in tickers if t.strip()]
 
     # --- Date Range ---
