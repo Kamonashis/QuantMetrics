@@ -20,7 +20,6 @@ def show_home():
     - GARCH and EWMA volatility modeling with forecasting
     - Correlation matrix analysis for custom portfolios
     - Regression analysis with robust diagnostics and rolling predictions
-    - Value at Risk (VaR) & model evaluation tools
     - Interactive charts and intuitive layout
     """)
 
