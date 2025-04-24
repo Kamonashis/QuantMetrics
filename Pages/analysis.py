@@ -1,50 +1,122 @@
+from datetime import datetime, timedelta
 import streamlit as st
 import yfinance as yf
-import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
-from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
+from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+from statsmodels.tsa.holtwinters import ExponentialSmoothing
+
+def monte_carlo_simulation(last_price, mu, sigma, T, N, paths):
+    dt = T / N
+    prices = np.zeros((N + 1, paths))
+    prices[0] = last_price
+    for t in range(1, N + 1):
+        Z = np.random.standard_normal(paths)
+        prices[t] = prices[t - 1] * np.exp((mu - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * Z)
+    return prices
 
 def show_analysis():
-    st.title("📊 Stock Return Analysis")
+    st.set_page_config(page_title="QuantMetrics - Analysis", layout="wide")
 
-    ticker = st.sidebar.text_input("Ticker Symbol", "^NSEI").upper()
-    start_date = st.sidebar.date_input("Start Date", datetime.now() - timedelta(days=3650))
-    end_date = st.sidebar.date_input("End Date", datetime.now())
+    st.title("📊 Financial Analysis")
+    st.markdown("Use this page to visualize historical data, assess volatility, and predict returns.")
 
-    if st.sidebar.button("Fetch Data"):
+    ticker = st.text_input("Enter stock ticker (e.g., AAPL):", "AAPL")
+    start_date = datetime.today() - timedelta(days=365 * 3)
+    end_date = datetime.today()
+
+    if ticker:
         data = yf.download(ticker, start=start_date, end=end_date)
-        if data.empty:
-            st.error("No data retrieved.")
-            return
+        data.dropna(inplace=True)
+        data['Return'] = np.log(data['Adj Close'] / data['Adj Close'].shift(1))
+        data.dropna(inplace=True)
 
-        data['Return'] = data['Close'].pct_change() * 100
-        returns = data['Return'].dropna()
-        returns = returns[returns != 0]
-        returns = returns[returns != np.inf]
-        st.subheader(f"Data for **{ticker}** from {start_date} to {end_date}")
-        st.line_chart(data['Close'])
-        st.subheader("Returns")
-        st.write(f"Mean Return: {returns.mean():.2f}%")
-        st.line_chart(returns)
+        col1, col2 = st.columns(2)
 
-        st.subheader("ACF of Squared Returns")
-        st.write("The ACF of squared returns can help identify the presence of volatility clustering.")
-        st.write("A significant spike at lag 1 indicates volatility clustering, which is common in financial time series.")
-        fig1, ax1 = plt.subplots()
-        plot_acf(returns**2, ax=ax1, lags=25)
-        st.pyplot(fig1)
+        with col1:
+            st.subheader("📈 Price & Return")
+            fig1, ax1 = plt.subplots()
+            ax1.plot(data.index, data['Adj Close'], label='Adj Close Price', color='blue')
+            ax1.set_ylabel('Price', color='blue')
+            ax2 = ax1.twinx()
+            ax2.plot(data.index, data['Return'], label='Log Returns', color='orange', alpha=0.6)
+            ax2.set_ylabel('Return', color='orange')
+            st.pyplot(fig1)
 
-        st.subheader("PACF of Squared Returns")
-        st.write("The PACF of squared returns can help identify the order of GARCH models.")
-        st.write("A significant spike at lag 1 indicates the presence of ARCH effects.")
-        st.write("This can help in determining the order of the GARCH model.")
-        fig2, ax2 = plt.subplots()
-        plot_pacf(returns**2, ax=ax2, lags=25)
-        st.pyplot(fig2)
+        with col2:
+            st.subheader("📉 Rolling Volatility")
+            rolling_vol = data['Return'].rolling(window=21).std() * np.sqrt(252)
+            fig2, ax = plt.subplots()
+            ax.plot(data.index, rolling_vol, label='Rolling Volatility (21d)', color='red')
+            ax.set_ylabel('Annualized Volatility')
+            st.pyplot(fig2)
 
-        st.session_state['returns'] = returns
-        st.session_state['ticker'] = ticker
-        st.session_state['start_date'] = start_date
-        st.session_state['end_date'] = end_date
+        st.divider()
+        st.subheader("🔍 Time Series Diagnostics")
+
+        fig_acf, ax_acf = plt.subplots()
+        plot_acf(data['Return'], ax=ax_acf, lags=40)
+        st.pyplot(fig_acf)
+
+        fig_pacf, ax_pacf = plt.subplots()
+        plot_pacf(data['Return'], ax=ax_pacf, lags=40, method='ywm')
+        st.pyplot(fig_pacf)
+
+        st.divider()
+        st.subheader("🔮 Return Prediction via Monte Carlo Simulation")
+
+        model_choice = st.selectbox("Choose Forecasting Model", ["ARIMA", "SARIMA", "Exponential Smoothing"])
+        n_days = st.slider("Forecast Horizon (days)", 10, 100, 30)
+        n_paths = st.slider("Monte Carlo Paths", 100, 2000, 500)
+
+        train_data = data['Return'].dropna()
+
+        if model_choice == "ARIMA":
+            model = ARIMA(train_data, order=(1, 0, 1)).fit()
+        elif model_choice == "SARIMA":
+            model = SARIMAX(train_data, order=(1, 0, 1), seasonal_order=(1, 0, 1, 12)).fit()
+        else:
+            model = ExponentialSmoothing(train_data, trend='add', seasonal=None).fit()
+
+        forecast_returns = model.forecast(n_days)
+        mu = forecast_returns.mean()
+        sigma = forecast_returns.std()
+        last_price = data['Adj Close'][-1]
+
+        st.write(f"**Forecast Mean Return:** `{mu:.5f}` | **Std Dev:** `{sigma:.5f}`")
+
+        sim_data = monte_carlo_simulation(last_price, mu, sigma, T=n_days / 252, N=n_days, paths=n_paths)
+
+        st.subheader("📊 Monte Carlo Forecast: Fan Chart")
+        fig_mc, ax_mc = plt.subplots(figsize=(10, 5))
+        ax_mc.plot(sim_data, color='lightgray', alpha=0.1)
+        ax_mc.plot(sim_data.mean(axis=1), color='blue', label='Mean Forecast')
+        ax_mc.fill_between(range(n_days + 1),
+                           np.percentile(sim_data, 5, axis=1),
+                           np.percentile(sim_data, 95, axis=1),
+                           color='skyblue', alpha=0.3, label='90% CI')
+        ax_mc.set_title("Simulated Price Paths")
+        ax_mc.legend()
+        st.pyplot(fig_mc)
+
+        st.subheader("📈 Histogram of Simulated Returns")
+        final_returns = np.log(sim_data[-1] / last_price)
+        fig_hist, ax_hist = plt.subplots()
+        ax_hist.hist(final_returns, bins=50, color='purple', alpha=0.7)
+        ax_hist.set_title("Distribution of Final Simulated Returns")
+        st.pyplot(fig_hist)
+
+        st.subheader("🔁 Backtest Model Prediction vs Actual")
+        forecast_backtest = model.get_prediction(start=-n_days)
+        pred_mean = forecast_backtest.predicted_mean
+        true_vals = train_data[-n_days:]
+
+        fig_bt, ax_bt = plt.subplots()
+        ax_bt.plot(true_vals.index, true_vals.values, label="Actual", color='black')
+        ax_bt.plot(pred_mean.index, pred_mean.values, label="Predicted", color='green')
+        ax_bt.set_title("Backtest: Actual vs Predicted Returns")
+        ax_bt.legend()
+        st.pyplot(fig_bt)
