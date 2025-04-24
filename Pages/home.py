@@ -9,7 +9,7 @@ def show_home():
     <h4 style='color:#4F8BF9;'>Empowering Quantitative Insights, One Metric at a Time</h4>
     """, unsafe_allow_html=True)
 
-    st.image("mlreg_model.jpg", width=100)
+    st.image("C:\Users\kamon\OneDrive\Documents\GitHub\Volatility\Pages\mlreg_model.jpg", width=100)
 
     st.markdown("""
     Welcome to **QuantMetrics**, a powerful, multi-page analytics platform designed for quant finance enthusiasts, students, and professionals.
