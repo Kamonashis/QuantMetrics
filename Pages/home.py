@@ -25,7 +25,8 @@ def show_home():
     """)
     df = pd.DataFrame(np.random.randn(150, 3), columns=(["A", "B", "C"]))
     my_data_element = st.line_chart(df)
-    st.markdown("---")
+    st.markdown("Random Number Generator")
+    st.markdown("Click the button to regenerate random numbers every 0.5 seconds.")
 
     for tick in range(10):
         time.sleep(.5)
