@@ -31,7 +31,7 @@ def show_analysis():
     if ticker:
         data = yf.download(ticker, start=start_date, end=end_date)
         data.dropna(inplace=True)
-        data['Return'] = np.log(data['Adj Close'] / data['Adj Close'].shift(1))
+        data['Return'] = np.log(data['Close'] / data['Close'].shift(1))
         data.dropna(inplace=True)
 
         col1, col2 = st.columns(2)
