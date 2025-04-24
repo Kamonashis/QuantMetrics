@@ -11,7 +11,7 @@ def show_home():
     st.markdown("""
     <h4 style='color:#4F8BF9;'>Empowering Quantitative Insights, One Metric at a Time</h4>
     """, unsafe_allow_html=True)
-    df = pd.DataFrame(np.random.randn(15, 3), columns=(["A", "B", "C"]))
+    df = pd.DataFrame(np.random.randn(150, 3), columns=(["A", "B", "C"]))
     my_data_element = st.line_chart(df)
 
     for tick in range(10):
