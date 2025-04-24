@@ -18,6 +18,7 @@ def show_home():
         time.sleep(.5)
         add_df = pd.DataFrame(np.random.randn(1, 3), columns=(["A", "B", "C"]))
         my_data_element.add_rows(add_df)
+    st.button("Regenerate")
 
     st.markdown("""
     Welcome to **QuantMetrics**, a powerful, multi-page analytics platform designed for quant finance enthusiasts, students, and professionals.
