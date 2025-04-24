@@ -7,7 +7,7 @@ from regression import show_regression
 
 # Sidebar navigation
 st.sidebar.title("📌 Navigation")
-page = st.sidebar.radio("Go to", ["🏠 Home", "📊 Analysis", "🔍 Modeling", "📈 Correlation Matrix", "📉 Regression Analysis"])
+page = st.sidebar.radio("Go to", ["🏠 Home", "📊 Analysis", "🔍 Modeling", "📈 Correlation Analysis", "📉 Regression Analysis"])
 
 if page == "🏠 Home":
     show_home()
@@ -15,7 +15,7 @@ elif page == "📊 Analysis":
     show_analysis()
 elif page == "🔍 Modeling":
     show_modeling()
-elif page == "📈 Correlation Matrix":
+elif page == "📈 Correlation Analysis":
     show_correlation()
 elif page == "📉 Regression Analysis":
     show_regression()
