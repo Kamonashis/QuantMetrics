@@ -24,7 +24,8 @@ def show_home():
     - Interactive charts and intuitive layout
     """)
     df = pd.DataFrame(np.random.randn(150, 3), columns=(["A", "B", "C"]))
-    my_data_element = st.line_chart(df, use_container_width=True, width=0, clamp=True, height=300)
+    my_data_element = st.line_chart(df, use_container_width=True, height=300)
+    st.markdown("---")
 
     for tick in range(10):
         time.sleep(.5)
