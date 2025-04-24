@@ -15,8 +15,7 @@ def show_correlation():
     if st.button("Calculate Correlation"):
         try:
             data = yf.download(tickers, start=start, end=end)['Close']
-            returns = data.pct_change().dropna()
-            corr_matrix = returns.corr()
+            corr_matrix = data.corr()
 
             st.dataframe(corr_matrix)
 
