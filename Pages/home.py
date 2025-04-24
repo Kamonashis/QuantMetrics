@@ -11,14 +11,6 @@ def show_home():
     st.markdown("""
     <h4 style='color:#4F8BF9;'>Empowering Quantitative Insights, One Metric at a Time</h4>
     """, unsafe_allow_html=True)
-    df = pd.DataFrame(np.random.randn(150, 3), columns=(["A", "B", "C"]))
-    my_data_element = st.line_chart(df)
-
-    for tick in range(10):
-        time.sleep(.5)
-        add_df = pd.DataFrame(np.random.randn(1, 3), columns=(["A", "B", "C"]))
-        my_data_element.add_rows(add_df)
-    st.button("Regenerate")
 
     st.markdown("""
     Welcome to **QuantMetrics**, a powerful, multi-page analytics platform designed for quant finance enthusiasts, students, and professionals.
@@ -31,6 +23,14 @@ def show_home():
     - Regression analysis with robust diagnostics and rolling predictions
     - Interactive charts and intuitive layout
     """)
+    df = pd.DataFrame(np.random.randn(150, 3), columns=(["A", "B", "C"]))
+    my_data_element = st.line_chart(df)
+
+    for tick in range(10):
+        time.sleep(.5)
+        add_df = pd.DataFrame(np.random.randn(1, 3), columns=(["A", "B", "C"]))
+        my_data_element.add_rows(add_df)
+    st.button("Regenerate")
 
     st.markdown("---")
     st.markdown(f"📅 *Session initialized: {datetime.now().strftime('%B %d, %Y – %H:%M:%S')}*")
