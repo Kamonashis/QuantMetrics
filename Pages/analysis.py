@@ -19,7 +19,7 @@ def monte_carlo_simulation(last_price, mu, sigma, T, N, paths):
     return prices
 
 def show_analysis():
-    st.set_page_config(page_title="QuantMetrics - Analysis", layout="wide")
+    st.title("📊 Financial Analysis")
 
     st.title("📊 Financial Analysis")
     st.markdown("Use this page to visualize historical data, assess volatility, and predict returns.")
