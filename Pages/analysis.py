@@ -35,16 +35,17 @@ def show_analysis():
             st.error("No data retrieved.")
             return
 
-        data['Return'] = data['Close'].pct_change().apply(lambda x: np.log(1 + x))
+        data['Return'] = data['Close'].pct_change()  # Calculate daily returns
+        data['Return'] = data['Return'].replace([np.inf, -np.inf], np.nan)  # Replace inf values with NaN
         data['Return'] = data['Return'].fillna(0)  # Fill NaN values with 0 for returns
         data.dropna(inplace=True)
 
         st.subheader("📈 Price and Returns")
-        fig, ax = plt.subplots()
-        ax.plot(data.index, data['Close'], label='Close Price', color='blue')
-        ax2 = ax.twinx()
-        ax2.plot(data.index, data['Return'], label='Returns', color='orange', alpha=0.6)
-        st.pyplot(fig)
+        st.write(f"Data from {start_date} to {end_date}")
+        st.write(f"Data shape: {data.shape}")
+        st.line_chart(data['Close'], x_label='Date', use_container_width=True)
+        st.write("Daily Returns")
+        st.line_chart(data['Return'], x_label='Date', use_container_width=True)
 
         st.subheader("📊 ACF and PACF of Squared Returns")
         squared_returns = data['Return'] ** 2
