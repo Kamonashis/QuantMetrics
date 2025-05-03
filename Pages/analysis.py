@@ -71,7 +71,7 @@ def show_analysis():
     st.header("Input Parameters")
     # Use session state to persist input values
     if 'analysis_ticker' not in st.session_state:
-        st.session_state['analysis_ticker'] = "^NSEI"
+        st.session_state['analysis_ticker'] = "^IXIC"
     ticker = st.text_input("Enter stock ticker (Yahoo format):", value=st.session_state['analysis_ticker'], key='analysis_ticker_widget')
     st.session_state['analysis_ticker'] = ticker # Update session state
 
@@ -123,7 +123,7 @@ def show_analysis():
             # --- End of storing original data ---
 
             # Process data (calculate returns and reset index for display convenience)
-            data['Return'] = data['Close'].pct_change()
+            data['Return'] = data['Close'].pct_change() # Convert to percentage
             data['Return'] = data['Return'].replace([np.inf, -np.inf], np.nan)
             data['Return'] = data['Return'].fillna(0)
             data.dropna(inplace=True)

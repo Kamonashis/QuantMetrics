@@ -9,23 +9,23 @@ def show_modeling():
     st.title("📊 GARCH & RiskMetrics (EWMA) Modeling")
 
     # Check if analysis results are available from the analysis page
-    if 'analysis_results' not in st.session_state or 'returns' not in st.session_state['analysis_results']:
-        st.warning("No return data found. Please run the analysis first.")
-        # Provide a button to go back to analysis if needed (optional, as navigation handles this)
-        # if st.button("Back to Analysis"):
-        #     st.session_state.page = "Analysis" # Assuming your navigation uses this key
-        #     st.rerun()
+    # Also check for the new key 'original_data_with_datetime_index'
+    if 'analysis_results' not in st.session_state or 'returns' not in st.session_state['analysis_results'] or 'original_data_with_datetime_index' not in st.session_state['analysis_results']:
+        st.warning("No return data or original data found. Please run the analysis first.")
         return
 
-    # Retrieve returns and ticker from analysis results in session state
+    # Retrieve returns, ticker, and the original data DataFrame from analysis results in session state
     returns = st.session_state['analysis_results']['returns']
     ticker = st.session_state['analysis_results']['ticker']
     # Retrieve the original data DataFrame for accessing the DatetimeIndex
-    original_data = st.session_state['analysis_results'].get('data')
+    # We will retrieve this again specifically in the forecast section for robustness
+    # original_data = st.session_state['analysis_results']['original_data_with_datetime_index']
 
-    if original_data is None or original_data.empty:
-        st.warning("Original data not found or is empty in analysis results. Cannot perform modeling.")
-        return
+    # Initial check for original_data presence and index type
+    # This check is useful for the overall page display logic, but we'll add a specific one for forecasting.
+    # if original_data is None or original_data.empty or not isinstance(original_data.index, pd.DatetimeIndex):
+    #     st.warning("Original data not found, is empty, or does not have a valid DatetimeIndex. Cannot perform modeling.")
+    #     return
 
 
     st.write(f"Modeling volatility for **{ticker}**")
@@ -128,7 +128,8 @@ def show_modeling():
 
             # --- Calculate Volatilities for Plotting ---
             # GARCH conditional volatility (unscaled initially)
-            garch_cond_vol_unscaled = garch_fit.conditional_volatility
+            garch_cond_vol_unscaled = garch_fit.conditional_volatility / 100  # Scale to match the returns scale
+            # Ensure the lengths match for plotting
 
             # Historical volatility (using a rolling window, e.g., 30 days)
             hist_vol_unscaled = clean_returns_ewma.rolling(window=30).std().dropna()
@@ -162,7 +163,7 @@ def show_modeling():
         lambda_ = results.get('lambda_') # Retrieve lambda
         processed_data = results.get('processed_data') # Retrieve processed_data
 
-        # Check if essential modeling results are present
+        # Check if essential modeling results are present for display
         if garch_fit is None or ewma_vol_unscaled is None or garch_cond_vol_unscaled is None or hist_vol_unscaled is None or lambda_ is None or processed_data is None:
              st.warning("Incomplete modeling results found in session state. Please run the volatility models again.")
              return
@@ -212,11 +213,24 @@ def show_modeling():
 
         if st.button("📅 Forecast Volatility", key='run_forecast_button'):
             try:
+                # --- Retrieve original_data_with_datetime_index specifically for forecasting ---
+                # This is the key fix to ensure the correct index is used
+                original_data_for_forecast = st.session_state['analysis_results'].get('original_data_with_datetime_index')
+
+                if original_data_for_forecast is None or original_data_for_forecast.empty or not isinstance(original_data_for_forecast.index, pd.DatetimeIndex):
+                     st.error("Original data not available or does not have a valid DatetimeIndex to set forecast dates.")
+                     # Clear previous forecast results on error
+                     if 'forecast_results' in st.session_state:
+                         del st.session_state['forecast_results']
+                     return
+                # --- End of specific retrieval and check ---
+
+
                 # --- GARCH Forecast ---
                 garch_forecast = garch_fit.forecast(horizon=n_days)
                 garch_var = garch_forecast.variance.values[-1]
                 # Scale GARCH forecast based on annualization toggle
-                garch_vol = np.sqrt(garch_var) * scaling_factor
+                garch_vol = np.sqrt(garch_var) * scaling_factor / 100  # Scale to match the returns scale
                 garch_vol_series = pd.Series(garch_vol, name="GARCH Forecast")
 
                 # ±1 Std Dev Confidence Band (scaled)
@@ -260,14 +274,9 @@ def show_modeling():
                 # Create forecast DataFrame
                 forecast_df = pd.concat([garch_vol_series, ewma_vol_series, garch_upper, garch_lower], axis=1)
 
-                # --- FIX: Get the last date from the original_data DataFrame's index ---
-                if original_data is None or original_data.empty or not isinstance(original_data.index, pd.DatetimeIndex):
-                     st.error("Original data not available or does not have a valid DatetimeIndex to set forecast dates.")
-                     if 'forecast_results' in st.session_state:
-                         del st.session_state['forecast_results']
-                     return
-                last_data_date = original_data.index[-1]
-                # --- End of FIX ---
+                # --- Use the retrieved original_data_for_forecast for setting the index ---
+                last_data_date = original_data_for_forecast.index[-1]
+                # --- End of using correct data for index ---
 
                 # Set index for the forecast period (starting from the day after the last data point)
                 forecast_dates = pd.date_range(start=last_data_date + timedelta(days=1), periods=n_days, freq='B') # 'B' for business days
