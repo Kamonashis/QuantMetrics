@@ -261,8 +261,8 @@ def show_modeling():
                 forecast_df = pd.concat([garch_vol_series, ewma_vol_series, garch_upper, garch_lower], axis=1)
 
                 # --- FIX: Get the last date from the original_data DataFrame's index ---
-                if original_data is None or original_data.empty:
-                     st.error("Original data not available to set forecast dates.")
+                if original_data is None or original_data.empty or not isinstance(original_data.index, pd.DatetimeIndex):
+                     st.error("Original data not available or does not have a valid DatetimeIndex to set forecast dates.")
                      if 'forecast_results' in st.session_state:
                          del st.session_state['forecast_results']
                      return
@@ -270,7 +270,7 @@ def show_modeling():
                 # --- End of FIX ---
 
                 # Set index for the forecast period (starting from the day after the last data point)
-                forecast_dates = pd.date_range(start=last_data_date + datetime.timedelta(days=1), periods=n_days, freq='B') # 'B' for business days
+                forecast_dates = pd.date_range(start=last_data_date + timedelta(days=1), periods=n_days, freq='B') # 'B' for business days
                 forecast_df.index = forecast_dates
 
 
