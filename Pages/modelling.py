@@ -270,7 +270,7 @@ def show_modeling():
                 # --- End of FIX ---
 
                 # Set index for the forecast period (starting from the day after the last data point)
-                forecast_dates = pd.date_range(start=(last_data_date + timedelta(days=1)), periods=n_days, freq='B') # 'B' for business days
+                forecast_dates = pd.date_range(start='last_data_date + timedelta(days=1)', periods=n_days, freq='B') # 'B' for business days
                 forecast_df.index = forecast_dates
 
 
