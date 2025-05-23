@@ -7,9 +7,13 @@ The application is structured into several pages, each providing distinct functi
 
 - **🏠 Home**: Welcome page with an overview of the application and its capabilities.
 - **📊 Analysis**:
-    - Fetch and display historical stock price data (closing prices, percentage returns).
-    - Visualize price trends and return distributions.
-    - Calculate and plot Autocorrelation (ACF) and Partial Autocorrelation (PACF) for return series.
+    - Fetch and display historical stock price data.
+    - Option to use **Simple Returns** or **Log (Continuously Compounded) Returns**.
+    - Visualize price trends and selected return distributions.
+    - Display **Skewness** and **Excess Kurtosis** of returns.
+    - Calculate and plot **Rolling Annualized Volatility** for user-defined window sizes.
+    - Plot Autocorrelation (ACF) and Partial Autocorrelation (PACF) for **squared returns** (to analyze volatility clustering).
+    - Perform and display results of Seasonal Decomposition and ADF Test on residuals.
 - **🔍 Modeling**:
     - Implement and compare volatility models:
         - GARCH (Generalized Autoregressive Conditional Heteroskedasticity)
@@ -60,12 +64,25 @@ Navigate through the app using the sidebar on the left. Each page offers differe
 - Offers quick links or instructions to get started with different analysis types.
 
 ### 📊 Analysis Page
-- **Stock Ticker Symbol**: Input a single stock ticker (e.g., AAPL, MSFT).
-- **Start Date & End Date**: Define the historical period for analysis.
-- **Analyze Button**: Fetches data and displays:
+Provides tools for in-depth analysis of a single stock's historical data.
+- **Input Parameters**:
+    - **Stock Ticker Symbol**: Input a single stock ticker (e.g., AAPL, MSFT).
+    - **Return Type**: Choose between "Simple" or "Log (Continuously Compounded)" returns. This selection affects return calculations and subsequent analyses.
+    - **Start Date & End Date**: Define the historical period for analysis.
+    - **Seasonal Decomposition Period**: Set the period for seasonal decomposition (e.g., 30 for monthly data if daily prices).
+    - **Decomposition Model**: Choose "Additive" or "Multiplicative".
+    - **Rolling Volatility Window(s)**: Enter comma-separated day numbers for rolling volatility calculation (e.g., "30,60,90").
+- **Run Analysis Button**: Fetches data and performs calculations.
+- **Displayed Outputs**:
     - **Stock Closing Price**: Line chart of historical closing prices.
-    - **Percentage Returns**: Line chart of daily percentage returns.
-    - **ACF & PACF Plots**: Autocorrelation and Partial Autocorrelation plots for returns.
+    - **Daily Returns**: Line chart of the selected type of daily returns.
+    - **Return Distribution Statistics**:
+        - **Skewness**: Measures the asymmetry of the return distribution.
+        - **Excess Kurtosis (Fisher)**: Measures the 'tailedness' of the return distribution.
+    - **Rolling Annualized Volatility**: Chart displaying the annualized rolling volatility for the specified window(s).
+    - **ACF & PACF of Squared Returns**: Autocorrelation and Partial Autocorrelation plots for squared returns, useful for identifying volatility clustering.
+    - **Interactive Seasonal Decomposition**: Plots of observed, trend, seasonal, and residual components of the closing price.
+    - **Augmented Dickey-Fuller (ADF) Test on Residuals**: Statistical test for stationarity of the decomposition residuals.
 
 ### 🔍 Modeling Page
 This page allows for volatility modeling and forecasting.
