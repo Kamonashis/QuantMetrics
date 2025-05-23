@@ -3,25 +3,43 @@
 This application allows users to perform stock analysis using historical price data, calculate percentage returns, model volatility using GARCH (Generalized Autoregressive Conditional Heteroskedasticity) and EWMA (Exponentially Weighted Moving Average), and visualize the results.
 
 ## Features
-- **Main Page**: Analyze a stock's historical returns, visualize the closing price, returns, and calculate autocorrelation (ACF) and partial autocorrelation (PACF).
-- **Modeling Page**: Run volatility models such as GARCH and EWMA. Visualize and compare volatility estimates.
-- **Forecasting**: Forecast future volatility based on the GARCH and EWMA models.
+The application is structured into several pages, each providing distinct functionalities:
+
+- **🏠 Home**: Welcome page with an overview of the application and its capabilities.
+- **📊 Analysis**:
+    - Fetch and display historical stock price data (closing prices, percentage returns).
+    - Visualize price trends and return distributions.
+    - Calculate and plot Autocorrelation (ACF) and Partial Autocorrelation (PACF) for return series.
+- **🔍 Modeling**:
+    - Implement and compare volatility models:
+        - GARCH (Generalized Autoregressive Conditional Heteroskedasticity)
+        - EWMA (Exponentially Weighted Moving Average)
+    - Display model summaries and visualize volatility estimates.
+    - Forecast future volatility with confidence bands for GARCH.
+- **📈 Correlation Analysis**:
+    - Calculate and visualize the correlation matrix for the returns of multiple stocks.
+    - Display an interactive heatmap of correlations.
+- **📉 Regression Analysis**:
+    - Perform regression analysis on stock returns (dependent vs. independent variables).
+    - Supports Standard OLS, Robust Regression, and Rolling Window Regression.
+    - Provides model summaries, VIF for multicollinearity, residual analysis, and next-day return forecasting.
 
 ## Setup Instructions
 
 ### Prerequisites
 To run this app locally, you will need to have Python 3.7 or higher installed on your machine. You also need to install the following dependencies:
 
-1. **Streamlit**: For the web app interface
-2. **yfinance**: To fetch historical stock data
-3. **arch**: For GARCH modeling
-4. **statsmodels**: For statistical plots like ACF and PACF
-5. **pandas, numpy, matplotlib**: For data manipulation and visualization
+1. **Streamlit**: For the web app interface.
+2. **yfinance**: To fetch historical stock data.
+3. **pandas, numpy**: For data manipulation.
+4. **matplotlib, seaborn, plotly, plotly.express**: For data visualization and interactive plots.
+5. **statsmodels**: For statistical models and tests (e.g., ACF, PACF, OLS regression).
+6. **scipy**: For scientific computing (used in various statistical calculations).
+7. **arch**: For GARCH volatility modeling.
 
-To install the necessary dependencies, run:
-
+It is recommended to install all dependencies using the `requirements.txt` file:
 ```bash
-pip install streamlit yfinance arch statsmodels pandas numpy matplotlib
+pip install -r requirements.txt
 ```
 
 ### Running the App
@@ -35,36 +53,58 @@ This will launch the app in your default web browser.
 
 ## How to Use the App
 
-### Main Page: Stock Analysis
-- **Stock Ticker Symbol**: Input the stock ticker (e.g., AAPL, MSFT, etc.). This symbol will be used to fetch data from Yahoo Finance.
-- **Start Date & End Date**: Define the time period for analysis.
-- **Analyze Button**: Click this button to fetch the stock data and analyze the returns.
+Navigate through the app using the sidebar on the left. Each page offers different tools for stock analysis:
 
-Once the analysis is complete:
-- **Stock Closing Price**: A line chart showing the stock's closing price over the specified date range.
-- **Percentage Returns**: A line chart showing the percentage returns of the stock.
-- **ACF & PACF Plots**: Autocorrelation and Partial Autocorrelation function plots to analyze the returns.
+### 🏠 Home Page
+- Provides a welcome message and an overview of the application's features.
+- Offers quick links or instructions to get started with different analysis types.
 
-### Modeling Page: GARCH & EWMA Volatility Modeling
-- **GARCH Model**: A time-series model used to forecast volatility. You can choose the AR term (p) and MA term (q) for the GARCH model.
-- **EWMA Model**: An exponentially weighted moving average model to calculate volatility.
-- **Run Volatility Models Button**: Click this button to fit the GARCH and EWMA models and see their volatility estimates.
+### 📊 Analysis Page
+- **Stock Ticker Symbol**: Input a single stock ticker (e.g., AAPL, MSFT).
+- **Start Date & End Date**: Define the historical period for analysis.
+- **Analyze Button**: Fetches data and displays:
+    - **Stock Closing Price**: Line chart of historical closing prices.
+    - **Percentage Returns**: Line chart of daily percentage returns.
+    - **ACF & PACF Plots**: Autocorrelation and Partial Autocorrelation plots for returns.
 
-Once the models are fitted:
-- **GARCH Model Summary**: Displays the summary of the fitted GARCH model.
-- **Volatility Comparison Plot**: A plot comparing GARCH, EWMA, and Historical Volatility.
+### 🔍 Modeling Page
+This page allows for volatility modeling and forecasting.
+- **Inputs from Analysis Page**: Uses the ticker and date range from the Analysis page.
+- **GARCH Model**: Configure p and q terms for the GARCH model.
+- **EWMA Model**: Uses a standard smoothing factor.
+- **Run Volatility Models Button**: Fits GARCH and EWMA models.
+- **Outputs**:
+    - **GARCH Model Summary**: Detailed statistics of the fitted GARCH model.
+    - **Volatility Comparison Plot**: Compares GARCH, EWMA, and historical volatility.
+- **Forecasting Volatility**:
+    - **Forecast Days**: Specify the number of days for future volatility forecast.
+    - **Forecast Volatility Button**: Generates and plots the forecast.
+    - **Output**: Volatility forecast plot with confidence bands for GARCH.
 
-### Forecasting Volatility
-- **Forecast Days**: Specify how many days to forecast the volatility.
-- **Forecast Volatility Button**: Click this button to forecast the volatility for the specified days using the fitted GARCH and EWMA models.
+### 📈 Correlation Analysis Page
+- **Stock Ticker Symbols**: Input multiple stock tickers separated by commas (e.g., AAPL, MSFT, GOOG).
+- **Date Range**: Define the historical period for analysis (uses common start/end dates).
+- **Run Analysis Button**: Fetches data, calculates returns, and displays:
+    - **Correlation Matrix Heatmap**: An interactive heatmap showing the correlation coefficients between the returns of the selected stocks.
 
-Once the forecast is complete:
-- **Volatility Forecast Plot**: A plot showing the forecasted volatility for the specified days.
-- **Confidence Bands**: ±1 standard deviation confidence bands for the GARCH forecast.
+### 📉 Regression Analysis Page
+Perform regression analysis on stock returns.
+- **Ticker Symbols**: Enter multiple tickers. The first ticker is the dependent variable (Y), and subsequent tickers are independent variables (X).
+- **Date Range**: Specify the start and end dates for the historical data.
+- **Regression Options**:
+    - **Select Regression Type**: Choose from 'Standard OLS', 'Robust Regression', or 'Rolling Regression'.
+    - **Rolling Window Size**: If 'Rolling Regression' is selected, specify the window size (e.g., 60 days).
+- **Run Regression Button**: Executes the analysis.
+- **Outputs**:
+    - **Model Summary**: Detailed OLS regression results (coefficients, R-squared, p-values, etc.). For Rolling Regression, a plot of rolling coefficients is shown.
+    - **AIC/BIC/R²**: Model fit statistics.
+    - **Multicollinearity Check (VIF)**: Variance Inflation Factor for independent variables.
+    - **Residual Analysis**: Histogram and Q-Q plot of residuals.
+    - **Forecast Next Day Return**: Prediction for the dependent variable's next-day return based on the latest data.
 
-### Navigation
-- **Back to Analysis**: A button to return to the main page for new analysis.
-- **Go to Modeling**: A button to switch to the modeling page.
+### General Navigation
+- The sidebar allows switching between any of these pages at any time.
+- Some pages might retain input values (like tickers or dates) when you switch between them to provide a smoother workflow.
 
 ## Additional Information
 - **GARCH Model**: Generalized Autoregressive Conditional Heteroskedasticity is a class of models used to analyze and forecast time-varying volatility in financial markets.
@@ -88,7 +128,7 @@ This app has been significantly enhanced to support more advanced quantitative a
   - **Home**
   - **Analysis**
   - **Modeling**
-  - **Correlation Matrix**
+  - **📈 Correlation Analysis**
   - **Regression Analysis**
 
 ### 📈 Volatility Modeling Enhancements
@@ -97,7 +137,7 @@ This app has been significantly enhanced to support more advanced quantitative a
   - Display **EWMA statistics** (mean, min, max, latest).
   - Present GARCH model summary with cleaner formatting.
 
-### 🧮 Correlation Matrix Page
+### 📈 Correlation Analysis Page
 - Accepts multiple tickers via textarea input.
 - Displays an interactive heatmap.
 - **Correlation values stay centered** in their respective cells for clarity.
