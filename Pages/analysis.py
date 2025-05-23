@@ -75,6 +75,11 @@ def show_analysis():
     ticker = st.text_input("Enter stock ticker (Yahoo format):", value=st.session_state['analysis_ticker'], key='analysis_ticker_widget')
     st.session_state['analysis_ticker'] = ticker # Update session state
 
+    if 'analysis_return_type' not in st.session_state:
+        st.session_state['analysis_return_type'] = "Simple"
+    return_type = st.selectbox("Return Type", ["Simple", "Log (Continuously Compounded)"], index=["Simple", "Log (Continuously Compounded)"].index(st.session_state['analysis_return_type']), key='analysis_return_type_widget')
+    st.session_state['analysis_return_type'] = return_type
+
     col1, col2 = st.columns(2)
     with col1:
         if 'analysis_start_date' not in st.session_state:
@@ -98,6 +103,11 @@ def show_analysis():
             st.session_state['analysis_model'] = "Additive"
         model = st.selectbox("Decomposition Model", ["Additive", "Multiplicative"], index=["Additive", "Multiplicative"].index(st.session_state['analysis_model']), key='analysis_model_widget')
         st.session_state['analysis_model'] = model # Update session state
+
+    if 'analysis_rolling_windows' not in st.session_state:
+        st.session_state['analysis_rolling_windows'] = "30,60,90"
+    rolling_windows_str = st.text_input("Rolling Volatility Window(s) (comma-separated days)", value=st.session_state['analysis_rolling_windows'], key='analysis_rolling_windows_widget')
+    st.session_state['analysis_rolling_windows'] = rolling_windows_str
 
 
     # --- Run Analysis Button ---
@@ -123,11 +133,44 @@ def show_analysis():
             # --- End of storing original data ---
 
             # Process data (calculate returns and reset index for display convenience)
-            data['Return'] = data['Close'].pct_change() # Convert to percentage
+            selected_return_type = st.session_state.get('analysis_return_type', "Simple") # Get from session state
+            if selected_return_type == "Log (Continuously Compounded)":
+                data['Return'] = np.log(data['Close'] / data['Close'].shift(1))
+            else: # Default to Simple
+                data['Return'] = data['Close'].pct_change()
             data['Return'] = data['Return'].replace([np.inf, -np.inf], np.nan)
-            data['Return'] = data['Return'].fillna(0)
+            data['Return'] = data['Return'].fillna(0) # Consider if fillna(0) is appropriate for log returns, often they are kept as NaN and then dropped. For now, keep existing logic.
             data.dropna(inplace=True)
             data.reset_index(inplace=True) # Reset index for easier plotting with Streamlit's line_chart
+
+            # Calculate skewness and kurtosis from the 'Return' column of the 'data' DataFrame
+            # This 'data' DataFrame has 'Return' calculated and NaNs from pct_change handled.
+            skewness = data['Return'].skew()
+            kurtosis = data['Return'].kurtosis() # Fisher kurtosis (normal is 0.0)
+
+            # Calculate returns on original_data_with_datetime_index for rolling volatility
+            temp_returns_data = original_data_with_datetime_index.copy() # Use a copy
+            if selected_return_type == "Log (Continuously Compounded)":
+                temp_returns_data['Return_for_vol'] = np.log(temp_returns_data['Close'] / temp_returns_data['Close'].shift(1))
+            else: # Default to Simple
+                temp_returns_data['Return_for_vol'] = temp_returns_data['Close'].pct_change()
+            temp_returns_data.dropna(subset=['Return_for_vol'], inplace=True) # Drop NaNs from returns calculation
+
+            rolling_volatilities = {}
+            window_sizes_str = st.session_state.get('analysis_rolling_windows', "30,60,90")
+            if window_sizes_str:
+                try:
+                    window_sizes = [int(w.strip()) for w in window_sizes_str.split(',') if w.strip()]
+                    for size in window_sizes:
+                        if size > 0:
+                            col_name = f'{size}-Day Ann. Vol'
+                            # Use 'Return_for_vol' from temp_returns_data which has DatetimeIndex
+                            rolling_volatilities[col_name] = temp_returns_data['Return_for_vol'].rolling(window=size).std() * np.sqrt(252)
+                except ValueError:
+                    st.error("Invalid input for rolling window sizes. Please use comma-separated numbers (e.g., 30,60,90).")
+                    # Handle error, perhaps by not calculating rolling vols or clearing previous
+                    if 'analysis_results' in st.session_state and 'rolling_volatilities' in st.session_state['analysis_results']:
+                        del st.session_state['analysis_results']['rolling_volatilities']
 
             # Perform seasonal decomposition using the original data with DatetimeIndex
             decomposition_result, interactive_decomp_fig = plot_seasonal_decomposition_interactive(original_data_with_datetime_index, model=model.lower(), period=period)
@@ -139,7 +182,10 @@ def show_analysis():
                 'returns': data['Return'], # Returns (from data with integer index)
                 'ticker': ticker,
                 'decomposition_result': decomposition_result,
-                'interactive_decomp_fig': interactive_decomp_fig
+                'interactive_decomp_fig': interactive_decomp_fig,
+                'rolling_volatilities': rolling_volatilities,
+                'skewness': skewness,
+                'kurtosis': kurtosis,
             }
             st.success("Analysis complete!")
 
@@ -182,6 +228,31 @@ def show_analysis():
         st.line_chart(data['Close'], x_label='Date', use_container_width=True)
         st.write("Daily Returns")
         st.line_chart(returns, x_label='Date', use_container_width=True)
+
+        st.subheader("Return Distribution Statistics")
+        dist_col1, dist_col2 = st.columns(2)
+        with dist_col1:
+            if 'skewness' in results and results['skewness'] is not None:
+                st.metric(label="Skewness", value=f"{results['skewness']:.4f}")
+                st.caption("Measures asymmetry of the return distribution. Negative values indicate a left tail, positive values a right tail.")
+            else:
+                st.write("Skewness: Not available")
+        with dist_col2:
+            if 'kurtosis' in results and results['kurtosis'] is not None:
+                st.metric(label="Excess Kurtosis (Fisher)", value=f"{results['kurtosis']:.4f}")
+                st.caption("Measures the 'tailedness' of the return distribution. Positive values indicate heavier tails (leptokurtic) compared to a normal distribution; negative values indicate lighter tails (platykurtic).")
+            else:
+                st.write("Kurtosis: Not available")
+
+        rolling_volatilities_data = results.get('rolling_volatilities')
+        if rolling_volatilities_data:
+            st.subheader("Rolling Annualized Volatility")
+            # Prepare DataFrame for charting
+            vol_df = pd.DataFrame(rolling_volatilities_data)
+            if not vol_df.empty:
+                st.line_chart(vol_df, use_container_width=True)
+            else:
+                st.write("No rolling volatility data to display. Check window sizes or data range.")
 
         st.subheader("投 ACF and PACF of Squared Returns")
         squared_returns = returns ** 2
