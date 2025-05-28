@@ -1,9 +1,9 @@
 import streamlit as st
-from Pages.home import show_home # Updated import
-from Pages.analysis import show_analysis # Updated import
-from Pages.modelling import show_modeling # Updated import
-from Pages.correlation import show_correlation # Updated import
-from Pages.regression import show_regression # Updated import
+from pages.home import show_home # Updated import
+from pages.analysis import show_analysis # Updated import
+from pages.modelling import show_modeling # Updated import
+from pages.correlation import show_correlation # Updated import
+from pages.regression import show_regression # Updated import
 
 # Sidebar navigation
 st.sidebar.title("📌 Navigation")
