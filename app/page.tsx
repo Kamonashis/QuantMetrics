@@ -11,6 +11,7 @@ import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
 import { HomeView } from '@/components/views/HomeView';
 import { AnalysisView } from '@/components/views/AnalysisView';
+import { VolatilityView } from '@/components/views/VolatilityView';
 import { ModelingView } from '@/components/views/ModelingView';
 import { CorrelationView } from '@/components/views/CorrelationView';
 import { RegressionView } from '@/components/views/RegressionView';
@@ -18,7 +19,7 @@ import { RegressionView } from '@/components/views/RegressionView';
 export default function App() {
   // Navigation
   const [activeView, setActiveView] = useState<
-    'home' | 'analysis' | 'modeling' | 'correlation' | 'regression'
+    'home' | 'analysis' | 'modeling' | 'correlation' | 'regression' | 'volatility'
   >('home');
 
   // Dark / Light Theme: default to true on both server and client for matching hydration
@@ -317,6 +318,16 @@ export default function App() {
             isLoading={isLoading}
             onRunAnalysis={() => fetchTickers([activeTicker], '10y', startDate, endDate)}
             companyName={currentCompanyName}
+          />
+        )}
+
+        {activeView === 'volatility' && (
+          <VolatilityView
+            ticker={activeTicker}
+            bars={currentBars}
+            intradayBars={currentIntradayBars}
+            companyName={currentCompanyName}
+            isLoading={isLoading}
           />
         )}
 

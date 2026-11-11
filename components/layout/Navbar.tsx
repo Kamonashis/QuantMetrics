@@ -5,8 +5,8 @@ import { Sun, Moon, Menu, X, CandlestickChart } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface NavbarProps {
-  activeView: 'home' | 'analysis' | 'modeling' | 'correlation' | 'regression';
-  onViewChange: (view: 'home' | 'analysis' | 'modeling' | 'correlation' | 'regression') => void;
+  activeView: 'home' | 'analysis' | 'modeling' | 'correlation' | 'regression' | 'volatility';
+  onViewChange: (view: 'home' | 'analysis' | 'modeling' | 'correlation' | 'regression' | 'volatility') => void;
   isDark: boolean;
   onToggleTheme: () => void;
   activeTicker: string;
@@ -16,6 +16,7 @@ const NAV_ITEMS = [
   { id: 'home', label: 'Home' },
   { id: 'analysis', label: 'Analysis' },
   { id: 'modeling', label: 'Modeling' },
+  { id: 'volatility', label: 'Implied Vol' },
   { id: 'correlation', label: 'Correlation' },
   { id: 'regression', label: 'Regression' },
 ] as const;

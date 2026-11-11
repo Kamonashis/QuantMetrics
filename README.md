@@ -59,6 +59,16 @@ QuantMetrics is an advanced quantitative stock analysis, econometric diagnostics
 
 ---
 
+### 7. Implied Volatility & Risk-Neutral Distribution Terminal
+- **T1 — State Dashboard**: IV-30 (interpolated on total variance), IV rank with honest accrual state, IV percentile vs 1y, ^VIX/^VXN/^VVIX/^SKEW context, 30d/90d slope, ^VIX9D/3M inversion verdict (`CONTANGO / FLAT / INVERTED`), 25Δ risk reversal & butterfly, 90/10 skew, surface quality (strikes used / spread), and the IV−RV gap in plain language.
+- **T2 — Surface & Smile**: IV heatmap (moneyness × expiry), SVI-fitted smiles with per-slice RMSE and residuals visible, 25Δ RR term structure, expected-move ladder (±σ√T by tenor).
+- **T3 — Term Structure & VRP**: total-variance (w = σ²T) interpolation, ^VIX 1y percentile bands, IV vs RV dual-axis with IV<RV regime shading, VRP by tenor vs RV20 and GARCH path, and an honestly-labelled short-vol carry backtest (mean, hit-rate, worst window, drawdown).
+- **T4 — Forecast Validation**: forecast horse race (GARCH(1,1) vs EWMA vs HAR-RV vs IV) scored by QLIKE and MSE on log-RV, Mincer–Zarnowitz (a, b, R², joint (a,b)=(0,1) F-test), Diebold–Mariano with Newey–West LRV, encompassing blend (IV + GARCH), and GARCH-X with γ·IV²<sub>t-1</sub>.
+- **T5 — Risk-Neutral Density**: Breeden–Litzenberger density from the fitted smile (vs realized 21d horizon histogram), implied vs realized moments, MFIV vs interpolation consistency audit, digital/touch probabilities (N(d2), 2·N(−|d|)), and a Merton (1974) distance-to-default credit bridge with PD = N(−DD).
+- **T6 — Cross-Asset & Regime**: sortable IV matrix across the watchlist (IV-30, 25Δ RR, BF, skew, MFIV−ATM, accrual days), leverage-effect pricing (corr(Δ^VIX, r)), IV lead–lag cross-correlations, and a ^VIX × ^VVIX regime map (complacent / trending / hedging / panic).
+
+**Data & honesty**: chains are fetched server-side from Yahoo Finance's options endpoint (crumb session held in memory, ~15-min delayed). Index volatility history (`^VIX`, `^VIX9D`, `^VIX3M`, `^VIX6M`, `^VXN`, `^VVIX`, `^SKEW`, `^IRX`) comes from the chart endpoint. Single-name IV history cannot be backfilled — snapshots accrete per symbol/day in `.cache/iv/{SYMBOL}/{YYYY-MM-DD}.json` (gitignored); until ~60 sessions accrue, IV-rank panels show the real count rather than a fabricated percentile. Indices map to ETF proxies with a visible badge (`^IXIC`→QQQ, `^SPX`→SPY, `^NDX`→QQQ, `^DJI`→DIA, `^RUT`→IWM). Every IV number is a European BSM approximation; the surface reports its own filtered-strike count and median spread.
+
 ## 🛠️ Tech Stack
 
 - **Framework**: [Next.js 15](https://nextjs.org/) (App Router, Standalone build)
@@ -77,7 +87,8 @@ QuantMetrics is an advanced quantitative stock analysis, econometric diagnostics
 QuantMetrics/
 ├── app/
 │   ├── api/
-│   │   └── market-data/route.ts    # Market data fetching & historical caching API
+│   │   ├── market-data/route.ts   # Market data fetching & historical caching API
+│   │   └── options/route.ts       # Option chains (Yahoo v7 + crumb), vol-index family, IV snapshot store
 │   ├── globals.css                 # Global styling & Tailwind directives
 │   ├── layout.tsx                  # Root layout & theme wrapper
 │   └── page.tsx                    # Main workstation view coordinator
@@ -111,6 +122,10 @@ QuantMetrics/
 │   ├── correlation-engine.ts       # RMT, Ledoit-Wolf, MST & GMV algorithms
 │   ├── distribution-engine.ts      # MLE for Normal, Student-t, Skewed-t, GED
 │   ├── market-service.ts           # Synthetic generator & live data adapter
+│   ├── options.ts                  # BSM, Newton IV, chain cleaning, SVI, MFIV, Breeden–Litzenberger
+│   ├── vol-analytics.ts            # Horse race (QLIKE/MSE), MZ/DM/encompassing, GARCH-X, moments
+│   ├── vol-indices.ts              # ^VIX family fetching (timeout + deterministic fallback)
+│   ├── iv-store.ts                 # Accruing IV snapshot store (.cache/iv, server-side fs)
 │   ├── quant-engine.ts             # GARCH, HAR-RV, returns & base statistics
 │   └── utils.ts                    # Class name utilities
 ├── next.config.ts                  # Next.js build configuration
@@ -168,6 +183,9 @@ Verify codebase consistency and type safety:
 npm run lint
 npx tsc --noEmit
 ```
+
+### Implied Volatility Data
+No configuration is required — chains and the vol-index family are fetched from Yahoo's public endpoints at request time (server-side, cached ~15 minutes) and IV snapshots accrete locally in `.cache/iv/` on each successful fetch. If Yahoo is unreachable, the app degrades gracefully: vol indices fall back to clearly-labelled synthetic levels, chain-dependent panels show an "unavailable" banner, and everything else keeps working.
 
 ---
 

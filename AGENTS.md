@@ -18,6 +18,9 @@ QuantMetrics: a quantitative stock-analysis / volatility-modeling terminal. Next
 - `lib/` holds the engines (no React): `quant-engine.ts` (GARCH/HAR-RV/returns/base stats), `analysis-engine.ts` (stationarity, EVT, VaR/ES), `correlation-engine.ts` (RMT, Ledoit-Wolf, MST, GMV), `distribution-engine.ts` (MLE fits), `market-service.ts` (data layer). Import these directly — don't re-implement math in components.
 - `app/page.tsx` is the single-page coordinator (all client state, view switching). Views live in `components/views/*View.tsx`, composed from `components/views/<domain>/*Tab.tsx`. Charts in `components/charts/`, math/KaTeX rendering in `components/math/` + `components/ui/MathDisplay.tsx`.
 - Data flow: browser → `app/api/market-data/route.ts` (`GET /api/market-data?tickers=...&range=...`, optional `interval=1m`, `startDate`/`endDate`; max 10 tickers) → `lib/market-service.ts` → Yahoo Finance chart API.
+- Second data plane for options: browser → `app/api/options/route.ts` (`mode=chain|indices|history&symbol=`) → Yahoo v7 options (crumb session, module-scope, `fc.yahoo.com` → `getcrumb`, held in memory, 45 min refresh) + v8 chart for `^VIX` family → `lib/options.ts` (BSM/IV/SVI/MFIV math) + `lib/vol-analytics.ts` (horse race, MZ/DM, GARCH-X). Chains ~15 min in-memory cached; every external call is timeout-bounded and degrades to `{available: false, reason}`.
+- `lib/iv-store.ts` accretes one IV snapshot per symbol/day into `.cache/iv/{SYMBOL}/{YYYY-MM-DD}.json` (gitignored, server-only `fs`). Single-name IV history can only be accrued forward — until ~60 sessions, IV-rank UI states must show the real count, never a fabricated percentile.
+- Sequences of `?date=epoch` expiry fetches cannot be batched — keep them sequential with per-expiry fault isolation.
 - `market-service.ts` **silently falls back to deterministic synthetic data** when Yahoo fails/rate-limits/times out (6s daily / 4.5s intraday). Responses carry `source: 'live_market' | 'cached_institutional' | 'synthetic_gbm'`. If numbers look "too clean", check `source` before assuming a bug. Synthetic data is seeded per ticker and reproducible.
 - Client also imports `generateRealisticStockHistory` / `generateRealisticIntradayHistory` directly from `lib/market-service.ts` as an offline fallback — keep that module free of server-only APIs.
 
@@ -33,6 +36,11 @@ QuantMetrics: a quantitative stock-analysis / volatility-modeling terminal. Next
 - `output: 'standalone'` + `transpilePackages: ['motion']` in `next.config.ts` — motion must stay transpiled or the build breaks.
 - `.next/` and `.env*` (except `.env.example`) are gitignored. `tsconfig.tsbuildinfo` is tracked and changes on every `tsc` run — leave it alone.
 - `KNOWN_TICKERS` in `lib/market-service.ts` defines the synthetic-data parameters for AAPL/MSFT/GOOGL/NVDA/TSLA/AMZN/SPY/QQQ/JPM/META; unknown tickers get generic fallback params.
+- **Index→ETF proxies for options**: `^IXIC`/`^NDX`→QQQ, `^SPX`→SPY, `^DJI`→DIA, `^RUT`→IWM (defined in `app/api/options/route.ts`); the substitution is always surfaced in the UI header badge — never silently mix series.
+- `^VIX` has no chain; vol-index history comes from the plain chart endpoint. AAPL-class single names have no IV history until the store accrues 60 sessions.
+- Every IV figure is a **European** BSM approximation on **~15-min delayed** Yahoo quotes; surface cards always show `used/total` strikes and median spread. Don't quote greeks/IVs as executable.
+- The "hot" React 19 compiler rules (`react-hooks/preserve-manual-memoization`, `set-state-in-effect`, purity) are enforced — derive loading from result state (`result.ticker === ticker`), extract module-level pure compute functions, and avoid `Date.now()`/`Math.random()` in render.
+- `Map` from `lucide-react` shadows the global `Map` — alias icon imports when you also need the constructor (`Map as MapIcon`).
 - Charts use Canvas/SVG directly (no chart library); KaTeX CSS is imported once in `app/layout.tsx`.
 
 ## Design system (post-redesign)
@@ -46,7 +54,7 @@ QuantMetrics: a quantitative stock-analysis / volatility-modeling terminal. Next
 
 ## Layout of the repo
 
-`app/` (routes, layout, globals.css) · `app/api/market-data/route.ts` (the only API route) · `components/{charts,math,ui,layout,views}` · `lib/` (engines + utils) · `hooks/` (`use-mobile.ts` only) · `types/mathml.d.ts`. No `src/` directory.
+`app/` (routes, layout, globals.css) · `app/api/market-data/route.ts` + `app/api/options/route.ts` (the only API surfaces) · `components/{charts,math,ui,layout,views}` (vol tab under `views/volatility/`) · `lib/` (engines + utils) · `hooks/` (`use-mobile.ts` only) · `types/mathml.d.ts`. No `src/` directory.
 
 ## README
 

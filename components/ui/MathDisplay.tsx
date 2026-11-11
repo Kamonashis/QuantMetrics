@@ -61,7 +61,22 @@ export type FinancialFormulaPreset =
   | 'realized-semivariance'
   | 'signature-plot'
   | 'variance-ratio'
-  | 'news-impact';
+  | 'news-impact'
+  | 'bsm'
+  | 'bs-delta'
+  | 'bs-vega'
+  | 'newton-iv'
+  | 'total-variance'
+  | 'svi'
+  | 'mfiv'
+  | 'breeden-litzenberger'
+  | 'skew-25d'
+  | 'vrp'
+  | 'qlike'
+  | 'diebold-mariano'
+  | 'garch-x'
+  | 'merton-dd'
+  | 'mincer-blend';
 
 export type MathSymbolName =
   | 'sigma'
@@ -377,6 +392,81 @@ export const FINANCIAL_FORMULA_PRESETS: Record<FinancialFormulaPreset, { tex: st
     tex: String.raw`VR(q) = \frac{\sigma^2(q)}{q \cdot \sigma^2(1)} = 1 + 2\sum_{k=1}^{q-1}\left(1 - \frac{k}{q}\right)\rho_k`,
     label: 'Lo-MacKinlay (1988) Variance Ratio Test',
     description: 'Tests random walk hypothesis: VR = 1 indicates pure Brownian motion, VR < 1 mean reversion, VR > 1 trending momentum.',
+  },
+  'bsm': {
+    tex: String.raw`C = S e^{-qT} N(d_1) - K e^{-rT} N(d_2), \quad d_{1,2} = \frac{\ln(S/K) + (r - q \pm \frac{1}{2}\sigma^2)T}{\sigma\sqrt{T}}`,
+    label: 'Black–Scholes–Merton (with dividends)',
+    description: 'European option pricing with continuous dividend yield q; index/ETF dividends matter at the wings. American equity options are approximated as European.',
+  },
+  'bs-delta': {
+    tex: String.raw`\Delta_{call} = e^{-qT} N(d_1), \qquad \Delta_{put} = e^{-qT}(N(d_1) - 1)`,
+    label: 'Black–Scholes Delta',
+    description: 'Sensitivity of option price to underlying; backbone of delta-hedging and 25Δ/10Δ strike selection.',
+  },
+  'bs-vega': {
+    tex: String.raw`\mathcal{V} = S e^{-qT} \sqrt{T} \, N'(d_1)`,
+    label: 'Black–Scholes Vega',
+    description: 'Sensitivity to volatility — used to weight the smile fit toward ATM liquid strikes and for the Newton step in IV inversion.',
+  },
+  'newton-iv': {
+    tex: String.raw`\sigma_{t+1} = \sigma_t - \frac{C_{BS}(\sigma_t) - C_{mkt}}{\mathcal{V}(\sigma_t)}, \quad \sigma_0 = \sqrt{\frac{2\pi}{T}} \frac{C}{S}`,
+    label: 'Newton–Raphson Implied Volatility',
+    description: 'Warm-started Newton iteration for σ; falls back to bisection when vega → 0 or the solve does not converge. Returns null rather than a garbage number.',
+  },
+  'total-variance': {
+    tex: String.raw`w(k, T) = \sigma^2(k, T) \cdot T, \qquad \sigma(k, T) = \sqrt{w(k, T) / T}`,
+    label: 'Total Variance Interpolation',
+    description: 'Variance is additive in T and arbitrage-constrained; interpolate w linearly between expiries, never σ. This is the quantity a variance swap prices.',
+  },
+  'svi': {
+    tex: String.raw`w(k) = a + b\Big(\rho(k - m) + \sqrt{(k - m)^2 + \sigma^2}\Big), \quad k = \ln(K / F)`,
+    label: 'Raw SVI Smile (Gatheral 2004)',
+    description: 'Five-parameter smile in log-moneyness. Fit by vega-weighted least squares; arbitrage rejected when b < 0, |ρ| ≥ 1, or the smile goes negative.',
+  },
+  'mfiv': {
+    tex: String.raw`\sigma_{MF}^2 T = \frac{2}{T} \sum_i \frac{\Delta K_i}{K_i^2} e^{rT} Q(K_i) - \frac{1}{T}\Big(\frac{F}{K_0} - 1\Big)^2`,
+    label: 'Model-Free Implied Variance (Carr–Madan / VIX)',
+    description: 'Replication-weight integral of all OTM options; what the variance swap market prices. Validated against ^VIX for this engine (±0.5 vol pt on SPY).',
+  },
+  'breeden-litzenberger': {
+    tex: String.raw`q(K) = e^{rT} \frac{\partial^2 C}{\partial K^2}`,
+    label: 'Breeden–Litzenberger Risk-Neutral Density',
+    description: 'Second derivative of the call price across strikes yields the market-implied terminal density — the shape of fear, not its mean.',
+  },
+  'skew-25d': {
+    tex: String.raw`RR_{25} = \sigma_{25\Delta C} - \sigma_{25\Delta P}, \qquad BF_{25} = \frac{\sigma_{25\Delta C} + \sigma_{25\Delta P}}{2} - \sigma_{ATM}`,
+    label: '25Δ Risk Reversal & Butterfly',
+    description: 'RR measures directional fear (negative = puts bid); BF measures wing demand (kurtosis pricing). Both quoted in vol points against the fitted smile.',
+  },
+  'vrp': {
+    tex: String.raw`VRP = \sigma_{IV}^2 - \mathbb{E}[RV^2] \approx IV^2 - RV_{20d}^2`,
+    label: 'Variance Risk Premium',
+    description: 'Compensation for writing variance. Empirically positive, small, and negatively skewed — it pays often and loses rarely but catastrophically.',
+  },
+  'qlike': {
+    tex: String.raw`QLIKE(RV, \hat{\sigma}^2) = \ln(\hat{\sigma}^2) + \frac{RV}{\hat{\sigma}^2}`,
+    label: 'QLIKE Loss (Hansen–Lunde)',
+    description: 'Loss function robust to noisy RV: under-prediction is penalized asymmetrically. The correct scoring rule for variance forecasts (MSE on vol is not).',
+  },
+  'diebold-mariano': {
+    tex: String.raw`DM = \frac{\bar{d}}{\sqrt{LRV / T}}, \quad d_t = L(\hat{\sigma}_A^2, RV_t) - L(\hat{\sigma}_B^2, RV_t)`,
+    label: 'Diebold–Mariano Test',
+    description: 'Tests whether two forecasts differ significantly, with Newey–West long-run variance accounting for overlap in multi-day horizons.',
+  },
+  'garch-x': {
+    tex: String.raw`\sigma_t^2 = \omega + \alpha \varepsilon_{t-1}^2 + \beta \sigma_{t-1}^2 + \gamma \, IV_{t-1}^2`,
+    label: 'GARCH-X with Implied Variance',
+    description: 'Adds the market-priced variance as exogenous regressor. Persistence α+β usually falls when γ > 0 — IV absorbs part of the apparent clustering.',
+  },
+  'merton-dd': {
+    tex: String.raw`DD = \frac{\ln(V / D) + (r - \sigma_V^2 / 2) T}{\sigma_V \sqrt{T}}, \qquad PD = N(-DD)`,
+    label: 'Merton (1974) Distance to Default',
+    description: 'Equity as a call option on assets; PD from implied equity vol. The language of the credit desk, expressed with options math.',
+  },
+  'mincer-blend': {
+    tex: String.raw`RV_{t+h} = a + b \cdot IV_t + \epsilon, \qquad \hat{w}_{IV} = \frac{\hat{\beta}_{IV}}{\hat{\beta}_{GARCH} + \hat{\beta}_{IV}}`,
+    label: 'Mincer–Zarnowitz Encompassing',
+    description: 'Joint test of forecast optimality (a = 0, b = 1) and the IV-vs-GARCH encompassing weight — empirically ~60/40 IV/GARCH. Blend feeds downstream VaR.',
   },
   'news-impact': {
     tex: String.raw`\sigma_t^2 = \omega + (\alpha + \gamma \mathbb{I}_{\{\varepsilon_{t-1} < 0\}})\varepsilon_{t-1}^2 + \beta \sigma_{t-1}^2`,
