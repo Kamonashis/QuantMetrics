@@ -1,0 +1,113 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --bg-base: #faf8f5;
+    --bg-card: #ffffff;
+    --bg-overlay: #f4efe6;
+    --border-subtle: #e7e0d3;
+    --border-bronze: #d97706;
+    --text-primary: #1c1917;
+    --text-secondary: #57534e;
+    --text-muted: #8c827a;
+    --accent-bronze: #b45309;
+    --accent-glow: rgba(180, 83, 9, 0.12);
+  }
+
+  .dark {
+    --bg-base: #121110;
+    --bg-card: #181715;
+    --bg-overlay: #22201c;
+    --border-subtle: #2d2924;
+    --border-bronze: #b45309;
+    --text-primary: #f5f3ef;
+    --text-secondary: #a8a29e;
+    --text-muted: #78716c;
+    --accent-bronze: #d97706;
+    --accent-glow: rgba(217, 119, 6, 0.18);
+  }
+
+  body {
+    background-color: var(--bg-base);
+    color: var(--text-primary);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11", "tnum";
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+}
+
+/* Custom crisp scrollbars for terminal data panels */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(168, 162, 158, 0.3);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(217, 119, 6, 0.5);
+}
+
+/* MathML typography and rendering polish */
+math {
+  font-family: "STIX Two Math", "Cambria Math", "Latin Modern Math", "TeX Gyre Termes Math", "DejaVu Math TeX Gyre", serif;
+  font-style: normal;
+}
+
+math[display="inline"] {
+  vertical-align: -0.15em;
+  padding: 0 0.1em;
+}
+
+math[display="block"] {
+  margin: 0.25em 0;
+  text-align: center;
+}
+
+math mi {
+  font-style: italic;
+}
+
+math mi[mathvariant="bold"] {
+  font-style: normal;
+  font-weight: 700;
+}
+
+math mo {
+  padding: 0 0.15em;
+}
+
+/* KaTeX and MathML terminal UI integration */
+.katex {
+  font-size: 1.05em;
+  text-rendering: auto;
+}
+
+.katex-display {
+  margin: 0.5em 0 !important;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.25em 0;
+}
+
+.dark .katex {
+  color: inherit;
+}
+
+/* Shimmer animation keyframes */
+@keyframes shimmer-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-shimmer-sweep {
+  animation: shimmer-sweep 2.5s infinite;
+}

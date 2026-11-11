@@ -1,0 +1,6 @@
+{
+  "name": "QuantTerminal: Stock Analysis & Volatility Modeling",
+  "description": "Quantitative stock analysis terminal featuring ACF/PACF, GARCH and EWMA volatility modeling with forecast bands, seasonal decomposition, ADF stationarity tests, correlation heatmaps, and regression diagnostics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
