@@ -40,7 +40,7 @@ export function Navbar({
           </div>
           <div className="flex flex-col">
             <span className="font-bold text-sm tracking-tight text-stone-900 dark:text-stone-100">
-              QuantTerminal
+              QuantMetrics
             </span>
             <span className="text-[10px] font-mono text-stone-500 dark:text-stone-400 -mt-0.5 hidden sm:inline">
               Institutional Risk

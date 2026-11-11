@@ -294,7 +294,7 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <span className="font-semibold text-stone-800 dark:text-stone-200">
-              QuantTerminal
+              QuantMetrics
             </span>
             <span>·</span>
             <span>GARCH(1,1), EWMA &amp; HAR-RV Volatility Engine</span>

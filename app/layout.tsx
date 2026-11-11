@@ -3,16 +3,16 @@ import 'katex/dist/katex.min.css';
 import './globals.css'; // Global styles
 
 export const metadata: Metadata = {
-  title: 'QuantTerminal: Stock Analysis & Volatility Modeling',
+  title: 'QuantMetrics: Stock Analysis & Volatility Modeling',
   description: 'Quantitative stock analysis terminal featuring ACF/PACF, GARCH and EWMA volatility modeling with forecast bands, seasonal decomposition, ADF stationarity tests, correlation heatmaps, and regression diagnostics.',
   openGraph: {
-    title: 'QuantTerminal: Stock Analysis & Volatility Modeling',
+    title: 'QuantMetrics: Stock Analysis & Volatility Modeling',
     description: 'Quantitative stock analysis terminal featuring ACF/PACF, GARCH and EWMA volatility modeling with forecast bands, seasonal decomposition, ADF stationarity tests, correlation heatmaps, and regression diagnostics.',
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'QuantTerminal: Stock Analysis & Volatility Modeling',
+    title: 'QuantMetrics: Stock Analysis & Volatility Modeling',
     description: 'Quantitative stock analysis terminal featuring ACF/PACF, GARCH and EWMA volatility modeling with forecast bands, seasonal decomposition, ADF stationarity tests, correlation heatmaps, and regression diagnostics.',
   },
 };
