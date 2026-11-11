@@ -22,6 +22,8 @@ const nextConfig: NextConfig = {
   output: 'standalone',
   transpilePackages: ['motion'],
   allowedDevOrigins: [
+    'localhost',
+    '127.0.0.1',
     'ais-dev-e3pcmk43szkohkhmajbzon-33949032970.asia-east1.run.app',
     'ais-pre-e3pcmk43szkohkhmajbzon-33949032970.asia-east1.run.app',
     '*.run.app',
