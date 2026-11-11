@@ -34,6 +34,7 @@ import { AnalysisDynamicsTab } from './analysis/AnalysisDynamicsTab';
 import { AnalysisRiskTab } from './analysis/AnalysisRiskTab';
 import { AnalysisMicrostructureTab } from './analysis/AnalysisMicrostructureTab';
 import { ShimmerButton } from '@/components/ui/ShimmerButton';
+import { AnimatedTabs } from '@/components/ui/animated-tabs';
 import {
   Play,
   RotateCcw,
@@ -263,34 +264,34 @@ export function AnalysisView({
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       {/* Parameters Header Card */}
-      <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-xs">
+      <div className="panel p-5">
         <form onSubmit={handleTickerSubmit} className="space-y-4">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800/80">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-zinc-100 dark:border-zinc-800/80">
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-mono font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                <span className="kicker">
                   Single-Asset Econometric Workstation
                 </span>
-                <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">·</span>
-                <span className="text-xs text-slate-500 dark:text-slate-400">
+                <span className="text-zinc-300 dark:text-zinc-700" aria-hidden="true">·</span>
+                <span className="text-xs text-zinc-500 dark:text-zinc-400">
                   {companyName} ({ticker})
                 </span>
               </div>
-              <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100 mt-0.5">
+              <h2 className="text-xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100 mt-0.5">
                 Econometric Distributions, Volatility Dynamics &amp; Tail Risk
               </h2>
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
               {/* Resolution Segmented Control */}
-              <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
+              <div className="flex items-center gap-1 p-1 bg-zinc-100 dark:bg-zinc-800 rounded-lg">
                 <button
                   type="button"
                   onClick={() => onResolutionChange('daily')}
                   className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
                     resolution === 'daily'
-                      ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-xs'
+                      : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
                   }`}
                 >
                   Daily (1Y)
@@ -300,8 +301,8 @@ export function AnalysisView({
                   onClick={() => onResolutionChange('intraday')}
                   className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 cursor-pointer ${
                     resolution === 'intraday'
-                      ? 'bg-emerald-500 text-slate-950 font-bold shadow-xs'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      ? 'bg-gold-500 text-zinc-950 font-bold shadow-xs'
+                      : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
                   }`}
                 >
                   <Zap className="w-3.5 h-3.5" />
@@ -321,7 +322,7 @@ export function AnalysisView({
                   </>
                 ) : (
                   <>
-                    <Play className="w-3.5 h-3.5 fill-current text-amber-500" />
+                    <Play className="w-3.5 h-3.5 fill-current text-gold-500" />
                     <span>Run Econometrics</span>
                   </>
                 )}
@@ -333,7 +334,7 @@ export function AnalysisView({
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
             {/* Ticker Input */}
             <div>
-              <label className="block text-slate-600 dark:text-slate-400 font-medium mb-1">
+              <label className="block text-zinc-600 dark:text-zinc-400 font-medium mb-1">
                 Ticker Symbol
               </label>
               <input
@@ -341,19 +342,19 @@ export function AnalysisView({
                 value={localTicker}
                 onChange={(e) => setLocalTicker(e.target.value.toUpperCase())}
                 placeholder="AAPL, MSFT..."
-                className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 font-mono font-bold text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-emerald-500"
+                className="w-full px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 font-mono font-bold text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-1 focus:ring-gold-500"
               />
             </div>
 
             {/* Return Type */}
             <div>
-              <label className="block text-slate-600 dark:text-slate-400 font-medium mb-1">
+              <label className="block text-zinc-600 dark:text-zinc-400 font-medium mb-1">
                 Return Type
               </label>
               <select
                 value={returnType}
                 onChange={(e) => onReturnTypeChange(e.target.value as 'simple' | 'log')}
-                className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-medium focus:outline-hidden focus:ring-1 focus:ring-emerald-500"
+                className="w-full px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 font-medium focus:outline-hidden focus:ring-1 focus:ring-gold-500"
               >
                 <option value="log">Log (Continuously Compounded)</option>
                 <option value="simple">Simple Arithmetic (ΔP/P)</option>
@@ -362,33 +363,33 @@ export function AnalysisView({
 
             {/* Start Date */}
             <div>
-              <label className="block text-slate-600 dark:text-slate-400 font-medium mb-1">
+              <label className="block text-zinc-600 dark:text-zinc-400 font-medium mb-1">
                 Start Date
               </label>
               <input
                 type="date"
                 value={startDate}
                 onChange={(e) => onStartDateChange(e.target.value)}
-                className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 font-mono text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-emerald-500"
+                className="w-full px-2.5 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 font-mono text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-1 focus:ring-gold-500"
               />
             </div>
 
             {/* End Date */}
             <div>
-              <label className="block text-slate-600 dark:text-slate-400 font-medium mb-1">
+              <label className="block text-zinc-600 dark:text-zinc-400 font-medium mb-1">
                 End Date
               </label>
               <input
                 type="date"
                 value={endDate}
                 onChange={(e) => onEndDateChange(e.target.value)}
-                className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 font-mono text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-emerald-500"
+                className="w-full px-2.5 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 font-mono text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-1 focus:ring-gold-500"
               />
             </div>
 
             {/* Rolling Volatility Window(s) */}
             <div>
-              <label className="block text-slate-600 dark:text-slate-400 font-medium mb-1">
+              <label className="block text-zinc-600 dark:text-zinc-400 font-medium mb-1">
                 Rolling Windows (days)
               </label>
               <input
@@ -396,13 +397,13 @@ export function AnalysisView({
                 value={rollingWindows}
                 onChange={(e) => onRollingWindowsChange(e.target.value)}
                 placeholder="30,60,90"
-                className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 font-mono text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-emerald-500"
+                className="w-full px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 font-mono text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-1 focus:ring-gold-500"
               />
             </div>
 
             {/* Decomposition Settings */}
             <div>
-              <label className="block text-slate-600 dark:text-slate-400 font-medium mb-1">
+              <label className="block text-zinc-600 dark:text-zinc-400 font-medium mb-1">
                 Decomp Period &amp; Model
               </label>
               <div className="flex items-center gap-1.5">
@@ -412,13 +413,13 @@ export function AnalysisView({
                   max="120"
                   value={decompPeriod}
                   onChange={(e) => onDecompPeriodChange(Math.max(5, parseInt(e.target.value, 10) || 30))}
-                  className="w-16 px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 font-mono text-center text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-emerald-500"
+                  className="w-16 px-2 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 font-mono text-center text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-1 focus:ring-gold-500"
                   title="Period (e.g. 21 days)"
                 />
                 <select
                   value={decompModel}
                   onChange={(e) => onDecompModelChange(e.target.value as 'additive' | 'multiplicative')}
-                  className="flex-1 px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-emerald-500"
+                  className="flex-1 px-2 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-1 focus:ring-gold-500"
                 >
                   <option value="additive">Additive</option>
                   <option value="multiplicative">Multiplicative</option>
@@ -429,8 +430,8 @@ export function AnalysisView({
         </form>
 
         {/* Popular Ticker Quick Selector */}
-        <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/60 text-xs">
-          <span className="text-slate-400">Popular Tickers:</span>
+        <div className="flex items-center gap-2 mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-800/60 text-xs">
+          <span className="text-zinc-400">Popular Tickers:</span>
           {['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'TSLA', 'SPY', 'QQQ', 'JPM'].map((t) => (
             <button
               key={t}
@@ -439,8 +440,8 @@ export function AnalysisView({
                 onTickerChange(t);
                 onRunAnalysis();
               }}
-              className={`hover:text-emerald-500 font-mono transition-colors cursor-pointer ${
-                ticker === t ? 'text-emerald-500 font-bold' : 'text-slate-500 dark:text-slate-400'
+              className={`hover:text-gold-500 font-mono transition-colors cursor-pointer ${
+                ticker === t ? 'text-gold-500 font-bold' : 'text-zinc-500 dark:text-zinc-400'
               }`}
             >
               {t}
@@ -450,34 +451,34 @@ export function AnalysisView({
       </div>
 
       {/* Common Sample & Data Honesty Banner */}
-      <div className="bg-slate-50 dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800/90 rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+      <div className="bg-zinc-50 dark:bg-[#101014] border border-zinc-200 dark:border-zinc-800/90 rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
         <div className="flex items-center gap-2.5">
-          <Calendar className="w-4 h-4 text-emerald-500 shrink-0" />
-          <div className="text-slate-700 dark:text-slate-300">
-            <span className="font-semibold text-slate-900 dark:text-slate-100">
+          <Calendar className="w-4 h-4 text-gold-500 shrink-0" />
+          <div className="text-zinc-700 dark:text-zinc-300">
+            <span className="font-semibold text-zinc-900 dark:text-zinc-100">
               Sample Bounds:
             </span>{' '}
             Analyzing{' '}
-            <strong className="font-mono text-emerald-600 dark:text-emerald-400">
+            <strong className="font-mono text-gold-600 dark:text-gold-400">
               {filteredBars.length}
             </strong>{' '}
             daily observations ({dates[0] || startDate} → {dates[dates.length - 1] || endDate}) ·{' '}
-            <strong className="font-mono text-slate-800 dark:text-slate-200">
+            <strong className="font-mono text-zinc-800 dark:text-zinc-200">
               {intradayBars.length}
             </strong>{' '}
             1-minute intraday bars.
           </div>
         </div>
 
-        <div className="flex items-center gap-3 font-mono text-[11px] text-slate-500 dark:text-slate-400">
+        <div className="flex items-center gap-3 font-mono text-[11px] text-zinc-500 dark:text-zinc-400">
           <span>
             Ann Vol: <strong>{(returnStats.annualizedVol * 100).toFixed(2)}%</strong>
           </span>
-          <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">·</span>
+          <span className="text-zinc-300 dark:text-zinc-700" aria-hidden="true">·</span>
           <span>
             Kurtosis: <strong>{returnStats.excessKurtosis.toFixed(2)}</strong>
           </span>
-          <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">·</span>
+          <span className="text-zinc-300 dark:text-zinc-700" aria-hidden="true">·</span>
           <span>
             Hurst H: <strong>{hurstAndVr.hurstExponent.toFixed(3)}</strong>
           </span>
@@ -485,86 +486,18 @@ export function AnalysisView({
       </div>
 
       {/* Segmented Sub-Tab Navigation Strip */}
-      <div className="flex items-center gap-1 border-b border-slate-200 dark:border-slate-800 pb-0 overflow-x-auto">
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('overview')}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-all whitespace-nowrap cursor-pointer ${
-            activeSubTab === 'overview'
-              ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 bg-emerald-50/40 dark:bg-emerald-950/20'
-              : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:border-slate-300'
-          }`}
-        >
-          <Layers className="w-4 h-4" />
-          <span>Overview &amp; Time Series</span>
-          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
-            Tier 1
-          </span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('stationarity')}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-all whitespace-nowrap cursor-pointer ${
-            activeSubTab === 'stationarity'
-              ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 bg-emerald-50/40 dark:bg-emerald-950/20'
-              : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:border-slate-300'
-          }`}
-        >
-          <Scale className="w-4 h-4" />
-          <span>Stationarity &amp; Distributions</span>
-          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
-            Tier 2
-          </span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('dynamics')}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-all whitespace-nowrap cursor-pointer ${
-            activeSubTab === 'dynamics'
-              ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 bg-emerald-50/40 dark:bg-emerald-950/20'
-              : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:border-slate-300'
-          }`}
-        >
-          <Activity className="w-4 h-4" />
-          <span>Volatility Dynamics</span>
-          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
-            Tier 3
-          </span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('risk')}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-all whitespace-nowrap cursor-pointer ${
-            activeSubTab === 'risk'
-              ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 bg-emerald-50/40 dark:bg-emerald-950/20'
-              : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:border-slate-300'
-          }`}
-        >
-          <ShieldAlert className="w-4 h-4" />
-          <span>Risk &amp; Drawdowns</span>
-          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
-            Tier 4
-          </span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('microstructure')}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-all whitespace-nowrap cursor-pointer ${
-            activeSubTab === 'microstructure'
-              ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 bg-emerald-50/40 dark:bg-emerald-950/20'
-              : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:border-slate-300'
-          }`}
-        >
-          <Waves className="w-4 h-4" />
-          <span>Microstructure &amp; Liquidity</span>
-          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
-            Tier 5
-          </span>
-        </button>
+      <div className="overflow-x-auto pb-1">
+        <AnimatedTabs
+          value={activeSubTab}
+          onChange={(id) => setActiveSubTab(id as AnalysisSubTabId)}
+          tabs={[
+            { id: 'overview', label: 'Overview & Time Series', icon: Layers, meta: 'T1' },
+            { id: 'stationarity', label: 'Stationarity & Distributions', icon: Scale, meta: 'T2' },
+            { id: 'dynamics', label: 'Volatility Dynamics', icon: Activity, meta: 'T3' },
+            { id: 'risk', label: 'Risk & Drawdowns', icon: ShieldAlert, meta: 'T4' },
+            { id: 'microstructure', label: 'Microstructure & Liquidity', icon: Waves, meta: 'T5' },
+          ]}
+        />
       </div>
 
       {/* Sub-Tab Content Rendering */}

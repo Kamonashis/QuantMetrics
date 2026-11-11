@@ -15,6 +15,7 @@ import { CorrelationDynamicsTab } from '@/components/views/correlation/Correlati
 import { CorrelationRiskTab } from '@/components/views/correlation/CorrelationRiskTab';
 import { CorrelationStructureTab } from '@/components/views/correlation/CorrelationStructureTab';
 import { ShimmerButton } from '@/components/ui/ShimmerButton';
+import { AnimatedTabs } from '@/components/ui/animated-tabs';
 import {
   Play,
   RotateCcw,
@@ -160,29 +161,29 @@ export function CorrelationView({
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       {/* Parameter Control Card */}
-      <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-xs">
+      <div className="panel p-5">
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800/80">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-zinc-100 dark:border-zinc-800/80">
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-mono font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                <span className="kicker">
                   Multivariate Quantitative Suite
                 </span>
-                <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">·</span>
-                <span className="text-xs text-slate-500 dark:text-slate-400">
+                <span className="text-zinc-300 dark:text-zinc-700" aria-hidden="true">·</span>
+                <span className="text-xs text-zinc-500 dark:text-zinc-400">
                   Tiers 1–4 Cross-Asset Correlation
                 </span>
               </div>
-              <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100 mt-0.5">
+              <h2 className="text-xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100 mt-0.5">
                 Correlation, Dynamic Regimes &amp; Portfolio Risk
               </h2>
-              <div className="flex items-center gap-2 mt-1 text-xs text-slate-500 dark:text-slate-400">
+              <div className="flex items-center gap-2 mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                 <span>Engle DCC-GARCH</span>
-                <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">·</span>
+                <span className="text-zinc-300 dark:text-zinc-700" aria-hidden="true">·</span>
                 <span>Ledoit-Wolf Shrinkage</span>
-                <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">·</span>
+                <span className="text-zinc-300 dark:text-zinc-700" aria-hidden="true">·</span>
                 <span>Euler Risk Attribution</span>
-                <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">·</span>
+                <span className="text-zinc-300 dark:text-zinc-700" aria-hidden="true">·</span>
                 <span>Mantegna MST Network</span>
               </div>
             </div>
@@ -200,7 +201,7 @@ export function CorrelationView({
                   </>
                 ) : (
                   <>
-                    <Play className="w-3.5 h-3.5 fill-current text-amber-500" />
+                    <Play className="w-3.5 h-3.5 fill-current text-gold-500" />
                     <span>Recompute Analysis</span>
                   </>
                 )}
@@ -211,7 +212,7 @@ export function CorrelationView({
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
             {/* Tickers Textarea/Input */}
             <div className="md:col-span-2">
-              <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">
+              <label className="block text-zinc-700 dark:text-zinc-300 font-medium mb-1">
                 Stock Ticker Symbols (comma separated)
               </label>
               <input
@@ -219,16 +220,16 @@ export function CorrelationView({
                 value={localInput}
                 onChange={(e) => setLocalInput(e.target.value)}
                 placeholder="AAPL, MSFT, GOOGL, NVDA, TSLA, SPY"
-                className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 font-mono font-bold text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-emerald-500 text-sm"
+                className="w-full px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 font-mono font-bold text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-1 focus:ring-gold-500 text-sm"
               />
-              <span className="text-[11px] text-slate-400 block mt-1">
+              <span className="text-[11px] text-zinc-400 block mt-1">
                 Supports N=2 to 15 tickers. Matrices and network topologies re-evaluate on submit.
               </span>
             </div>
 
             {/* Date Range */}
             <div>
-              <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">
+              <label className="block text-zinc-700 dark:text-zinc-300 font-medium mb-1">
                 Historical Date Range
               </label>
               <div className="grid grid-cols-2 gap-2">
@@ -236,13 +237,13 @@ export function CorrelationView({
                   type="date"
                   value={startDate}
                   onChange={(e) => onStartDateChange(e.target.value)}
-                  className="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 font-mono text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-emerald-500 text-xs"
+                  className="px-2 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 font-mono text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-1 focus:ring-gold-500 text-xs"
                 />
                 <input
                   type="date"
                   value={endDate}
                   onChange={(e) => onEndDateChange(e.target.value)}
-                  className="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 font-mono text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-emerald-500 text-xs"
+                  className="px-2 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 font-mono text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-1 focus:ring-gold-500 text-xs"
                 />
               </div>
             </div>
@@ -250,16 +251,16 @@ export function CorrelationView({
         </form>
 
         {/* Quick Add Ticker Badges */}
-        <div className="flex flex-wrap items-center gap-2 mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/60 text-xs">
-          <span className="text-slate-400">Quick Add:</span>
+        <div className="flex flex-wrap items-center gap-2 mt-4 pt-3 border-t border-zinc-100 dark:border-zinc-800/60 text-xs">
+          <span className="text-zinc-400">Quick Add:</span>
           {['SPY', 'QQQ', 'NVDA', 'AMZN', 'META', 'JPM', 'XOM'].map((sym) => (
             <button
               key={sym}
               type="button"
               onClick={() => handleAddTicker(sym)}
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 hover:border-emerald-500 text-slate-700 dark:text-slate-300 font-mono transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/60 hover:border-gold-500 text-zinc-700 dark:text-zinc-300 font-mono transition-colors cursor-pointer"
             >
-              <Plus className="w-3 h-3 text-slate-400" />
+              <Plus className="w-3 h-3 text-zinc-400" />
               {sym}
             </button>
           ))}
@@ -267,15 +268,15 @@ export function CorrelationView({
       </div>
 
       {/* Data Alignment Honesty Banner */}
-      <div className="bg-slate-50 dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800/90 rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+      <div className="bg-zinc-50 dark:bg-[#101014] border border-zinc-200 dark:border-zinc-800/90 rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
         <div className="flex items-center gap-2.5">
-          <Calendar className="w-4 h-4 text-emerald-500 shrink-0" />
-          <div className="text-slate-700 dark:text-slate-300">
-            <span className="font-semibold text-slate-900 dark:text-slate-100">
+          <Calendar className="w-4 h-4 text-gold-500 shrink-0" />
+          <div className="text-zinc-700 dark:text-zinc-300">
+            <span className="font-semibold text-zinc-900 dark:text-zinc-100">
               Data Synchronization:
             </span>{' '}
             Aligned across{' '}
-            <strong className="font-mono text-emerald-600 dark:text-emerald-400">
+            <strong className="font-mono text-gold-600 dark:text-gold-400">
               {minObsCount}
             </strong>{' '}
             concurrent trading sessions ({alignedDates[0] || startDate} →{' '}
@@ -283,14 +284,14 @@ export function CorrelationView({
           </div>
         </div>
 
-        <div className="flex items-center gap-3 font-mono text-[11px] text-slate-500 dark:text-slate-400">
+        <div className="flex items-center gap-3 font-mono text-[11px] text-zinc-500 dark:text-zinc-400">
           <span>
             Shrinkage δ: <strong>{advancedResult.shrinkageIntensity.toFixed(3)}</strong>
           </span>
-          <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">·</span>
+          <span className="text-zinc-300 dark:text-zinc-700" aria-hidden="true">·</span>
           <span>
             κ(Σ): <strong>{advancedResult.conditionNumberRaw.toFixed(1)}</strong> →{' '}
-            <strong className="text-emerald-600 dark:text-emerald-400">
+            <strong className="text-gold-600 dark:text-gold-400">
               {advancedResult.conditionNumberShrunk.toFixed(1)}
             </strong>
           </span>
@@ -298,70 +299,17 @@ export function CorrelationView({
       </div>
 
       {/* Sub-Tab Navigation Bar */}
-      <div className="flex items-center gap-1 border-b border-slate-200 dark:border-slate-800 pb-0 overflow-x-auto">
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('overview')}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-all whitespace-nowrap cursor-pointer ${
-            activeSubTab === 'overview'
-              ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 bg-emerald-50/40 dark:bg-emerald-950/20'
-              : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:border-slate-300'
-          }`}
-        >
-          <Layers className="w-4 h-4" />
-          <span>Overview &amp; Matrix</span>
-          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
-            Tier 1
-          </span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('dynamics')}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-all whitespace-nowrap cursor-pointer ${
-            activeSubTab === 'dynamics'
-              ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 bg-emerald-50/40 dark:bg-emerald-950/20'
-              : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:border-slate-300'
-          }`}
-        >
-          <Activity className="w-4 h-4" />
-          <span>Dynamics &amp; Regimes</span>
-          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
-            Tier 2
-          </span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('risk')}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-all whitespace-nowrap cursor-pointer ${
-            activeSubTab === 'risk'
-              ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 bg-emerald-50/40 dark:bg-emerald-950/20'
-              : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:border-slate-300'
-          }`}
-        >
-          <PieChart className="w-4 h-4" />
-          <span>Portfolio Risk &amp; VaR</span>
-          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
-            Tier 3
-          </span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('structure')}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-all whitespace-nowrap cursor-pointer ${
-            activeSubTab === 'structure'
-              ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 bg-emerald-50/40 dark:bg-emerald-950/20'
-              : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:border-slate-300'
-          }`}
-        >
-          <Network className="w-4 h-4" />
-          <span>Structure &amp; Network</span>
-          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
-            Tier 4
-          </span>
-        </button>
+      <div className="overflow-x-auto pb-1">
+        <AnimatedTabs
+          value={activeSubTab}
+          onChange={(id) => setActiveSubTab(id as typeof activeSubTab)}
+          tabs={[
+            { id: 'overview', label: 'Overview & Matrix', icon: Layers, meta: 'T1' },
+            { id: 'dynamics', label: 'Dynamics & Regimes', icon: Activity, meta: 'T2' },
+            { id: 'risk', label: 'Portfolio Risk & VaR', icon: PieChart, meta: 'T3' },
+            { id: 'structure', label: 'Structure & Network', icon: Network, meta: 'T4' },
+          ]}
+        />
       </div>
 
       {/* Sub-Tab Content Mounts */}

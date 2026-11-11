@@ -38,9 +38,21 @@ const DETERMINISTIC_BASE_DATE = new Date('2026-11-08T12:00:00Z');
 // Generates continuous realistic daily trading bars spanning N trading days up to present
 export function generateRealisticStockHistory(
   ticker: string,
-  days: number = 365,
-  referenceDate: Date = DETERMINISTIC_BASE_DATE
+  days: number = 2600,
+  referenceDate: Date = DETERMINISTIC_BASE_DATE,
+  targetStartDate?: string
 ): PriceBar[] {
+  let requiredDays = days;
+  if (targetStartDate) {
+    const startTime = new Date(targetStartDate).getTime();
+    const refTime = new Date(referenceDate).getTime();
+    if (!isNaN(startTime) && startTime < refTime) {
+      const calendarDays = Math.ceil((refTime - startTime) / (1000 * 60 * 60 * 24));
+      const estTradingDays = Math.ceil(calendarDays * (5 / 7) + 25);
+      requiredDays = Math.max(requiredDays, estTradingDays);
+    }
+  }
+
   const info = KNOWN_TICKERS[ticker.toUpperCase()] || {
     name: `${ticker.toUpperCase()} Equity`,
     basePrice: 150.0,
@@ -68,7 +80,7 @@ export function generateRealisticStockHistory(
   // Generate trading day dates (excluding weekends) backwards from referenceDate
   const tradingDates: string[] = [];
   const curr = new Date(referenceDate);
-  while (tradingDates.length < days) {
+  while (tradingDates.length < requiredDays) {
     const dayOfWeek = curr.getDay();
     if (dayOfWeek !== 0 && dayOfWeek !== 6) {
       tradingDates.push(curr.toISOString().split('T')[0]);
@@ -82,11 +94,8 @@ export function generateRealisticStockHistory(
   const sigma = info.vol;
 
   // Simulate price path backwards to arrive at current market basePrice
-  const prices: number[] = new Array(days);
-  prices[days - 1] = info.basePrice;
-
-  // Let's create forward path from a reasonable start price
-  const startPrice = info.basePrice * Math.exp(-(mu - 0.5 * sigma * sigma) * (days / 252));
+  const totalPoints = tradingDates.length;
+  const startPrice = info.basePrice * Math.exp(-(mu - 0.5 * sigma * sigma) * (totalPoints / 252));
   let p = startPrice;
 
   const bars: PriceBar[] = [];
@@ -96,7 +105,7 @@ export function generateRealisticStockHistory(
   const alpha = 0.08;
   const beta = 0.88;
 
-  for (let i = 0; i < days; i++) {
+  for (let i = 0; i < totalPoints; i++) {
     const z = normalDeviate();
     const shock = currentVol * z;
     // update GARCH-like conditional variance
@@ -126,7 +135,9 @@ export function generateRealisticStockHistory(
 
 export async function fetchLiveStockData(
   ticker: string,
-  range: string = '2y'
+  range: string = '10y',
+  startDate?: string,
+  endDate?: string
 ): Promise<TickerDataResponse> {
   const sym = ticker.trim().toUpperCase();
   const known = KNOWN_TICKERS[sym];
@@ -135,11 +146,22 @@ export async function fetchLiveStockData(
   try {
     // Attempt live fetch from Yahoo Finance Chart API
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4500);
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
-      sym
-    )}?range=${range}&interval=1d&includePrePost=false`;
+    let url: string;
+    if (startDate) {
+      const p1 = Math.floor(new Date(startDate).getTime() / 1000);
+      const p2 = endDate
+        ? Math.floor(new Date(endDate).getTime() / 1000)
+        : Math.floor(Date.now() / 1000);
+      url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
+        sym
+      )}?period1=${p1}&period2=${p2}&interval=1d&includePrePost=false`;
+    } else {
+      url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
+        sym
+      )}?range=${range}&interval=1d&includePrePost=false`;
+    }
 
     const res = await fetch(url, {
       signal: controller.signal,
@@ -199,8 +221,8 @@ export async function fetchLiveStockData(
     console.warn(`Live market fetch failed for ${sym}, utilizing high-fidelity fallback.`, err);
   }
 
-  // Fallback: Generate 350 realistic daily price bars
-  const bars = generateRealisticStockHistory(sym, 350);
+  // Fallback: Generate 2600 realistic daily price bars (~10 years)
+  const bars = generateRealisticStockHistory(sym, 2600, DETERMINISTIC_BASE_DATE, startDate);
   return {
     ticker: sym,
     name: companyName,

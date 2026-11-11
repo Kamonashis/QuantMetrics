@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { PriceBar, IntradayBar } from '@/lib/quant-engine';
 import {
   generateRealisticStockHistory,
@@ -8,6 +8,7 @@ import {
   KNOWN_TICKERS,
 } from '@/lib/market-service';
 import { Navbar } from '@/components/layout/Navbar';
+import { Footer } from '@/components/layout/Footer';
 import { HomeView } from '@/components/views/HomeView';
 import { AnalysisView } from '@/components/views/AnalysisView';
 import { ModelingView } from '@/components/views/ModelingView';
@@ -79,12 +80,12 @@ export default function App() {
     'AAPL, SPY, QQQ'
   );
 
-  // Market Data In-Memory Cache with lazy instant initialization
+  // Market Data In-Memory Cache with lazy instant initialization (defaulting to 10 years of history)
   const [stockBarsCache, setStockBarsCache] = useState<{ [ticker: string]: PriceBar[] }>(() => {
     const initialCache: { [ticker: string]: PriceBar[] } = {};
     const defaultSymbols = ['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'TSLA', 'SPY', 'QQQ', 'AMZN', 'META', 'JPM'];
     defaultSymbols.forEach((sym) => {
-      initialCache[sym] = generateRealisticStockHistory(sym, 350);
+      initialCache[sym] = generateRealisticStockHistory(sym, 2600);
     });
     return initialCache;
   });
@@ -111,87 +112,163 @@ export default function App() {
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
   // Fetch ticker data (daily and intraday) from API
-  const fetchTickers = useCallback(async (tickersToFetch: string[]) => {
-    const syms = tickersToFetch
-      .map((t) => t.trim().toUpperCase())
-      .filter((t) => t.length > 0);
-    if (syms.length === 0) return;
+  const fetchTickers = useCallback(
+    async (
+      tickersToFetch: string[],
+      customRange: string = '10y',
+      reqStartDate?: string,
+      reqEndDate?: string
+    ) => {
+      const syms = tickersToFetch
+        .map((t) => t.trim().toUpperCase())
+        .filter((t) => t.length > 0);
+      if (syms.length === 0) return;
 
-    setIsLoading(true);
-    try {
-      // 1. Fetch Daily Data
-      const res = await fetch(`/api/market-data?tickers=${encodeURIComponent(syms.join(','))}`);
-      if (res.ok) {
-        const json = await res.json();
-        if (json.success && json.data) {
-          setStockBarsCache((prev) => {
-            const updated = { ...prev };
-            for (const [sym, payload] of Object.entries(json.data as Record<string, { bars: PriceBar[]; name: string }>)) {
-              if (payload.bars && payload.bars.length > 0) {
-                updated[sym] = payload.bars;
-              }
-            }
-            return updated;
-          });
-          setCompanyNames((prev) => {
-            const updated = { ...prev };
-            for (const [sym, payload] of Object.entries(json.data as Record<string, { bars: PriceBar[]; name: string }>)) {
-              if (payload.name) {
-                updated[sym] = payload.name;
-              }
-            }
-            return updated;
-          });
-        }
-      }
+      setIsLoading(true);
+      try {
+        const effectiveStart = reqStartDate || startDate;
+        const effectiveEnd = reqEndDate || endDate;
 
-      // 2. Fetch 1-Minute Intraday Data for primary ticker
-      const primarySym = syms[0];
-      if (primarySym) {
-        const intraRes = await fetch(`/api/market-data?ticker=${encodeURIComponent(primarySym)}&interval=1m&range=7d`);
-        if (intraRes.ok) {
-          const intraJson = await intraRes.json();
-          if (intraJson.success && intraJson.data?.[primarySym]?.intradayBars) {
-            setIntradayBarsCache((prev) => ({
-              ...prev,
-              [primarySym]: intraJson.data[primarySym].intradayBars,
-            }));
+        let rangeParam = customRange;
+        if (effectiveStart) {
+          const startYear = new Date(effectiveStart).getFullYear();
+          const curYear = new Date().getFullYear();
+          if (curYear - startYear > 10) {
+            rangeParam = '20y';
           }
         }
+
+        const params = new URLSearchParams({
+          tickers: syms.join(','),
+          range: rangeParam,
+        });
+        if (effectiveStart) params.set('startDate', effectiveStart);
+        if (effectiveEnd) params.set('endDate', effectiveEnd);
+
+        // 1. Fetch Daily Data
+        const res = await fetch(`/api/market-data?${params.toString()}`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && json.data) {
+            setStockBarsCache((prev) => {
+              const updated = { ...prev };
+              for (const [sym, payload] of Object.entries(
+                json.data as Record<string, { bars: PriceBar[]; name: string }>
+              )) {
+                if (payload.bars && payload.bars.length > 0) {
+                  updated[sym] = payload.bars;
+                }
+              }
+              return updated;
+            });
+            setCompanyNames((prev) => {
+              const updated = { ...prev };
+              for (const [sym, payload] of Object.entries(
+                json.data as Record<string, { bars: PriceBar[]; name: string }>
+              )) {
+                if (payload.name) {
+                  updated[sym] = payload.name;
+                }
+              }
+              return updated;
+            });
+          }
+        }
+
+        // 2. Fetch 1-Minute Intraday Data for primary ticker
+        const primarySym = syms[0];
+        if (primarySym) {
+          const intraRes = await fetch(
+            `/api/market-data?ticker=${encodeURIComponent(primarySym)}&interval=1m&range=7d`
+          );
+          if (intraRes.ok) {
+            const intraJson = await intraRes.json();
+            if (intraJson.success && intraJson.data?.[primarySym]?.intradayBars) {
+              setIntradayBarsCache((prev) => ({
+                ...prev,
+                [primarySym]: intraJson.data[primarySym].intradayBars,
+              }));
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Market data fetch error, using local quantitative generator:', err);
+        setStockBarsCache((prev) => {
+          const updated = { ...prev };
+          syms.forEach((sym) => {
+            if (!updated[sym]) {
+              updated[sym] = generateRealisticStockHistory(sym, 2600, undefined, startDate);
+            }
+          });
+          return updated;
+        });
+        setIntradayBarsCache((prev) => {
+          const updated = { ...prev };
+          syms.forEach((sym) => {
+            if (!updated[sym]) {
+              updated[sym] = generateRealisticIntradayHistory(sym, 7);
+            }
+          });
+          return updated;
+        });
+      } finally {
+        setIsLoading(false);
       }
-    } catch (err) {
-      console.warn('Market data fetch error, using local quantitative generator:', err);
-      setStockBarsCache((prev) => {
-        const updated = { ...prev };
-        syms.forEach((sym) => {
-          if (!updated[sym]) {
-            updated[sym] = generateRealisticStockHistory(sym, 350);
-          }
-        });
-        return updated;
-      });
-      setIntradayBarsCache((prev) => {
-        const updated = { ...prev };
-        syms.forEach((sym) => {
-          if (!updated[sym]) {
-            updated[sym] = generateRealisticIntradayHistory(sym, 7);
-          }
-        });
-        return updated;
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+    },
+    [startDate, endDate]
+  );
+
+  // Automatically fetch fresh live market data on initial load
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchTickers(['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'TSLA', 'SPY']);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [fetchTickers]);
+
+  // Handle start date changes: automatically query earlier historical periods if date exceeds current cache
+  const handleStartDateChange = useCallback(
+    (newStart: string) => {
+      setStartDate(newStart);
+      const existingBars = stockBarsCache[activeTicker];
+      if (existingBars && existingBars.length > 0 && newStart < existingBars[0].date) {
+        fetchTickers([activeTicker], '20y', newStart, endDate);
+      }
+    },
+    [activeTicker, stockBarsCache, fetchTickers, endDate]
+  );
+
+  // Build the ticker tape from whatever market data is currently cached
+  const tapeItems = useMemo(
+    () =>
+      Object.entries(stockBarsCache)
+        .filter(([, bars]) => bars && bars.length >= 2)
+        .map(([symbol, bars]) => {
+          const last = bars[bars.length - 1].close;
+          const prev = bars[bars.length - 2].close;
+          return {
+            symbol,
+            price: last,
+            changePct: prev > 0 ? ((last - prev) / prev) * 100 : 0,
+          };
+        })
+        .slice(0, 12),
+    [stockBarsCache]
+  );
 
   // Active ticker bars
-  const currentBars = stockBarsCache[activeTicker] || generateRealisticStockHistory(activeTicker, 350);
+  const currentBars =
+    stockBarsCache[activeTicker] ||
+    generateRealisticStockHistory(activeTicker, 2600, undefined, startDate);
   const currentIntradayBars =
     intradayBarsCache[activeTicker] || generateRealisticIntradayHistory(activeTicker, 7);
-  const currentCompanyName = companyNames[activeTicker] || KNOWN_TICKERS[activeTicker]?.name || `${activeTicker} Equity`;
+  const currentCompanyName =
+    companyNames[activeTicker] ||
+    KNOWN_TICKERS[activeTicker]?.name ||
+    `${activeTicker} Equity`;
 
   return (
-    <div className="min-h-screen bg-[#faf8f5] dark:bg-[#121110] text-stone-900 dark:text-stone-100 flex flex-col font-sans transition-colors">
+    <div className="min-h-screen bg-[#F5F4F1] dark:bg-[#08080A] text-zinc-900 dark:text-[#ECECF1] flex flex-col font-sans transition-colors">
       {/* Top Navigation */}
       <Navbar
         activeView={activeView}
@@ -206,6 +283,7 @@ export default function App() {
         {activeView === 'home' && (
           <HomeView
             onNavigate={setActiveView}
+            tapeItems={tapeItems}
             onSelectPreset={(ticker) => {
               setActiveTicker(ticker);
               fetchTickers([ticker]);
@@ -221,7 +299,7 @@ export default function App() {
               fetchTickers([t]);
             }}
             startDate={startDate}
-            onStartDateChange={setStartDate}
+            onStartDateChange={handleStartDateChange}
             endDate={endDate}
             onEndDateChange={setEndDate}
             returnType={returnType}
@@ -237,7 +315,7 @@ export default function App() {
             resolution={resolution}
             onResolutionChange={setResolution}
             isLoading={isLoading}
-            onRunAnalysis={() => fetchTickers([activeTicker])}
+            onRunAnalysis={() => fetchTickers([activeTicker], '10y', startDate, endDate)}
             companyName={currentCompanyName}
           />
         )}
@@ -262,13 +340,13 @@ export default function App() {
             tickersInput={correlationTickers}
             onTickersInputChange={setCorrelationTickers}
             startDate={startDate}
-            onStartDateChange={setStartDate}
+            onStartDateChange={handleStartDateChange}
             endDate={endDate}
             onEndDateChange={setEndDate}
             returnType={returnType}
             allStockBars={stockBarsCache}
             isLoading={isLoading}
-            onRunCorrelation={(tickers) => fetchTickers(tickers)}
+            onRunCorrelation={(tickers) => fetchTickers(tickers, '10y', startDate, endDate)}
             intradayBars={currentIntradayBars}
           />
         )}
@@ -278,36 +356,18 @@ export default function App() {
             regressionTickers={regressionTickers}
             onRegressionTickersChange={setRegressionTickers}
             startDate={startDate}
-            onStartDateChange={setStartDate}
+            onStartDateChange={handleStartDateChange}
             endDate={endDate}
             onEndDateChange={setEndDate}
             returnType={returnType}
             allStockBars={stockBarsCache}
             isLoading={isLoading}
-            onRunRegression={(tickers) => fetchTickers(tickers)}
+            onRunRegression={(tickers) => fetchTickers(tickers, '10y', startDate, endDate)}
           />
         )}
       </main>
 
-      {/* Institutional Terminal Footer */}
-      <footer className="border-t border-stone-200 dark:border-stone-800 bg-[#faf8f5] dark:bg-[#141311] py-4 text-xs text-stone-500 dark:text-stone-400">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-stone-800 dark:text-stone-200">
-              QuantMetrics
-            </span>
-            <span>·</span>
-            <span>GARCH(1,1), EWMA &amp; HAR-RV Volatility Engine</span>
-            <span>·</span>
-            <span>1-Min Intraday High-Frequency Analytics</span>
-          </div>
-          <div className="flex items-center gap-4 text-[11px] font-mono">
-            <span>Market Frequency: Daily &amp; 1-Min Intraday</span>
-            <span>·</span>
-            <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Engine Operational</span>
-          </div>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 }

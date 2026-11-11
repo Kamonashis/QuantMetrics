@@ -1,58 +1,148 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 
+@theme {
+  /* Champagne gold accent scale */
+  --color-gold-50: #fbf6ea;
+  --color-gold-100: #f5ead0;
+  --color-gold-200: #ead5a8;
+  --color-gold-300: #dec084;
+  --color-gold-400: #d3ac60;
+  --color-gold-500: #c69a48;
+  --color-gold-600: #9c7638;
+  --color-gold-700: #7d5c2c;
+  --color-gold-800: #5f4622;
+  --color-gold-900: #413016;
+  --color-gold-950: #221a10;
+
+  --font-display: var(--font-space-grotesk), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, "SF Mono", monospace;
+}
+
 @layer base {
   :root {
-    --bg-base: #faf8f5;
-    --bg-card: #ffffff;
-    --bg-overlay: #f4efe6;
-    --border-subtle: #e7e0d3;
-    --border-bronze: #d97706;
-    --text-primary: #1c1917;
-    --text-secondary: #57534e;
-    --text-muted: #8c827a;
-    --accent-bronze: #b45309;
-    --accent-glow: rgba(180, 83, 9, 0.12);
+    /* Light "paper" theme */
+    --bg-base: #f5f4f1;
+    --bg-panel: #ffffff;
+    --bg-inset: #eceae6;
+    --hairline: #e4e2dd;
+    --hairline-strong: #d3d0c9;
+    --text-primary: #17171a;
+    --text-secondary: #54545c;
+    --text-muted: #8b8b93;
+    --accent: #9c7638;
+    --accent-strong: #7d5c2c;
+    --gold-glow: rgba(198, 154, 72, 0.35);
+    --positive: #2f8f66;
+    --negative: #cf4b45;
+    --panel-shadow: 0 1px 2px rgba(23, 23, 26, 0.05), 0 12px 32px -16px rgba(23, 23, 26, 0.18);
   }
 
   .dark {
-    --bg-base: #121110;
-    --bg-card: #181715;
-    --bg-overlay: #22201c;
-    --border-subtle: #2d2924;
-    --border-bronze: #b45309;
-    --text-primary: #f5f3ef;
-    --text-secondary: #a8a29e;
-    --text-muted: #78716c;
-    --accent-bronze: #d97706;
-    --accent-glow: rgba(217, 119, 6, 0.18);
+    /* Dark-first "obsidian" theme */
+    --bg-base: #08080a;
+    --bg-panel: #101014;
+    --bg-inset: #17171c;
+    --hairline: rgba(255, 255, 255, 0.07);
+    --hairline-strong: rgba(255, 255, 255, 0.12);
+    --text-primary: #ececf1;
+    --text-secondary: #a3a3ad;
+    --text-muted: #63636d;
+    --accent: #dec084;
+    --accent-strong: #d3ac60;
+    --gold-glow: rgba(222, 192, 132, 0.28);
+    --positive: #3fb27f;
+    --negative: #e0655f;
+    --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 24px 48px -24px rgba(0, 0, 0, 0.7);
   }
 
   body {
     background-color: var(--bg-base);
     color: var(--text-primary);
     font-feature-settings: "cv02", "cv03", "cv04", "cv11", "tnum";
-    transition: background-color 0.2s ease, color 0.2s ease;
+    transition: background-color 0.25s ease, color 0.25s ease;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background: rgba(222, 192, 132, 0.28);
+    color: inherit;
   }
 }
 
-/* Custom crisp scrollbars for terminal data panels */
+/* ---------- Panel system ---------- */
+
+.panel {
+  position: relative;
+  border: 1px solid var(--hairline);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0) 40%),
+    var(--bg-panel);
+  border-radius: 18px;
+  box-shadow: var(--panel-shadow);
+}
+
+.panel-inset {
+  border: 1px solid var(--hairline);
+  background: var(--bg-inset);
+  border-radius: 14px;
+}
+
+.hairline {
+  border-color: var(--hairline);
+}
+
+/* Uppercase mono kicker used above section titles */
+.kicker {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+/* Gold gradient text for hero numerals / wordmark accents */
+.text-gradient-gold {
+  background-image: linear-gradient(160deg, #f6e7c8 0%, #dec084 38%, #c69a48 72%, #8a6a30 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Faint engineering grid backdrop */
+.bg-grid {
+  background-image:
+    linear-gradient(var(--hairline) 1px, transparent 1px),
+    linear-gradient(90deg, var(--hairline) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+
+.mask-radial-fade {
+  -webkit-mask-image: radial-gradient(ellipse 90% 80% at 50% 0%, black 55%, transparent 100%);
+  mask-image: radial-gradient(ellipse 90% 80% at 50% 0%, black 55%, transparent 100%);
+}
+
+/* ---------- Custom scrollbars ---------- */
+
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(168, 162, 158, 0.3);
-  border-radius: 2px;
+  background: rgba(140, 140, 150, 0.32);
+  border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(217, 119, 6, 0.5);
+  background: rgba(214, 175, 100, 0.55);
 }
 
-/* MathML typography and rendering polish */
+/* ---------- Math typography ---------- */
+
 math {
   font-family: "STIX Two Math", "Cambria Math", "Latin Modern Math", "TeX Gyre Termes Math", "DejaVu Math TeX Gyre", serif;
   font-style: normal;
@@ -81,7 +171,6 @@ math mo {
   padding: 0 0.15em;
 }
 
-/* KaTeX and MathML terminal UI integration */
 .katex {
   font-size: 1.05em;
   text-rendering: auto;
@@ -98,7 +187,8 @@ math mo {
   color: inherit;
 }
 
-/* Shimmer animation keyframes */
+/* ---------- Motion ---------- */
+
 @keyframes shimmer-sweep {
   0% {
     transform: translateX(-100%);
@@ -110,4 +200,77 @@ math mo {
 
 .animate-shimmer-sweep {
   animation: shimmer-sweep 2.5s infinite;
+}
+
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-marquee {
+  animation: marquee 46s linear infinite;
+}
+
+.marquee-paused:hover .animate-marquee {
+  animation-play-state: paused;
+}
+
+@keyframes ping-dot {
+  0% {
+    box-shadow: 0 0 0 0 rgba(63, 178, 127, 0.55);
+  }
+  80%,
+  100% {
+    box-shadow: 0 0 0 6px rgba(63, 178, 127, 0);
+  }
+}
+
+.animate-ping-dot {
+  animation: ping-dot 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-marquee,
+  .animate-shimmer-sweep,
+  .animate-ping-dot {
+    animation: none !important;
+  }
+}
+
+/* Moving border comet (used by MovingBorderButton) */
+@property --border-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes border-spin {
+  to {
+    --border-angle: 360deg;
+  }
+}
+
+.moving-border-comet {
+  background:
+    conic-gradient(
+      from var(--border-angle),
+      transparent 0deg,
+      transparent 258deg,
+      rgba(222, 192, 132, 0.0) 270deg,
+      #dec084 305deg,
+      #faf0d7 325deg,
+      #dec084 340deg,
+      transparent 360deg
+    );
+  animation: border-spin var(--border-spin-duration, 2.6s) linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .moving-border-comet {
+    animation: none;
+  }
 }

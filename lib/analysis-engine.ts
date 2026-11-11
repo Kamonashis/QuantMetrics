@@ -6,8 +6,7 @@
 // Underwater Drawdowns, Downside Risk & Beta to SPY, Probabilistic Sharpe (PSR/DSR),
 // and Microstructure Diagnostics (Roll & Corwin-Schultz spreads, Amihud, Realized Semivariance & Quarticity).
 
-import { PriceBar, calculateReturns } from './quant-engine';
-import { IntradayBar } from './correlation-engine';
+import { PriceBar, calculateReturns, IntradayBar } from './quant-engine';
 
 // =============================================================
 // INTERFACES FOR ANALYSIS WORKSTATION
@@ -776,9 +775,12 @@ export function computeStructuralBreaks(
   prices: number[]
 ): StructuralBreakResult {
   const n = Math.min(dates.length, returns.length);
-  if (n < 40) {
+  if (n < 20) {
     return { cusumSqPoints: [], breakDates: [], hasSignificantBreak: false };
   }
+
+  // Align dates with return innovations (returns[k] represents price change to dates[k + 1] or dates[k])
+  const returnDates = dates.length === returns.length + 1 ? dates.slice(1) : dates;
 
   // CUSUM of squares on squared returns: S_k = (sum_{t=1}^k r_t^2) / (sum_{t=1}^n r_t^2)
   const sqRet = returns.map((r) => r * r);
@@ -790,8 +792,10 @@ export function computeStructuralBreaks(
   const breakDates: StructuralBreakResult['breakDates'] = [];
 
   let cum = 0;
-  // Critical bound value c_alpha for 5% significance level: 1.36 / sqrt(T/2)
-  const cAlpha = 1.36 / Math.sqrt(n / 2);
+  // Critical bound value c_alpha for 5% significance level (Inclan & Tiao 1994): 1.358 / sqrt(n / 2)
+  const cAlpha = 1.358 / Math.sqrt(n / 2);
+
+  const deviations: { k: number; date: string; diff: number; d: number; sk: number; exp: number }[] = [];
 
   for (let k = 0; k < n; k++) {
     cum += sqRet[k];
@@ -799,31 +803,91 @@ export function computeStructuralBreaks(
     const expected = (k + 1) / n;
     const upper = Math.min(1.0, expected + cAlpha);
     const lower = Math.max(0.0, expected - cAlpha);
-    const dateStr = dates[k] || `Day ${k}`;
+    const dateStr = returnDates[k] || dates[k] || `Day ${k}`;
 
     cusumSqPoints.push({
       date: dateStr,
-      s: sk,
-      upperBand: upper,
-      lowerBand: lower,
+      s: Number(sk.toFixed(4)),
+      upperBand: Number(upper.toFixed(4)),
+      lowerBand: Number(lower.toFixed(4)),
     });
 
-    // Detect structural divergence exceeding confidence bands
-    if (sk > upper + 0.05 || sk < lower - 0.05) {
-      if (breakDates.length === 0 || k - breakDates[breakDates.length - 1].index > 25) {
-        breakDates.push({
-          date: dateStr,
-          index: k,
-          reason: sk > upper ? 'Volatility Expansion Regime Shift' : 'Volatility Compression Break',
-          severity: Math.abs(sk - expected) > 1.5 * cAlpha ? 'High' : 'Moderate',
-        });
+    const d = sk - expected;
+    deviations.push({
+      k,
+      date: dateStr,
+      diff: Math.abs(d),
+      d,
+      sk,
+      exp: expected,
+    });
+  }
+
+  // Inclan & Tiao (1994) / ICSS algorithm:
+  // Identify change points at significant local extrema of |S_k - k/n| exceeding critical value cAlpha
+  const minSeparation = Math.max(12, Math.floor(n * 0.05));
+  const candidateIndices: number[] = [];
+
+  for (let k = 3; k < n - 3; k++) {
+    const cur = deviations[k];
+    if (cur.diff > cAlpha) {
+      let isPeak = true;
+      const left = Math.max(0, k - minSeparation);
+      const right = Math.min(n - 1, k + minSeparation);
+      for (let w = left; w <= right; w++) {
+        if (deviations[w].diff > cur.diff) {
+          isPeak = false;
+          break;
+        }
+      }
+      if (isPeak) {
+        candidateIndices.push(k);
       }
     }
   }
 
+  // Rank candidate indices by magnitude of divergence
+  candidateIndices.sort((a, b) => deviations[b].diff - deviations[a].diff);
+  const selected: number[] = [];
+  for (const idx of candidateIndices) {
+    if (!selected.some((s) => Math.abs(s - idx) < minSeparation)) {
+      selected.push(idx);
+    }
+    if (selected.length >= 3) break;
+  }
+
+  // If no local peak was detected by windowing but points breached the band, select global max deviation
+  if (selected.length === 0) {
+    let maxIdx = 0;
+    let maxDiff = 0;
+    for (let k = 0; k < n; k++) {
+      if (deviations[k].diff > maxDiff) {
+        maxDiff = deviations[k].diff;
+        maxIdx = k;
+      }
+    }
+    if (maxDiff > cAlpha) {
+      selected.push(maxIdx);
+    }
+  }
+
+  selected.sort((a, b) => a - b);
+
+  for (const idx of selected) {
+    const item = deviations[idx];
+    breakDates.push({
+      date: item.date,
+      index: item.k,
+      reason: item.d > 0
+        ? 'Volatility Expansion Shock'
+        : 'Volatility Compression Regime Shift',
+      severity: item.diff > 1.5 * cAlpha ? 'High' : 'Moderate',
+    });
+  }
+
   return {
     cusumSqPoints,
-    breakDates: breakDates.slice(0, 3), // Top 3 notable regimes
+    breakDates,
     hasSignificantBreak: breakDates.length > 0,
   };
 }

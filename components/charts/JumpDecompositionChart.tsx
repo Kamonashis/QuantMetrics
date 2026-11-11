@@ -15,7 +15,7 @@ export function JumpDecompositionChart({
 }: JumpDecompositionChartProps) {
   if (!dailyRV || dailyRV.length === 0) {
     return (
-      <div className="h-60 flex items-center justify-center border border-slate-200 dark:border-slate-800 rounded-lg text-slate-500 text-xs">
+      <div className="h-60 flex items-center justify-center border border-zinc-200 dark:border-zinc-800 rounded-lg text-zinc-500 text-xs">
         No realized volatility days computed
       </div>
     );
@@ -58,33 +58,33 @@ export function JumpDecompositionChart({
   const avgJumpRatio = totalRv > 0 ? (totalJump / totalRv) * 100 : 0;
 
   return (
-    <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800/80 rounded-xl p-5 shadow-xs">
+    <div className="panel p-5">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <div>
           <div className="flex items-center gap-2">
-            <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-sm tracking-tight">
+            <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm tracking-tight">
               Realized Volatility &amp; Jump Decomposition (Barndorff-Nielsen &amp; Shephard)
             </h3>
-            <span className="text-xs text-slate-500 dark:text-slate-400">
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">
               · {ticker} (Recent {n} Sessions)
             </span>
           </div>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
             Disentangles continuous diffusive market variance (BV_t) from discrete jump shocks (J_t)
           </p>
         </div>
 
         <div className="flex items-center gap-3 text-xs">
           <div>
-            <span className="text-slate-500 dark:text-slate-400">Jump Share:</span>{' '}
-            <span className="font-mono font-bold text-amber-500 tabular-nums">
+            <span className="text-zinc-500 dark:text-zinc-400">Jump Share:</span>{' '}
+            <span className="font-mono font-bold text-gold-500 tabular-nums">
               {avgJumpRatio.toFixed(1)}% of Total RV
             </span>
           </div>
-          <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">·</span>
+          <span className="text-zinc-300 dark:text-zinc-700" aria-hidden="true">·</span>
           <div>
-            <span className="text-slate-500 dark:text-slate-400">Significant Jumps (p &lt; 0.05):</span>{' '}
-            <span className="font-mono font-bold text-slate-900 dark:text-slate-100 tabular-nums">
+            <span className="text-zinc-500 dark:text-zinc-400">Significant Jumps (p &lt; 0.05):</span>{' '}
+            <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100 tabular-nums">
               {jumpDayCount} of {n} days
             </span>
           </div>
@@ -105,14 +105,14 @@ export function JumpDecompositionChart({
                   x2={width - padRight}
                   y2={yPos}
                   stroke="currentColor"
-                  className="text-slate-200 dark:text-slate-800/80"
+                  className="text-zinc-200 dark:text-zinc-800/80"
                   strokeDasharray="2 3"
                 />
                 <text
                   x={padLeft - 6}
                   y={yPos + 4}
                   textAnchor="end"
-                  className="text-[10px] font-mono fill-slate-500 dark:fill-slate-400 tabular-nums"
+                  className="text-[10px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
                 >
                   {(val * 100).toFixed(0)}%
                 </text>
@@ -156,7 +156,7 @@ export function JumpDecompositionChart({
                     y={yTotal}
                     width={barW}
                     height={hJump}
-                    fill={d.hasSignificantJump ? '#f43f5e' : '#f59e0b'}
+                    fill={d.hasSignificantJump ? '#f43f5e' : '#DEC084'}
                     className="opacity-90 group-hover:opacity-100 transition-opacity"
                     rx="1"
                   />
@@ -174,7 +174,7 @@ export function JumpDecompositionChart({
                   x={centerX}
                   y={yTotal - 4}
                   textAnchor="middle"
-                  className="text-[9px] font-mono fill-slate-600 dark:fill-slate-400 font-bold tabular-nums opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="text-[9px] font-mono fill-zinc-600 dark:fill-zinc-400 font-bold tabular-nums opacity-0 group-hover:opacity-100 transition-opacity"
                 >
                   {(totalVol * 100).toFixed(1)}%
                 </text>
@@ -184,7 +184,7 @@ export function JumpDecompositionChart({
                   x={centerX}
                   y={height - 8}
                   textAnchor="middle"
-                  className="text-[10px] font-mono fill-slate-500 dark:fill-slate-400 tabular-nums"
+                  className="text-[10px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
                 >
                   {d.date.slice(5)}
                 </text>
@@ -194,14 +194,14 @@ export function JumpDecompositionChart({
         </svg>
       </div>
 
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs text-slate-500 dark:text-slate-400 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800/60 gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs text-zinc-500 dark:text-zinc-400 mt-2 pt-2 border-t border-zinc-100 dark:border-zinc-800/60 gap-2">
         <div className="flex items-center gap-4">
           <span className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-xs bg-sky-500 inline-block" />
+            <span className="w-2.5 h-2.5 rounded-xs bg-gold-500 inline-block" />
             Continuous Diffusion (Bipower Variation BV_t)
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-xs bg-amber-500 inline-block" />
+            <span className="w-2.5 h-2.5 rounded-xs bg-gold-500 inline-block" />
             Normal Jump Noise
           </span>
           <span className="flex items-center gap-1.5">

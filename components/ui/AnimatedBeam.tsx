@@ -35,8 +35,8 @@ export function AnimatedBeam({
   pathColor = 'currentColor',
   pathWidth = 1.5,
   pathOpacity = 0.2,
-  gradientStartColor = '#d97706', // Muted Bronze
-  gradientStopColor = '#f59e0b', // Warm Amber
+  gradientStartColor = '#C69A48', // Muted Bronze
+  gradientStopColor = '#DEC084', // Warm Amber
   startXOffset = 0,
   startYOffset = 0,
   endXOffset = 0,

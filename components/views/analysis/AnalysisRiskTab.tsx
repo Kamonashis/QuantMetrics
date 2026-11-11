@@ -92,16 +92,16 @@ export function AnalysisRiskTab({
   return (
     <div className="space-y-6">
       {/* 5-Model VaR & ES Backtesting Comparison Table */}
-      <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800/90 rounded-xl p-5 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800/60 gap-3">
+      <div className="panel p-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-zinc-100 dark:border-zinc-800/60 gap-3">
           <div>
             <div className="flex items-center gap-2">
               <ShieldAlert className="w-4 h-4 text-rose-500" />
-              <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-sm">
+              <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
                 5-Model Value-at-Risk (VaR) &amp; Expected Shortfall (ES) Backtesting Suite
               </h3>
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
               Kupiec (1995) unconditional coverage &amp; Christoffersen (1998) exceedance clustering tests with Basel traffic lights
             </p>
           </div>
@@ -115,7 +115,7 @@ export function AnalysisRiskTab({
         <div className="mt-4 overflow-x-auto">
           <table className="w-full text-xs text-left">
             <thead>
-              <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 font-mono">
+              <tr className="border-b border-zinc-200 dark:border-zinc-800 text-zinc-400 font-mono">
                 <th className="py-2.5 px-3">Model Specification</th>
                 <th className="py-2.5 px-3">95% 1d VaR</th>
                 <th className="py-2.5 px-3">99% 1d VaR</th>
@@ -126,13 +126,13 @@ export function AnalysisRiskTab({
                 <th className="py-2.5 px-3">Basel Zone</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
+            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/60 font-mono">
               {varBacktestModels.map((m) => (
-                <tr key={m.key} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/30">
-                  <td className="py-3 px-3 font-semibold text-slate-900 dark:text-slate-100">
+                <tr key={m.key} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30">
+                  <td className="py-3 px-3 font-semibold text-zinc-900 dark:text-zinc-100">
                     {m.modelName}
                   </td>
-                  <td className="py-3 px-3 text-slate-700 dark:text-slate-300">
+                  <td className="py-3 px-3 text-zinc-700 dark:text-zinc-300">
                     {(m.var95Pct * 100).toFixed(2)}%
                   </td>
                   <td className="py-3 px-3 font-semibold text-rose-600 dark:text-rose-400">
@@ -145,23 +145,23 @@ export function AnalysisRiskTab({
                     <span className="font-semibold">{m.exceedances99}</span> / {m.expectedExceedances99.toFixed(1)}
                   </td>
                   <td className="py-3 px-3">
-                    <div className="text-slate-800 dark:text-slate-200">
+                    <div className="text-zinc-800 dark:text-zinc-200">
                       LR = {m.kupiecLr99.toFixed(2)}
                     </div>
-                    <div className="text-[11px] text-slate-400">
+                    <div className="text-[11px] text-zinc-400">
                       p = {m.kupiecPVal99.toFixed(3)}{' '}
-                      <span className={m.kupiecVerdict99 === 'Pass' ? 'text-emerald-500 font-medium' : 'text-rose-500 font-semibold'}>
+                      <span className={m.kupiecVerdict99 === 'Pass' ? 'text-gold-500 font-medium' : 'text-rose-500 font-semibold'}>
                         [{m.kupiecVerdict99}]
                       </span>
                     </div>
                   </td>
                   <td className="py-3 px-3">
-                    <div className="text-slate-800 dark:text-slate-200">
+                    <div className="text-zinc-800 dark:text-zinc-200">
                       LR = {m.christoffersenLr99.toFixed(2)}
                     </div>
-                    <div className="text-[11px] text-slate-400">
+                    <div className="text-[11px] text-zinc-400">
                       p = {m.christoffersenPVal99.toFixed(3)}{' '}
-                      <span className={m.christoffersenVerdict99.startsWith('Pass') ? 'text-emerald-500 font-medium' : 'text-amber-500 font-semibold'}>
+                      <span className={m.christoffersenVerdict99.startsWith('Pass') ? 'text-gold-500 font-medium' : 'text-gold-500 font-semibold'}>
                         [{m.christoffersenVerdict99.startsWith('Pass') ? 'Independent' : 'Clustered'}]
                       </span>
                     </div>
@@ -170,18 +170,18 @@ export function AnalysisRiskTab({
                     <span
                       className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded font-mono font-semibold text-xs ${
                         m.baselZone === 'Green'
-                          ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300'
+                          ? 'bg-gold-100 dark:bg-gold-950/40 text-gold-700 dark:text-gold-300'
                           : m.baselZone === 'Yellow'
-                          ? 'bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300'
+                          ? 'bg-gold-100 dark:bg-gold-950/40 text-gold-700 dark:text-gold-300'
                           : 'bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300'
                       }`}
                     >
                       <span
                         className={`w-1.5 h-1.5 rounded-full ${
                           m.baselZone === 'Green'
-                            ? 'bg-emerald-500'
+                            ? 'bg-gold-500'
                             : m.baselZone === 'Yellow'
-                            ? 'bg-amber-500'
+                            ? 'bg-gold-500'
                             : 'bg-rose-500'
                         }`}
                       />
@@ -194,8 +194,8 @@ export function AnalysisRiskTab({
           </table>
         </div>
 
-        <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/60 text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2">
-          <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+        <div className="mt-4 pt-3 border-t border-zinc-100 dark:border-zinc-800/60 text-xs text-zinc-500 dark:text-zinc-400 flex items-center gap-2">
+          <Info className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
           <span>
             Under Basel Committee standards, 99% VaR with fewer than 5 exceptions over 250 days falls into the Green zone
             (no regulatory capital multiplier penalty). Notice that Parametric Normal underestimates tail exceedances
@@ -205,58 +205,58 @@ export function AnalysisRiskTab({
       </div>
 
       {/* Underwater Drawdown Curve & Analytics */}
-      <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800/90 rounded-xl p-5 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800/60 gap-3">
+      <div className="panel p-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-zinc-100 dark:border-zinc-800/60 gap-3">
           <div>
             <div className="flex items-center gap-2">
               <TrendingDown className="w-4 h-4 text-rose-500" />
-              <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-sm">
+              <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
                 Underwater Drawdown Curve &amp; Peak-to-Trough Analytics
               </h3>
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
               Continuous percentage decline from running peak price
             </p>
           </div>
 
-          <div className="font-mono text-xs text-slate-400">
+          <div className="font-mono text-xs text-zinc-400">
             {activeDdPoint.date}: <strong className="text-rose-500">{activeDdPoint.drawdownPct.toFixed(2)}%</strong>
           </div>
         </div>
 
         {/* Drawdown Summary Cards */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-4">
-          <div className="p-3 rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
-            <div className="text-[11px] text-slate-400">Current Drawdown</div>
-            <div className="mt-1 text-lg font-bold font-mono text-slate-900 dark:text-slate-100">
+          <div className="p-3 rounded-lg border border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/30">
+            <div className="text-[11px] text-zinc-400">Current Drawdown</div>
+            <div className="mt-1 text-lg font-bold font-mono text-zinc-900 dark:text-zinc-100">
               {drawdownResult.currentDrawdownPct.toFixed(2)}%
             </div>
           </div>
 
-          <div className="p-3 rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
-            <div className="text-[11px] text-slate-400">Maximum Drawdown (MDD)</div>
+          <div className="p-3 rounded-lg border border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/30">
+            <div className="text-[11px] text-zinc-400">Maximum Drawdown (MDD)</div>
             <div className="mt-1 text-lg font-bold font-mono text-rose-600 dark:text-rose-400">
               {drawdownResult.maxDrawdownPct.toFixed(2)}%
             </div>
           </div>
 
-          <div className="p-3 rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
-            <div className="text-[11px] text-slate-400">Longest Drawdown</div>
-            <div className="mt-1 text-lg font-bold font-mono text-slate-900 dark:text-slate-100">
+          <div className="p-3 rounded-lg border border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/30">
+            <div className="text-[11px] text-zinc-400">Longest Drawdown</div>
+            <div className="mt-1 text-lg font-bold font-mono text-zinc-900 dark:text-zinc-100">
               {drawdownResult.maxDrawdownDurationDays} days
             </div>
           </div>
 
-          <div className="p-3 rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
-            <div className="text-[11px] text-slate-400">Calmar Ratio</div>
-            <div className="mt-1 text-lg font-bold font-mono text-emerald-600 dark:text-emerald-400">
+          <div className="p-3 rounded-lg border border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/30">
+            <div className="text-[11px] text-zinc-400">Calmar Ratio</div>
+            <div className="mt-1 text-lg font-bold font-mono text-gold-600 dark:text-gold-400">
               {drawdownResult.calmarRatio.toFixed(2)}
             </div>
           </div>
 
-          <div className="p-3 rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
-            <div className="text-[11px] text-slate-400">Ulcer Index</div>
-            <div className="mt-1 text-lg font-bold font-mono text-amber-600 dark:text-amber-400">
+          <div className="p-3 rounded-lg border border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/30">
+            <div className="text-[11px] text-zinc-400">Ulcer Index</div>
+            <div className="mt-1 text-lg font-bold font-mono text-gold-600 dark:text-gold-400">
               {drawdownResult.ulcerIndex.toFixed(2)}%
             </div>
           </div>
@@ -327,7 +327,7 @@ export function AnalysisRiskTab({
           </svg>
         </div>
 
-        <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono mt-1">
+        <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono mt-1">
           <span>{ddData[0]?.date}</span>
           <span>Underwater Exposure Path</span>
           <span>{ddData[nDd - 1]?.date}</span>
@@ -337,50 +337,50 @@ export function AnalysisRiskTab({
       {/* Downside Risk & Asymmetric Beta to SPY Benchmark */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Downside Risk Metrics */}
-        <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800/90 rounded-xl p-5 shadow-xs">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800/60">
+        <div className="panel p-5">
+          <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800/60">
             <div>
-              <h4 className="font-semibold text-slate-900 dark:text-slate-100 text-sm">
+              <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
                 Downside Risk &amp; Benchmark Asymmetry (vs. SPY)
               </h4>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
                 Separating downside co-crash exposure from upside market participation
               </p>
             </div>
-            <div className="font-mono text-xs text-slate-400">
-              Beta: <strong className="text-emerald-500">{activeBetaPoint.beta.toFixed(2)}</strong>
+            <div className="font-mono text-xs text-zinc-400">
+              Beta: <strong className="text-gold-500">{activeBetaPoint.beta.toFixed(2)}</strong>
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3 mt-4">
-            <div className="p-3 rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
-              <div className="text-[11px] text-slate-400">Semi-Deviation (Ann.)</div>
-              <div className="mt-1 text-lg font-bold font-mono text-slate-900 dark:text-slate-100">
+            <div className="p-3 rounded-lg border border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/30">
+              <div className="text-[11px] text-zinc-400">Semi-Deviation (Ann.)</div>
+              <div className="mt-1 text-lg font-bold font-mono text-zinc-900 dark:text-zinc-100">
                 {(downsideResult.semiDeviationAnn * 100).toFixed(2)}%
               </div>
             </div>
 
-            <div className="p-3 rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
-              <div className="text-[11px] text-slate-400">Sortino Ratio</div>
-              <div className="mt-1 text-lg font-bold font-mono text-emerald-600 dark:text-emerald-400">
+            <div className="p-3 rounded-lg border border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/30">
+              <div className="text-[11px] text-zinc-400">Sortino Ratio</div>
+              <div className="mt-1 text-lg font-bold font-mono text-gold-600 dark:text-gold-400">
                 {downsideResult.sortinoRatio.toFixed(2)}
               </div>
             </div>
 
-            <div className="p-3 rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
-              <div className="text-[11px] text-slate-400">Downside Beta (β⁻)</div>
-              <div className="mt-1 text-lg font-bold font-mono text-amber-600 dark:text-amber-400">
+            <div className="p-3 rounded-lg border border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/30">
+              <div className="text-[11px] text-zinc-400">Downside Beta (β⁻)</div>
+              <div className="mt-1 text-lg font-bold font-mono text-gold-600 dark:text-gold-400">
                 {downsideResult.downsideBeta.toFixed(2)}
               </div>
-              <div className="text-[10px] text-slate-400 mt-0.5">SPY Down-days</div>
+              <div className="text-[10px] text-zinc-400 mt-0.5">SPY Down-days</div>
             </div>
 
-            <div className="p-3 rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
-              <div className="text-[11px] text-slate-400">Upside Beta (β⁺)</div>
-              <div className="mt-1 text-lg font-bold font-mono text-emerald-600 dark:text-emerald-400">
+            <div className="p-3 rounded-lg border border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/30">
+              <div className="text-[11px] text-zinc-400">Upside Beta (β⁺)</div>
+              <div className="mt-1 text-lg font-bold font-mono text-gold-600 dark:text-gold-400">
                 {downsideResult.upsideBeta.toFixed(2)}
               </div>
-              <div className="text-[10px] text-slate-400 mt-0.5">SPY Up-days</div>
+              <div className="text-[10px] text-zinc-400 mt-0.5">SPY Up-days</div>
             </div>
           </div>
 
@@ -418,7 +418,7 @@ export function AnalysisRiskTab({
             </svg>
           </div>
 
-          <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+          <div className="flex items-center justify-between text-[10px] text-zinc-400 font-mono">
             <span>{betaData[0]?.date}</span>
             <span>60-Day Rolling Beta to SPY</span>
             <span>{betaData[nBeta - 1]?.date}</span>
@@ -426,13 +426,13 @@ export function AnalysisRiskTab({
         </div>
 
         {/* Probabilistic & Deflated Sharpe Ratio (Bailey & López de Prado) */}
-        <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800/90 rounded-xl p-5 shadow-xs">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800/60">
+        <div className="panel p-5">
+          <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800/60">
             <div>
-              <h4 className="font-semibold text-slate-900 dark:text-slate-100 text-sm">
+              <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
                 Probabilistic Sharpe Ratio (PSR) &amp; Deflated Sharpe (DSR)
               </h4>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
                 Bailey &amp; López de Prado (2012): correcting point Sharpe for non-normality and selection bias
               </p>
             </div>
@@ -440,43 +440,43 @@ export function AnalysisRiskTab({
           </div>
 
           <div className="grid grid-cols-2 gap-4 mt-4">
-            <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40">
-              <div className="text-xs text-slate-500 dark:text-slate-400">Point Sharpe Ratio (Ann.)</div>
-              <div className="mt-2 text-2xl font-bold font-mono text-slate-900 dark:text-slate-100">
+            <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40">
+              <div className="text-xs text-zinc-500 dark:text-zinc-400">Point Sharpe Ratio (Ann.)</div>
+              <div className="mt-2 text-2xl font-bold font-mono text-zinc-900 dark:text-zinc-100">
                 {downsideResult.sharpeRatioAnn.toFixed(2)}
               </div>
-              <div className="mt-2 text-[11px] font-mono text-slate-400">
+              <div className="mt-2 text-[11px] font-mono text-zinc-400">
                 HAC SE: ±{downsideResult.sharpeStdErrorHac.toFixed(3)}
               </div>
             </div>
 
-            <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40">
-              <div className="text-xs text-slate-500 dark:text-slate-400">Probabilistic Sharpe (PSR)</div>
-              <div className="mt-2 text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400">
+            <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40">
+              <div className="text-xs text-zinc-500 dark:text-zinc-400">Probabilistic Sharpe (PSR)</div>
+              <div className="mt-2 text-2xl font-bold font-mono text-gold-600 dark:text-gold-400">
                 {(downsideResult.probabilisticSharpeRatio * 100).toFixed(1)}%
               </div>
-              <div className="mt-2 text-[11px] font-mono text-slate-400">
+              <div className="mt-2 text-[11px] font-mono text-zinc-400">
                 Confidence that SR &gt; 0
               </div>
             </div>
           </div>
 
-          <div className="mt-4 p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40">
+          <div className="mt-4 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40">
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-xs text-slate-500 dark:text-slate-400">Deflated Sharpe Ratio (DSR)</div>
-                <div className="text-lg font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-1">
+                <div className="text-xs text-zinc-500 dark:text-zinc-400">Deflated Sharpe Ratio (DSR)</div>
+                <div className="text-lg font-bold font-mono text-gold-600 dark:text-gold-400 mt-1">
                   {(downsideResult.deflatedSharpeRatio * 100).toFixed(1)}%
                 </div>
               </div>
-              <div className="text-right text-[11px] text-slate-400 max-w-xs">
+              <div className="text-right text-[11px] text-zinc-400 max-w-xs">
                 Penalizes for multiple testing / backtest overfitting across hyperparameter search trials.
               </div>
             </div>
           </div>
 
-          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/60 text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2">
-            <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+          <div className="mt-4 pt-3 border-t border-zinc-100 dark:border-zinc-800/60 text-xs text-zinc-500 dark:text-zinc-400 flex items-center gap-2">
+            <Info className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
             <span>
               Standard i.i.d. Sharpe standard errors assume zero skewness and kurtosis = 3. In the presence of negative
               skew and fat tails, PSR proves that the observed risk-adjusted return is statistically genuine rather than

@@ -8,7 +8,7 @@ interface RollingVolatilityChartProps {
   title?: string;
 }
 
-const COLORS = ['#06b6d4', '#f59e0b', '#a855f7', '#10b981', '#f43f5e'];
+const COLORS = ['#06b6d4', '#DEC084', '#a855f7', '#10b981', '#f43f5e'];
 
 export function RollingVolatilityChart({
   series,
@@ -18,7 +18,7 @@ export function RollingVolatilityChart({
 
   if (!series || series.length === 0 || !series[0].values.length) {
     return (
-      <div className="h-60 flex items-center justify-center border border-slate-200 dark:border-slate-800 rounded-lg text-slate-500">
+      <div className="h-60 flex items-center justify-center border border-zinc-200 dark:border-zinc-800 rounded-lg text-zinc-500">
         No rolling volatility computed
       </div>
     );
@@ -63,13 +63,13 @@ export function RollingVolatilityChart({
   };
 
   return (
-    <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800/80 rounded-xl p-5 shadow-xs">
+    <div className="panel p-5">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
         <div>
-          <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-sm tracking-tight">
+          <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm tracking-tight">
             {title}
           </h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
             Standard deviation annualized across user-selected rolling observation windows
           </p>
         </div>
@@ -85,10 +85,10 @@ export function RollingVolatilityChart({
                   className="w-2.5 h-2.5 rounded-full inline-block"
                   style={{ backgroundColor: color }}
                 />
-                <span className="text-slate-500 dark:text-slate-400 font-medium">
+                <span className="text-zinc-500 dark:text-zinc-400 font-medium">
                   {s.window}d:
                 </span>
-                <span className="font-mono font-bold text-slate-900 dark:text-slate-100 tabular-nums">
+                <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100 tabular-nums">
                   {activeVal !== null && activeVal !== undefined
                     ? `${(activeVal * 100).toFixed(1)}%`
                     : '—'}
@@ -118,14 +118,14 @@ export function RollingVolatilityChart({
                   x2={width - padRight}
                   y2={yPos}
                   stroke="currentColor"
-                  className="text-slate-200 dark:text-slate-800/80"
+                  className="text-zinc-200 dark:text-zinc-800/80"
                   strokeDasharray="2 3"
                 />
                 <text
                   x={padLeft - 6}
                   y={yPos + 4}
                   textAnchor="end"
-                  className="text-[10px] font-mono fill-slate-500 dark:fill-slate-400 tabular-nums"
+                  className="text-[10px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
                 >
                   {(val * 100).toFixed(0)}%
                 </text>
@@ -181,7 +181,7 @@ export function RollingVolatilityChart({
                 x={getX(i)}
                 y={height - 6}
                 textAnchor="middle"
-                className="text-[10px] font-mono fill-slate-500 dark:fill-slate-400 tabular-nums"
+                className="text-[10px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
               >
                 {dates[i]}
               </text>
@@ -190,8 +190,8 @@ export function RollingVolatilityChart({
         </svg>
       </div>
 
-      <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mt-2">
-        <span>Cursor Date: <span className="font-mono text-slate-800 dark:text-slate-200 font-semibold">{activeDate}</span></span>
+      <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400 mt-2">
+        <span>Cursor Date: <span className="font-mono text-zinc-800 dark:text-zinc-200 font-semibold">{activeDate}</span></span>
         <span>Annualized Factor: <span className="font-mono">√252 ≈ 15.874</span></span>
       </div>
     </div>

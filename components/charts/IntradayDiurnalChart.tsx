@@ -16,7 +16,7 @@ export function IntradayDiurnalChart({
 
   if (!points || points.length === 0) {
     return (
-      <div className="h-64 flex items-center justify-center border border-slate-200 dark:border-slate-800 rounded-lg text-slate-500 text-xs">
+      <div className="h-64 flex items-center justify-center border border-zinc-200 dark:border-zinc-800 rounded-lg text-zinc-500 text-xs">
         No intraday 1-minute observations available
       </div>
     );
@@ -80,28 +80,28 @@ export function IntradayDiurnalChart({
   ];
 
   return (
-    <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800/80 rounded-xl p-5 shadow-xs">
+    <div className="panel p-5">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
         <div>
           <div className="flex items-center gap-2">
-            <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-sm tracking-tight">
+            <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm tracking-tight">
               Intraday Diurnal U-Shape Volatility Smile
             </h3>
-            <span className="text-xs text-slate-500 dark:text-slate-400">
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">
               · {ticker} (390 Trading Minutes)
             </span>
           </div>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
             Empirical minute-by-minute volatility profile showing opening price discovery, midday lull, and market-on-close auction
           </p>
         </div>
 
         {activePt && (
           <div className="text-right">
-            <span className="text-xs text-slate-500 dark:text-slate-400 mr-1.5">
+            <span className="text-xs text-zinc-500 dark:text-zinc-400 mr-1.5">
               Time {activePt.timeLabel}:
             </span>
-            <span className="font-mono text-sm font-bold text-sky-500 tabular-nums">
+            <span className="font-mono text-sm font-bold text-gold-600 dark:text-gold-300 tabular-nums">
               {(activePt.avgAnnualizedVol * 100).toFixed(1)}% Vol
             </span>
           </div>
@@ -134,14 +134,14 @@ export function IntradayDiurnalChart({
                   x2={width - padRight}
                   y2={yPos}
                   stroke="currentColor"
-                  className="text-slate-200 dark:text-slate-800/80"
+                  className="text-zinc-200 dark:text-zinc-800/80"
                   strokeDasharray="2 3"
                 />
                 <text
                   x={padLeft - 6}
                   y={yPos + 4}
                   textAnchor="end"
-                  className="text-[10px] font-mono fill-slate-500 dark:fill-slate-400 tabular-nums"
+                  className="text-[10px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
                 >
                   {(val * 100).toFixed(0)}%
                 </text>
@@ -160,7 +160,7 @@ export function IntradayDiurnalChart({
                   x2={x}
                   y2={padTop + chartH}
                   stroke="currentColor"
-                  className="text-slate-300 dark:text-slate-700/80"
+                  className="text-zinc-300 dark:text-zinc-700/80"
                   strokeDasharray="3 3"
                   strokeWidth="0.8"
                 />
@@ -168,7 +168,7 @@ export function IntradayDiurnalChart({
                   x={x}
                   y={padTop + 12}
                   textAnchor="middle"
-                  className="text-[9px] font-mono fill-slate-400 dark:fill-slate-500"
+                  className="text-[9px] font-mono fill-zinc-400 dark:fill-zinc-500"
                 >
                   {label}
                 </text>
@@ -205,39 +205,39 @@ export function IntradayDiurnalChart({
                 cy={getY(activePt.avgAnnualizedVol)}
                 r="4"
                 fill="#38bdf8"
-                stroke="#0f172a"
+                stroke="#0E0E11"
                 strokeWidth="2"
               />
             </g>
           )}
 
           {/* X axis labels */}
-          <text x={getX(0)} y={height - 8} textAnchor="start" className="text-[10px] font-mono fill-slate-500">
+          <text x={getX(0)} y={height - 8} textAnchor="start" className="text-[10px] font-mono fill-zinc-500">
             09:30 AM
           </text>
-          <text x={getX(195)} y={height - 8} textAnchor="middle" className="text-[10px] font-mono fill-slate-500">
+          <text x={getX(195)} y={height - 8} textAnchor="middle" className="text-[10px] font-mono fill-zinc-500">
             12:45 PM (Midday Lull)
           </text>
-          <text x={getX(389)} y={height - 8} textAnchor="end" className="text-[10px] font-mono fill-slate-500">
+          <text x={getX(389)} y={height - 8} textAnchor="end" className="text-[10px] font-mono fill-zinc-500">
             16:00 PM (Close)
           </text>
         </svg>
       </div>
 
-      <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800/60">
+      <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400 mt-2 pt-2 border-t border-zinc-100 dark:border-zinc-800/60">
         <div className="flex items-center gap-4">
           <span className="flex items-center gap-1.5">
-            <span className="w-3 h-0.5 bg-sky-500 inline-block" />
+            <span className="w-3 h-0.5 bg-gold-500 inline-block" />
             Mean 1-Min Annualized Volatility
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-xs bg-sky-500/20 inline-block" />
+            <span className="w-2.5 h-2.5 rounded-xs bg-gold-500/20 inline-block" />
             ±1σ Diurnal Dispersion Band
           </span>
         </div>
         <div>
           <span>U-Shape Peak Ratio: </span>
-          <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+          <span className="font-mono font-bold text-zinc-800 dark:text-zinc-200">
             {((points[0]?.avgAnnualizedVol || 0.25) / (points[210]?.avgAnnualizedVol || 0.12)).toFixed(1)}x Open vs Midday
           </span>
         </div>

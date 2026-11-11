@@ -111,25 +111,25 @@ export function RegressionView({
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       {/* Parameter Control Card */}
-      <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-xs">
+      <div className="panel p-5">
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800/80">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-zinc-100 dark:border-zinc-800/80">
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-mono font-semibold uppercase tracking-wider text-purple-600 dark:text-purple-400">
+                <span className="text-xs font-mono font-semibold uppercase tracking-wider text-gold-700 dark:text-gold-300">
                   Econometric Factor Analysis
                 </span>
-                <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">·</span>
-                <span className="text-xs text-slate-500 dark:text-slate-400">
+                <span className="text-zinc-300 dark:text-zinc-700" aria-hidden="true">·</span>
+                <span className="text-xs text-zinc-500 dark:text-zinc-400">
                   {isMultiple ? 'Multiple Linear Regression' : 'Simple Linear Regression (CAPM Beta)'}
                 </span>
               </div>
-              <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100 mt-0.5">
+              <h2 className="text-xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100 mt-0.5">
                 Factor Sensitivity &amp; Residual Econometrics
               </h2>
-              <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-600 dark:text-slate-300">
+              <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-zinc-600 dark:text-zinc-300">
                 <RegressionModelEquation display="inline" />
-                <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">·</span>
+                <span className="text-zinc-300 dark:text-zinc-700" aria-hidden="true">·</span>
                 {regressionType === 'Robust Regression' ? (
                   <RobustIrlsEquation display="inline" />
                 ) : (
@@ -152,7 +152,7 @@ export function RegressionView({
                   </>
                 ) : (
                   <>
-                    <Play className="w-3.5 h-3.5 fill-current text-amber-500" />
+                    <Play className="w-3.5 h-3.5 fill-current text-gold-500" />
                     <span>Run Regression</span>
                   </>
                 )}
@@ -163,24 +163,24 @@ export function RegressionView({
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
             {/* Tickers Input */}
             <div className="lg:col-span-2">
-              <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">
-                Tickers: <strong className="text-purple-600 dark:text-purple-400">Y (Dependent)</strong>, followed by <strong className="text-sky-600 dark:text-sky-400">X₁, X₂, ... (Independent)</strong>
+              <label className="block text-zinc-700 dark:text-zinc-300 font-medium mb-1">
+                Tickers: <strong className="text-gold-700 dark:text-gold-300">Y (Dependent)</strong>, followed by <strong className="text-gold-600 dark:text-gold-300 dark:text-gold-600 dark:text-gold-300">X₁, X₂, ... (Independent)</strong>
               </label>
               <input
                 type="text"
                 value={localInput}
                 onChange={(e) => setLocalInput(e.target.value)}
                 placeholder="AAPL, SPY, QQQ"
-                className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 font-mono font-bold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                className="w-full px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 font-mono font-bold text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-gold-400"
               />
-              <span className="text-[11px] text-slate-400 block mt-1">
+              <span className="text-[11px] text-zinc-400 block mt-1">
                 Active: Dependent <strong>{dependentTicker}</strong> ~ Intercept + {independentTickers.join(' + ')}
               </span>
             </div>
 
             {/* Regression Type */}
             <div>
-              <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">
+              <label className="block text-zinc-700 dark:text-zinc-300 font-medium mb-1">
                 Regression Engine
               </label>
               <select
@@ -190,7 +190,7 @@ export function RegressionView({
                     e.target.value as 'Standard OLS' | 'Robust Regression' | 'Rolling Regression'
                   )
                 }
-                className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-medium focus:outline-none focus:ring-1 focus:ring-purple-500"
+                className="w-full px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 font-medium focus:outline-none focus:ring-1 focus:ring-gold-400"
               >
                 <option value="Standard OLS">Standard OLS</option>
                 <option value="Robust Regression">Robust Regression (Huber IRLS)</option>
@@ -200,7 +200,7 @@ export function RegressionView({
 
             {/* Rolling Window / Settings */}
             <div>
-              <label className="block text-slate-700 dark:text-slate-300 font-medium mb-1">
+              <label className="block text-zinc-700 dark:text-zinc-300 font-medium mb-1">
                 {regressionType === 'Rolling Regression' ? 'Rolling Window (days)' : 'Date Range Filter'}
               </label>
               {regressionType === 'Rolling Regression' ? (
@@ -210,7 +210,7 @@ export function RegressionView({
                   max="180"
                   value={rollingWindow}
                   onChange={(e) => setRollingWindow(Math.max(20, parseInt(e.target.value, 10) || 60))}
-                  className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                  className="w-full px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 font-mono text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-gold-400"
                 />
               ) : (
                 <div className="grid grid-cols-2 gap-1.5">
@@ -218,13 +218,13 @@ export function RegressionView({
                     type="date"
                     value={startDate}
                     onChange={(e) => onStartDateChange(e.target.value)}
-                    className="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 font-mono text-slate-900 dark:text-slate-100 text-[11px]"
+                    className="px-2 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 font-mono text-zinc-900 dark:text-zinc-100 text-[11px]"
                   />
                   <input
                     type="date"
                     value={endDate}
                     onChange={(e) => onEndDateChange(e.target.value)}
-                    className="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 font-mono text-slate-900 dark:text-slate-100 text-[11px]"
+                    className="px-2 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 font-mono text-zinc-900 dark:text-zinc-100 text-[11px]"
                   />
                 </div>
               )}
@@ -233,8 +233,8 @@ export function RegressionView({
         </form>
 
         {/* Model Presets */}
-        <div className="flex flex-wrap items-center gap-2 mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/60 text-xs">
-          <span className="text-slate-400">Benchmark Factor Presets:</span>
+        <div className="flex flex-wrap items-center gap-2 mt-4 pt-3 border-t border-zinc-100 dark:border-zinc-800/60 text-xs">
+          <span className="text-zinc-400">Benchmark Factor Presets:</span>
           {[
             { label: 'Single Factor (CAPM): AAPL ~ SPY', val: 'AAPL, SPY' },
             { label: 'Two-Factor Tech: NVDA ~ SPY, QQQ', val: 'NVDA, SPY, QQQ' },
@@ -247,7 +247,7 @@ export function RegressionView({
                 onRegressionTickersChange(preset.val);
                 onRunRegression(preset.val.split(',').map((s) => s.trim()));
               }}
-              className="px-2.5 py-1 rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 hover:border-purple-500 text-slate-700 dark:text-slate-300 font-mono text-[11px] transition-colors"
+              className="px-2.5 py-1 rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/60 hover:border-gold-500 text-zinc-700 dark:text-zinc-300 font-mono text-[11px] transition-colors"
             >
               {preset.label}
             </button>
@@ -257,7 +257,7 @@ export function RegressionView({
 
       {/* Observation Availability Notice */}
       {regressionSummary.nObservations === 0 && (
-        <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-700 dark:text-amber-400 flex items-center justify-between">
+        <div className="p-4 bg-gold-500/10 border border-gold-500/20 rounded-xl text-xs text-gold-700 dark:text-gold-400 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Info className="w-4 h-4 flex-shrink-0" />
             <span>
@@ -271,75 +271,75 @@ export function RegressionView({
 
       {/* Model Fit Diagnostics Summary Strip */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800 p-4 rounded-xl">
-          <span className="text-xs text-slate-500 dark:text-slate-400 block">
+        <div className="bg-white dark:bg-[#101014] border border-zinc-200 dark:border-zinc-800 p-4 rounded-xl">
+          <span className="text-xs text-zinc-500 dark:text-zinc-400 block">
             R-Squared (<MathSymbol name="r_squared" />)
           </span>
-          <span className="font-mono text-xl font-bold text-slate-900 dark:text-slate-100 tabular-nums">
+          <span className="font-mono text-xl font-bold text-zinc-900 dark:text-zinc-100 tabular-nums">
             {(regressionSummary.rSquared * 100).toFixed(2)}%
           </span>
-          <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5">
+          <span className="text-[11px] text-zinc-500 dark:text-zinc-400 block mt-0.5">
             Variance explained
           </span>
         </div>
 
-        <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800 p-4 rounded-xl">
-          <span className="text-xs text-slate-500 dark:text-slate-400 block">
+        <div className="bg-white dark:bg-[#101014] border border-zinc-200 dark:border-zinc-800 p-4 rounded-xl">
+          <span className="text-xs text-zinc-500 dark:text-zinc-400 block">
             Adjusted <MathSymbol name="adj_r_squared" />
           </span>
-          <span className="font-mono text-xl font-bold text-sky-500 tabular-nums">
+          <span className="font-mono text-xl font-bold text-gold-600 dark:text-gold-300 tabular-nums">
             {(regressionSummary.adjRSquared * 100).toFixed(2)}%
           </span>
-          <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5">
+          <span className="text-[11px] text-zinc-500 dark:text-zinc-400 block mt-0.5">
             Degrees of freedom adj.
           </span>
         </div>
 
-        <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800 p-4 rounded-xl">
-          <span className="text-xs text-slate-500 dark:text-slate-400 block">F-Statistic</span>
-          <span className="font-mono text-xl font-bold text-slate-900 dark:text-slate-100 tabular-nums">
+        <div className="bg-white dark:bg-[#101014] border border-zinc-200 dark:border-zinc-800 p-4 rounded-xl">
+          <span className="text-xs text-zinc-500 dark:text-zinc-400 block">F-Statistic</span>
+          <span className="font-mono text-xl font-bold text-zinc-900 dark:text-zinc-100 tabular-nums">
             {regressionSummary.fStatistic.toFixed(1)}
           </span>
-          <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5">
+          <span className="text-[11px] text-zinc-500 dark:text-zinc-400 block mt-0.5">
             p &lt; 0.001 (Joint sig.)
           </span>
         </div>
 
-        <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800 p-4 rounded-xl">
-          <span className="text-xs text-slate-500 dark:text-slate-400 block">Akaike / Bayesian</span>
-          <span className="font-mono text-sm font-bold text-slate-900 dark:text-slate-100 tabular-nums">
+        <div className="bg-white dark:bg-[#101014] border border-zinc-200 dark:border-zinc-800 p-4 rounded-xl">
+          <span className="text-xs text-zinc-500 dark:text-zinc-400 block">Akaike / Bayesian</span>
+          <span className="font-mono text-sm font-bold text-zinc-900 dark:text-zinc-100 tabular-nums">
             {regressionSummary.aic.toFixed(0)} / {regressionSummary.bic.toFixed(0)}
           </span>
-          <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5">
+          <span className="text-[11px] text-zinc-500 dark:text-zinc-400 block mt-0.5">
             Model selection AIC/BIC
           </span>
         </div>
 
-        <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800 p-4 rounded-xl">
-          <span className="text-xs text-slate-500 dark:text-slate-400 block">Durbin-Watson</span>
-          <span className="font-mono text-xl font-bold text-emerald-500 tabular-nums">
+        <div className="bg-white dark:bg-[#101014] border border-zinc-200 dark:border-zinc-800 p-4 rounded-xl">
+          <span className="text-xs text-zinc-500 dark:text-zinc-400 block">Durbin-Watson</span>
+          <span className="font-mono text-xl font-bold text-gold-500 tabular-nums">
             {regressionSummary.durbinWatson.toFixed(2)}
           </span>
-          <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5">
+          <span className="text-[11px] text-zinc-500 dark:text-zinc-400 block mt-0.5">
             ~2.0 (No serial residual corr)
           </span>
         </div>
 
-        <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800 p-4 rounded-xl bg-purple-50/20 dark:bg-purple-950/20 border-purple-200 dark:border-purple-800/40">
+        <div className="bg-white dark:bg-[#101014] border border-zinc-200 dark:border-zinc-800 p-4 rounded-xl bg-gold-500/20 dark:bg-gold-500/20 border-gold-500 dark:border-gold-500/40">
           <div className="flex items-center justify-between">
-            <span className="text-xs text-purple-600 dark:text-purple-400 block font-semibold">Next-Day Forecast</span>
+            <span className="text-xs text-gold-700 dark:text-gold-300 block font-semibold">Next-Day Forecast</span>
             <ExpectedReturnEquation display="inline" className="text-[10px]" />
           </div>
           <span
             className={`font-mono text-xl font-bold tabular-nums ${
               regressionSummary.forecastNextDay.expectedReturn >= 0
-                ? 'text-emerald-500'
+                ? 'text-gold-500'
                 : 'text-rose-500'
             }`}
           >
             {(regressionSummary.forecastNextDay.expectedReturn * 100).toFixed(2)}%
           </span>
-          <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5">
+          <span className="text-[11px] text-zinc-500 dark:text-zinc-400 block mt-0.5">
             95% CI: [{(regressionSummary.forecastNextDay.predictionInterval95[0] * 100).toFixed(1)}%,{' '}
             {(regressionSummary.forecastNextDay.predictionInterval95[1] * 100).toFixed(1)}%]
           </span>
@@ -347,62 +347,62 @@ export function RegressionView({
       </div>
 
       {/* Regression Coefficients & VIF Table */}
-      <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-xs overflow-x-auto">
-        <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100 dark:border-slate-800">
+      <div className="panel p-5 overflow-x-auto">
+        <div className="flex items-center justify-between mb-3 pb-2 border-b border-zinc-100 dark:border-zinc-800">
           <div>
-            <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-sm">
+            <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
               Parameter Estimates, Significance &amp; Multicollinearity (VIF)
             </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
               Dependent Variable: {dependentTicker} · Observations: {regressionSummary.nObservations}
             </p>
           </div>
-          <span className="text-xs font-mono text-slate-500 dark:text-slate-400">
+          <span className="text-xs font-mono text-zinc-500 dark:text-zinc-400">
             Regression Error s: {(regressionSummary.standardErrorOfRegression * 100).toFixed(3)}%
           </span>
         </div>
 
-        <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-xs font-mono">
+        <table className="min-w-full divide-y divide-zinc-200 dark:divide-zinc-800 text-xs font-mono">
           <thead>
             <tr>
-              <th className="py-2.5 px-3 text-left font-semibold text-slate-500">Variable</th>
-              <th className="py-2.5 px-3 text-right font-semibold text-slate-500">
+              <th className="py-2.5 px-3 text-left font-semibold text-zinc-500">Variable</th>
+              <th className="py-2.5 px-3 text-right font-semibold text-zinc-500">
                 Coefficient (<MathSymbol name="beta" />)
               </th>
-              <th className="py-2.5 px-3 text-right font-semibold text-slate-500">Std Error</th>
-              <th className="py-2.5 px-3 text-right font-semibold text-slate-500">t-Statistic</th>
-              <th className="py-2.5 px-3 text-right font-semibold text-slate-500">p-Value (P&gt;|t|)</th>
-              <th className="py-2.5 px-3 text-right font-semibold text-slate-500">
+              <th className="py-2.5 px-3 text-right font-semibold text-zinc-500">Std Error</th>
+              <th className="py-2.5 px-3 text-right font-semibold text-zinc-500">t-Statistic</th>
+              <th className="py-2.5 px-3 text-right font-semibold text-zinc-500">p-Value (P&gt;|t|)</th>
+              <th className="py-2.5 px-3 text-right font-semibold text-zinc-500">
                 VIF (<VifEquation display="inline" className="text-[10px]" />)
               </th>
             </tr>
           </thead>
 
-          <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+          <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
             {regressionSummary.coefficients.map((row) => {
               const isSignificant = row.pValue < 0.05;
               const hasHighVif = row.vif !== null && row.vif > 5;
 
               return (
-                <tr key={row.variable} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/30">
-                  <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-slate-100">
+                <tr key={row.variable} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30">
+                  <td className="py-2.5 px-3 font-bold text-zinc-900 dark:text-zinc-100">
                     {row.variable}
                   </td>
-                  <td className="py-2.5 px-3 text-right font-bold tabular-nums text-slate-900 dark:text-slate-100">
+                  <td className="py-2.5 px-3 text-right font-bold tabular-nums text-zinc-900 dark:text-zinc-100">
                     {row.coefficient.toFixed(4)}
                   </td>
-                  <td className="py-2.5 px-3 text-right tabular-nums text-slate-600 dark:text-slate-400">
+                  <td className="py-2.5 px-3 text-right tabular-nums text-zinc-600 dark:text-zinc-400">
                     {row.stdError.toFixed(4)}
                   </td>
-                  <td className="py-2.5 px-3 text-right tabular-nums font-semibold text-slate-800 dark:text-slate-200">
+                  <td className="py-2.5 px-3 text-right tabular-nums font-semibold text-zinc-800 dark:text-zinc-200">
                     {row.tStatistic.toFixed(3)}
                   </td>
                   <td className="py-2.5 px-3 text-right tabular-nums font-bold">
                     <span
                       className={
                         isSignificant
-                          ? 'text-emerald-600 dark:text-emerald-400'
-                          : 'text-slate-400'
+                          ? 'text-gold-600 dark:text-gold-400'
+                          : 'text-zinc-400'
                       }
                     >
                       {row.pValue < 0.0001 ? '< 0.0001 ***' : `${row.pValue.toFixed(4)} ${isSignificant ? '**' : ''}`}
@@ -414,13 +414,13 @@ export function RegressionView({
                         className={
                           hasHighVif
                             ? 'text-rose-500 font-bold'
-                            : 'text-slate-700 dark:text-slate-300'
+                            : 'text-zinc-700 dark:text-zinc-300'
                         }
                       >
                         {row.vif.toFixed(2)} {hasHighVif ? '(High Collinearity)' : ''}
                       </span>
                     ) : (
-                      <span className="text-slate-400">—</span>
+                      <span className="text-zinc-400">—</span>
                     )}
                   </td>
                 </tr>
@@ -429,7 +429,7 @@ export function RegressionView({
           </tbody>
         </table>
 
-        <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 mt-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+        <div className="flex items-center justify-between text-[11px] text-zinc-500 dark:text-zinc-400 mt-3 pt-2 border-t border-zinc-100 dark:border-zinc-800">
           <span>* p &lt; 0.05, ** p &lt; 0.01, *** p &lt; 0.001</span>
           <span>VIF &lt; 5 indicates healthy absence of severe multicollinearity</span>
         </div>

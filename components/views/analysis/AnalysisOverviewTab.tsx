@@ -124,16 +124,16 @@ export function AnalysisOverviewTab({
     <div className="space-y-6">
       {/* Structural Break Alert Banner if detected */}
       {structuralBreaks.hasSignificantBreak && (
-        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-3">
-          <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+        <div className="bg-gold-500/10 border border-gold-500/30 rounded-xl p-4 text-xs text-gold-900 dark:text-gold-200 flex items-start gap-3">
+          <AlertTriangle className="w-4 h-4 text-gold-500 shrink-0 mt-0.5" />
           <div className="space-y-1">
-            <div className="font-semibold text-amber-800 dark:text-amber-100 flex items-center gap-2">
+            <div className="font-semibold text-gold-800 dark:text-gold-100 flex items-center gap-2">
               <span>CUSUM-of-Squares Volatility Regime Shift Detected</span>
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-700 dark:text-amber-300 font-mono">
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-gold-500/20 text-gold-700 dark:text-gold-300 font-mono">
                 p &lt; 0.05
               </span>
             </div>
-            <p className="text-amber-700 dark:text-amber-300 leading-relaxed">
+            <p className="text-gold-700 dark:text-gold-300 leading-relaxed">
               Brown-Durbin-Evans recursive CUSUM-sq identified{' '}
               <strong>{structuralBreaks.breakDates.length}</strong> variance change point(s). Most prominent on{' '}
               <strong className="font-mono">{structuralBreaks.breakDates[0]?.date}</strong>. Historical stationarity
@@ -144,16 +144,16 @@ export function AnalysisOverviewTab({
       )}
 
       {/* Primary Price Trajectory & Volume */}
-      <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800/90 rounded-xl p-5 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800/60 gap-3">
+      <div className="panel p-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-zinc-100 dark:border-zinc-800/60 gap-3">
           <div>
             <div className="flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-emerald-500" />
-              <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-sm">
+              <TrendingUp className="w-4 h-4 text-gold-500" />
+              <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
                 Asset Price Trajectory &amp; CUSUM Variance Regime Shifts
               </h3>
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
               {ticker} · {companyName} · {dates.length} trading days with recursive cumulative sum bounds
             </p>
           </div>
@@ -162,28 +162,34 @@ export function AnalysisOverviewTab({
             <button
               type="button"
               onClick={onExportCsv}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-medium hover:border-emerald-500 transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 text-xs font-medium hover:border-gold-500 transition-colors cursor-pointer"
             >
-              <Download className="w-3.5 h-3.5 text-slate-400" />
+              <Download className="w-3.5 h-3.5 text-zinc-400" />
               <span>Export CSV</span>
             </button>
           </div>
         </div>
 
         <div className="mt-4">
-          <TimeSeriesChart bars={priceChartBars} />
+          <TimeSeriesChart
+            bars={priceChartBars}
+            breakPoints={structuralBreaks.breakDates}
+            cusumSqPoints={structuralBreaks.cusumSqPoints}
+            title="Price Trajectory & Volatility Regime Shifts"
+            subtitle={`${ticker} · ${companyName}`}
+          />
         </div>
 
         {/* Structural Break Dates List */}
         {structuralBreaks.breakDates.length > 0 && (
-          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/60 flex flex-wrap items-center gap-3 text-xs">
-            <span className="text-slate-400 font-mono text-[11px]">Break Points:</span>
+          <div className="mt-4 pt-3 border-t border-zinc-100 dark:border-zinc-800/60 flex flex-wrap items-center gap-3 text-xs">
+            <span className="text-zinc-400 font-mono text-[11px]">Break Points:</span>
             {structuralBreaks.breakDates.map((b) => (
               <span
                 key={b.date}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 font-mono text-amber-800 dark:text-amber-300 text-[11px]"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-gold-50 dark:bg-gold-950/40 border border-gold-200 dark:border-gold-800/60 font-mono text-gold-800 dark:text-gold-300 text-[11px]"
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                <span className="w-1.5 h-1.5 rounded-full bg-gold-500" />
                 {b.date} ({b.reason})
               </span>
             ))}
@@ -192,29 +198,29 @@ export function AnalysisOverviewTab({
       </div>
 
       {/* Return Series & Return Type Switcher */}
-      <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800/90 rounded-xl p-5 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800/60 gap-3">
+      <div className="panel p-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-zinc-100 dark:border-zinc-800/60 gap-3">
           <div>
             <div className="flex items-center gap-2">
-              <Activity className="w-4 h-4 text-emerald-500" />
-              <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-sm">
+              <Activity className="w-4 h-4 text-gold-500" />
+              <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
                 Empirical Return Innovations (r_t)
               </h3>
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
               Comparing arithmetic vs. continuously compounded logarithmic returns
             </p>
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="inline-flex p-0.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-xs">
+            <div className="inline-flex p-0.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs">
               <button
                 type="button"
                 onClick={() => onReturnTypeChange('log')}
                 className={`px-3 py-1 rounded-md font-medium transition-colors cursor-pointer ${
                   returnType === 'log'
-                    ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-xs'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                    ? 'bg-white dark:bg-zinc-800 text-gold-600 dark:text-gold-400 shadow-xs'
+                    : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
                 }`}
               >
                 Log Return (ln P_t/P_t-1)
@@ -224,8 +230,8 @@ export function AnalysisOverviewTab({
                 onClick={() => onReturnTypeChange('simple')}
                 className={`px-3 py-1 rounded-md font-medium transition-colors cursor-pointer ${
                   returnType === 'simple'
-                    ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-xs'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                    ? 'bg-white dark:bg-zinc-800 text-gold-600 dark:text-gold-400 shadow-xs'
+                    : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
                 }`}
               >
                 Simple Return (ΔP/P)
@@ -242,60 +248,60 @@ export function AnalysisOverviewTab({
       {/* Distribution Moments & Confidence Intervals Panel */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Mean */}
-        <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800/90 rounded-xl p-4">
-          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+        <div className="bg-white dark:bg-[#101014] border border-zinc-200 dark:border-zinc-800/90 rounded-xl p-4">
+          <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
             <span>Daily Mean (μ)</span>
             <span className="font-mono text-[10px]">Ann. {(returnStats.mean * 252 * 100).toFixed(2)}%</span>
           </div>
-          <div className="mt-2 text-2xl font-semibold font-mono text-slate-900 dark:text-slate-100">
+          <div className="mt-2 text-2xl font-semibold font-mono text-zinc-900 dark:text-zinc-100">
             {(returnStats.mean * 100).toFixed(3)}%
           </div>
-          <div className="mt-2 text-[11px] text-slate-400 flex items-center justify-between">
+          <div className="mt-2 text-[11px] text-zinc-400 flex items-center justify-between">
             <span>Range: [{(returnStats.min * 100).toFixed(2)}%, {(returnStats.max * 100).toFixed(2)}%]</span>
             <span>n = {returns.length}</span>
           </div>
         </div>
 
         {/* Volatility */}
-        <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800/90 rounded-xl p-4">
-          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+        <div className="bg-white dark:bg-[#101014] border border-zinc-200 dark:border-zinc-800/90 rounded-xl p-4">
+          <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
             <span>Annualized Volatility (σ_ann)</span>
             <span className="font-mono text-[10px]">Daily {(returnStats.stdDev * 100).toFixed(2)}%</span>
           </div>
-          <div className="mt-2 text-2xl font-semibold font-mono text-emerald-600 dark:text-emerald-400">
+          <div className="mt-2 text-2xl font-semibold font-mono text-gold-600 dark:text-gold-400">
             {(returnStats.annualizedVol * 100).toFixed(2)}%
           </div>
-          <div className="mt-2 text-[11px] text-slate-400 flex items-center justify-between">
+          <div className="mt-2 text-[11px] text-zinc-400 flex items-center justify-between">
             <span>Variance: {(returnStats.variance * 10000).toFixed(2)} bps²</span>
             <span>√252 Scale</span>
           </div>
         </div>
 
         {/* Skewness with Confidence Interval */}
-        <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800/90 rounded-xl p-4">
-          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+        <div className="bg-white dark:bg-[#101014] border border-zinc-200 dark:border-zinc-800/90 rounded-xl p-4">
+          <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
             <span>Skewness (S)</span>
             <span className="font-mono text-[10px]">Lo (2002) 95% CI</span>
           </div>
-          <div className="mt-2 text-2xl font-semibold font-mono text-slate-900 dark:text-slate-100">
+          <div className="mt-2 text-2xl font-semibold font-mono text-zinc-900 dark:text-zinc-100">
             {returnStats.skewness.toFixed(3)}
           </div>
-          <div className="mt-2 text-[11px] font-mono text-slate-400">
+          <div className="mt-2 text-[11px] font-mono text-zinc-400">
             CI: [{(returnStats.skewness - 1.96 * Math.sqrt(6 / Math.max(1, returns.length))).toFixed(2)},{' '}
             {(returnStats.skewness + 1.96 * Math.sqrt(6 / Math.max(1, returns.length))).toFixed(2)}]
           </div>
         </div>
 
         {/* Excess Kurtosis with Confidence Interval */}
-        <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800/90 rounded-xl p-4">
-          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+        <div className="bg-white dark:bg-[#101014] border border-zinc-200 dark:border-zinc-800/90 rounded-xl p-4">
+          <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
             <span>Excess Kurtosis (K)</span>
             <span className="font-mono text-[10px]">Normal = 0.0</span>
           </div>
-          <div className="mt-2 text-2xl font-semibold font-mono text-amber-600 dark:text-amber-400">
+          <div className="mt-2 text-2xl font-semibold font-mono text-gold-600 dark:text-gold-400">
             {returnStats.excessKurtosis.toFixed(3)}
           </div>
-          <div className="mt-2 text-[11px] font-mono text-slate-400">
+          <div className="mt-2 text-[11px] font-mono text-zinc-400">
             CI: [{(returnStats.excessKurtosis - 1.96 * Math.sqrt(24 / Math.max(1, returns.length))).toFixed(2)},{' '}
             {(returnStats.excessKurtosis + 1.96 * Math.sqrt(24 / Math.max(1, returns.length))).toFixed(2)}]
           </div>
@@ -310,18 +316,18 @@ export function AnalysisOverviewTab({
         </div>
 
         {/* Rolling Skewness with Confidence Interval */}
-        <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800/90 rounded-xl p-5 shadow-xs">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800/60">
+        <div className="panel p-5">
+          <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800/60">
             <div>
-              <h4 className="font-semibold text-slate-900 dark:text-slate-100 text-sm">
+              <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
                 Rolling Skewness (60-Day) &amp; Lo (2002) Confidence Bands
               </h4>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
                 Negative skew breach indicates emergent left-tail crash hazard
               </p>
             </div>
-            <div className="font-mono text-xs text-slate-400">
-              {activeSkewPoint.date}: <strong className="text-emerald-500">{activeSkewPoint.skew.toFixed(3)}</strong>
+            <div className="font-mono text-xs text-zinc-400">
+              {activeSkewPoint.date}: <strong className="text-gold-500">{activeSkewPoint.skew.toFixed(3)}</strong>
             </div>
           </div>
 
@@ -411,14 +417,14 @@ export function AnalysisOverviewTab({
             </svg>
           </div>
 
-          <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono mt-2">
+          <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono mt-2">
             <span>{skewData[0]?.date}</span>
             <div className="flex items-center gap-3">
               <span className="inline-flex items-center gap-1">
-                <span className="w-2.5 h-0.5 bg-emerald-500 inline-block" /> 60d Skew
+                <span className="w-2.5 h-0.5 bg-gold-500 inline-block" /> 60d Skew
               </span>
               <span className="inline-flex items-center gap-1">
-                <span className="w-2.5 h-0.5 bg-slate-400 border-b border-dashed inline-block" /> 95% Confidence Band
+                <span className="w-2.5 h-0.5 bg-zinc-400 border-b border-dashed inline-block" /> 95% Confidence Band
               </span>
             </div>
             <span>{skewData[nSkew - 1]?.date}</span>
@@ -427,16 +433,16 @@ export function AnalysisOverviewTab({
       </div>
 
       {/* Hurst Exponent & Lo-MacKinlay Variance Ratio Battery */}
-      <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800/90 rounded-xl p-5 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800/60 gap-3">
+      <div className="panel p-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-zinc-100 dark:border-zinc-800/60 gap-3">
           <div>
             <div className="flex items-center gap-2">
-              <Activity className="w-4 h-4 text-emerald-500" />
-              <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-sm">
+              <Activity className="w-4 h-4 text-gold-500" />
+              <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
                 Memory Structure &amp; Random Walk Tests: Hurst &amp; Lo-MacKinlay Variance Ratio
               </h3>
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
               Evaluating martingale difference hypothesis: VR(q) = 1 under pure Brownian motion
             </p>
           </div>
@@ -444,12 +450,12 @@ export function AnalysisOverviewTab({
           <div className="flex items-center gap-3 font-mono text-xs">
             <span>
               Hurst H:{' '}
-              <strong className="text-emerald-600 dark:text-emerald-400 text-sm">
+              <strong className="text-gold-600 dark:text-gold-400 text-sm">
                 {hurstAndVr.hurstExponent.toFixed(3)}
               </strong>
             </span>
-            <span className="text-slate-300 dark:text-slate-700">·</span>
-            <span className="text-slate-600 dark:text-slate-300 font-medium">
+            <span className="text-zinc-300 dark:text-zinc-700">·</span>
+            <span className="text-zinc-600 dark:text-zinc-300 font-medium">
               {hurstAndVr.hurstRegime}
             </span>
           </div>
@@ -458,7 +464,7 @@ export function AnalysisOverviewTab({
         <div className="mt-4 overflow-x-auto">
           <table className="w-full text-xs text-left">
             <thead>
-              <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 font-mono">
+              <tr className="border-b border-zinc-200 dark:border-zinc-800 text-zinc-400 font-mono">
                 <th className="py-2.5 px-3">Horizon Lag (q)</th>
                 <th className="py-2.5 px-3">Variance Ratio VR(q)</th>
                 <th className="py-2.5 px-3">Lo-MacKinlay z-Statistic</th>
@@ -466,30 +472,30 @@ export function AnalysisOverviewTab({
                 <th className="py-2.5 px-3">Statistical Regime Verdict</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
+            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/60 font-mono">
               {hurstAndVr.varianceRatios.map((vr) => (
-                <tr key={vr.q} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/30">
-                  <td className="py-2.5 px-3 font-semibold text-slate-900 dark:text-slate-100">
+                <tr key={vr.q} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30">
+                  <td className="py-2.5 px-3 font-semibold text-zinc-900 dark:text-zinc-100">
                     q = {vr.q} days
                   </td>
-                  <td className="py-2.5 px-3 font-semibold text-emerald-600 dark:text-emerald-400">
+                  <td className="py-2.5 px-3 font-semibold text-gold-600 dark:text-gold-400">
                     {vr.vr.toFixed(3)}
                   </td>
-                  <td className="py-2.5 px-3 text-slate-600 dark:text-slate-300">
+                  <td className="py-2.5 px-3 text-zinc-600 dark:text-zinc-300">
                     {vr.zStat > 0 ? `+${vr.zStat.toFixed(2)}` : vr.zStat.toFixed(2)}
                   </td>
                   <td className="py-2.5 px-3">
                     <span
                       className={`px-1.5 py-0.5 rounded text-[11px] ${
                         vr.pValue < 0.05
-                          ? 'bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300'
-                          : 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300'
+                          ? 'bg-gold-100 dark:bg-gold-950/40 text-gold-800 dark:text-gold-300'
+                          : 'bg-gold-100 dark:bg-gold-950/40 text-gold-800 dark:text-gold-300'
                       }`}
                     >
                       {vr.pValue < 0.001 ? '< 0.001' : vr.pValue.toFixed(3)}
                     </span>
                   </td>
-                  <td className="py-2.5 px-3 text-slate-700 dark:text-slate-300 font-sans">
+                  <td className="py-2.5 px-3 text-zinc-700 dark:text-zinc-300 font-sans">
                     {vr.vr > 1.05
                       ? 'Positive serial correlation (Momentum persistence)'
                       : vr.vr < 0.95
@@ -502,9 +508,9 @@ export function AnalysisOverviewTab({
           </table>
         </div>
 
-        <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/60 text-xs text-slate-500 dark:text-slate-400 flex items-center justify-between">
+        <div className="mt-4 pt-3 border-t border-zinc-100 dark:border-zinc-800/60 text-xs text-zinc-500 dark:text-zinc-400 flex items-center justify-between">
           <div className="flex items-center gap-1.5">
-            <Info className="w-3.5 h-3.5 text-slate-400" />
+            <Info className="w-3.5 h-3.5 text-zinc-400" />
             <span>{hurstAndVr.randomWalkVerdict}</span>
           </div>
           <VarianceRatioEquation className="hidden md:inline" />
@@ -512,27 +518,27 @@ export function AnalysisOverviewTab({
       </div>
 
       {/* Classical Time Series Decomposition */}
-      <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800/90 rounded-xl p-5 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800/60 gap-3">
+      <div className="panel p-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-zinc-100 dark:border-zinc-800/60 gap-3">
           <div>
             <div className="flex items-center gap-2">
-              <Layers className="w-4 h-4 text-emerald-500" />
-              <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-sm">
+              <Layers className="w-4 h-4 text-gold-500" />
+              <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
                 Classical Structural Decomposition (Trend · Seasonal · Residual)
               </h3>
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
               Separating macro trend, periodic calendar components, and irregular noise
             </p>
           </div>
 
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
-              <label className="text-xs text-slate-500 font-medium">Period:</label>
+              <label className="text-xs text-zinc-500 font-medium">Period:</label>
               <select
                 value={decompPeriod}
                 onChange={(e) => onDecompPeriodChange(parseInt(e.target.value, 10))}
-                className="px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-mono"
+                className="px-2 py-1 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-xs font-mono"
               >
                 <option value={5}>5 Days (Weekly)</option>
                 <option value={21}>21 Days (Monthly)</option>
@@ -540,14 +546,14 @@ export function AnalysisOverviewTab({
               </select>
             </div>
 
-            <div className="inline-flex p-0.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-xs">
+            <div className="inline-flex p-0.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs">
               <button
                 type="button"
                 onClick={() => onDecompModelChange('additive')}
                 className={`px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer ${
                   decompModel === 'additive'
-                    ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-xs'
-                    : 'text-slate-500 hover:text-slate-900'
+                    ? 'bg-white dark:bg-zinc-800 text-gold-600 dark:text-gold-400 shadow-xs'
+                    : 'text-zinc-500 hover:text-zinc-900'
                 }`}
               >
                 Additive
@@ -557,8 +563,8 @@ export function AnalysisOverviewTab({
                 onClick={() => onDecompModelChange('multiplicative')}
                 className={`px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer ${
                   decompModel === 'multiplicative'
-                    ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-xs'
-                    : 'text-slate-500 hover:text-slate-900'
+                    ? 'bg-white dark:bg-zinc-800 text-gold-600 dark:text-gold-400 shadow-xs'
+                    : 'text-zinc-500 hover:text-zinc-900'
                 }`}
               >
                 Multiplicative

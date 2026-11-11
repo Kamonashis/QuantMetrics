@@ -19,7 +19,7 @@ export function ReturnsChart({
 
   if (!returns || returns.length === 0) {
     return (
-      <div className="h-60 flex items-center justify-center border border-slate-200 dark:border-slate-800 rounded-lg text-slate-500">
+      <div className="h-60 flex items-center justify-center border border-zinc-200 dark:border-zinc-800 rounded-lg text-zinc-500">
         No return series calculated
       </div>
     );
@@ -66,23 +66,23 @@ export function ReturnsChart({
   const barW = Math.max(1, chartW / n - 0.2);
 
   return (
-    <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800/80 rounded-xl p-5 shadow-xs">
+    <div className="panel p-5">
       <div className="flex items-center justify-between mb-3">
         <div>
-          <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-sm tracking-tight">
+          <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm tracking-tight">
             {title}
           </h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
             {returnType === 'log' ? 'Continuously compounded log returns r_t = ln(P_t/P_{t-1})' : 'Simple percentage returns R_t = (P_t - P_{t-1})/P_{t-1}'}
           </p>
         </div>
 
         {activeDate && (
           <div className="text-right">
-            <span className="text-xs text-slate-500 dark:text-slate-400 mr-1.5">{activeDate}:</span>
+            <span className="text-xs text-zinc-500 dark:text-zinc-400 mr-1.5">{activeDate}:</span>
             <span
               className={`font-mono text-sm font-bold tabular-nums ${
-                activeRet >= 0 ? 'text-emerald-500' : 'text-rose-500'
+                activeRet >= 0 ? 'text-gold-500' : 'text-rose-500'
               }`}
             >
               {(activeRet * 100).toFixed(2)}%
@@ -105,7 +105,7 @@ export function ReturnsChart({
             x2={width - padRight}
             y2={zeroY}
             stroke="currentColor"
-            className="text-slate-300 dark:text-slate-700"
+            className="text-zinc-300 dark:text-zinc-700"
             strokeWidth="1.2"
           />
 
@@ -118,7 +118,7 @@ export function ReturnsChart({
                 x2={width - padRight}
                 y2={getY(val)}
                 stroke="currentColor"
-                className="text-slate-200 dark:text-slate-800/80"
+                className="text-zinc-200 dark:text-zinc-800/80"
                 strokeDasharray="2 3"
                 strokeWidth="1"
               />
@@ -126,7 +126,7 @@ export function ReturnsChart({
                 x={padLeft - 8}
                 y={getY(val) + 3}
                 textAnchor="end"
-                className="text-[10px] font-mono fill-slate-500 dark:fill-slate-400 tabular-nums"
+                className="text-[10px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
               >
                 {(val * 100).toFixed(1)}%
               </text>
@@ -137,7 +137,7 @@ export function ReturnsChart({
             x={padLeft - 8}
             y={zeroY + 3}
             textAnchor="end"
-            className="text-[10px] font-mono fill-slate-500 dark:fill-slate-400 tabular-nums"
+            className="text-[10px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
           >
             0.0%
           </text>
@@ -185,7 +185,7 @@ export function ReturnsChart({
                 x={getX(i)}
                 y={height - 5}
                 textAnchor="middle"
-                className="text-[10px] font-mono fill-slate-500 dark:fill-slate-400 tabular-nums"
+                className="text-[10px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
               >
                 {alignedDates[i]}
               </text>

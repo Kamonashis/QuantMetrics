@@ -462,7 +462,16 @@ export function MathDisplay({
   const htmlContent = useMemo(() => {
     if (!rawTex) return '';
     try {
-      return katex.renderToString(rawTex, {
+      const renderFn =
+        typeof katex?.renderToString === 'function'
+          ? katex.renderToString
+          : (katex as unknown as { default?: typeof katex })?.default?.renderToString;
+
+      if (typeof renderFn !== 'function') {
+        return `<code class="font-mono text-xs text-gold-500">${rawTex}</code>`;
+      }
+
+      return renderFn(rawTex, {
         displayMode: display === 'block',
         output: outputMode,
         throwOnError: false,
@@ -470,7 +479,7 @@ export function MathDisplay({
       });
     } catch (err) {
       console.warn('MathDisplay KaTeX render warning:', err);
-      return `<code class="font-mono text-xs text-amber-500">${rawTex}</code>`;
+      return `<code class="font-mono text-xs text-gold-500">${rawTex}</code>`;
     }
   }, [rawTex, display, outputMode]);
 
@@ -481,11 +490,11 @@ export function MathDisplay({
       <div className={`my-2 overflow-x-auto py-1 ${className}`}>
         <div className="flex items-center justify-between gap-2">
           <div
-            className="text-slate-800 dark:text-slate-200 text-sm leading-relaxed"
+            className="text-zinc-800 dark:text-zinc-200 text-sm leading-relaxed"
             dangerouslySetInnerHTML={{ __html: htmlContent }}
           />
           {showBadge && (
-            <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 dark:text-slate-500 select-none">
+            <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-400 dark:text-zinc-500 select-none">
               MathML
             </span>
           )}
@@ -496,7 +505,7 @@ export function MathDisplay({
 
   return (
     <span
-      className={`inline-flex items-center text-slate-800 dark:text-slate-200 align-baseline ${className}`}
+      className={`inline-flex items-center text-zinc-800 dark:text-zinc-200 align-baseline ${className}`}
       dangerouslySetInnerHTML={{ __html: htmlContent }}
     />
   );

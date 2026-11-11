@@ -431,7 +431,7 @@ export function fitParametricDistributions(returns: number[]): DistributionFitRe
       aic: gedAic,
       bic: gedBic,
       ksStatistic: gedKs,
-      color: '#f59e0b', // Amber / Gold
+      color: '#DEC084', // Amber / Gold
       params: {
         mu: mean,
         sigma: stdDev,

@@ -114,18 +114,18 @@ export function VolatilityForecastChart({
   };
 
   return (
-    <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800/80 rounded-xl p-5 shadow-xs">
+    <div className="panel p-5">
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-4">
         <div>
           <div className="flex items-center gap-2">
-            <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-sm tracking-tight">
+            <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm tracking-tight">
               Volatility Modeling: GARCH(1,1), EWMA & Forecast Projection
             </h3>
-            <span className="text-xs text-slate-500 dark:text-slate-400">
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">
               · Term Structure Projection
             </span>
           </div>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
             Model comparison alongside {nFc}-day GARCH variance forecast with 68% and 95% confidence cones
           </p>
         </div>
@@ -136,8 +136,8 @@ export function VolatilityForecastChart({
             onClick={() => setShowGARCH(!showGARCH)}
             className={`px-2.5 py-1 rounded-md font-medium transition-colors border ${
               showGARCH
-                ? 'bg-sky-500/10 border-sky-500/30 text-sky-600 dark:text-sky-400'
-                : 'border-slate-200 dark:border-slate-800 text-slate-400'
+                ? 'bg-gold-500/10 border-gold-500/30 text-gold-600 dark:text-gold-300 dark:text-gold-600 dark:text-gold-300'
+                : 'border-zinc-200 dark:border-zinc-800 text-zinc-400'
             }`}
           >
             GARCH(1,1)
@@ -146,8 +146,8 @@ export function VolatilityForecastChart({
             onClick={() => setShowEWMA(!showEWMA)}
             className={`px-2.5 py-1 rounded-md font-medium transition-colors border ${
               showEWMA
-                ? 'bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400'
-                : 'border-slate-200 dark:border-slate-800 text-slate-400'
+                ? 'bg-gold-500/10 border-gold-500/30 text-gold-600 dark:text-gold-400'
+                : 'border-zinc-200 dark:border-zinc-800 text-zinc-400'
             }`}
           >
             EWMA (λ={ewmaSummary.lambda})
@@ -156,8 +156,8 @@ export function VolatilityForecastChart({
             onClick={() => setShowHist(!showHist)}
             className={`px-2.5 py-1 rounded-md font-medium transition-colors border ${
               showHist
-                ? 'bg-slate-500/10 border-slate-500/30 text-slate-600 dark:text-slate-400'
-                : 'border-slate-200 dark:border-slate-800 text-slate-400'
+                ? 'bg-zinc-500/10 border-zinc-500/30 text-zinc-600 dark:text-zinc-400'
+                : 'border-zinc-200 dark:border-zinc-800 text-zinc-400'
             }`}
           >
             Historical (30d)
@@ -195,14 +195,14 @@ export function VolatilityForecastChart({
                   x2={width - padRight}
                   y2={yPos}
                   stroke="currentColor"
-                  className="text-slate-200 dark:text-slate-800/80"
+                  className="text-zinc-200 dark:text-zinc-800/80"
                   strokeDasharray="2 3"
                 />
                 <text
                   x={padLeft - 6}
                   y={yPos + 4}
                   textAnchor="end"
-                  className="text-[10px] font-mono fill-slate-500 dark:fill-slate-400 tabular-nums"
+                  className="text-[10px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
                 >
                   {(val * 100).toFixed(0)}%
                 </text>
@@ -223,7 +223,7 @@ export function VolatilityForecastChart({
           <text
             x={width - padRight + 4}
             y={getY(garchSummary.longRunAnnualizedVol) + 3}
-            className="text-[9px] font-mono fill-emerald-500 tabular-nums"
+            className="text-[9px] font-mono fill-gold-500 tabular-nums"
           >
             V_L: {(garchSummary.longRunAnnualizedVol * 100).toFixed(1)}%
           </text>
@@ -242,7 +242,7 @@ export function VolatilityForecastChart({
             x={splitX - 6}
             y={padTop + 12}
             textAnchor="end"
-            className="text-[10px] font-medium fill-slate-500 dark:fill-slate-400"
+            className="text-[10px] font-medium fill-zinc-500 dark:fill-zinc-400"
           >
             Historical
           </text>
@@ -250,7 +250,7 @@ export function VolatilityForecastChart({
             x={splitX + 6}
             y={padTop + 12}
             textAnchor="start"
-            className="text-[10px] font-medium fill-sky-500"
+            className="text-[10px] font-medium fill-gold-500"
           >
             Forecast Projection →
           </text>
@@ -275,7 +275,7 @@ export function VolatilityForecastChart({
             <path
               d={`M ${ewmaPoints}`}
               fill="none"
-              stroke="#f59e0b"
+              stroke="#DEC084"
               strokeWidth="2"
               strokeLinecap="round"
             />
@@ -328,7 +328,7 @@ export function VolatilityForecastChart({
           <text
             x={getX(0)}
             y={height - 8}
-            className="text-[9px] font-mono fill-slate-500 dark:fill-slate-400 tabular-nums"
+            className="text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
           >
             {dates[0]}
           </text>
@@ -336,7 +336,7 @@ export function VolatilityForecastChart({
             x={splitX}
             y={height - 8}
             textAnchor="middle"
-            className="text-[9px] font-mono fill-slate-700 dark:fill-slate-300 font-semibold tabular-nums"
+            className="text-[9px] font-mono fill-zinc-700 dark:fill-zinc-300 font-semibold tabular-nums"
           >
             Today ({dates[nHist - 1]})
           </text>
@@ -344,7 +344,7 @@ export function VolatilityForecastChart({
             x={getX(totalPoints - 1)}
             y={height - 8}
             textAnchor="end"
-            className="text-[9px] font-mono fill-sky-500 tabular-nums"
+            className="text-[9px] font-mono fill-gold-500 tabular-nums"
           >
             +{nFc}d ({forecastPoints[nFc - 1]?.date})
           </text>
@@ -352,43 +352,43 @@ export function VolatilityForecastChart({
       </div>
 
       {/* Model Diagnostic Footnotes & Parameter Summary */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 text-xs">
-        <div className="bg-slate-50 dark:bg-slate-900/60 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800/60">
-          <span className="text-slate-500 dark:text-slate-400 block">GARCH Parameters</span>
-          <span className="font-mono font-bold text-slate-900 dark:text-slate-100 tabular-nums text-xs">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4 pt-3 border-t border-zinc-100 dark:border-zinc-800/80 text-xs">
+        <div className="bg-zinc-50 dark:bg-zinc-900/60 p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800/60">
+          <span className="text-zinc-500 dark:text-zinc-400 block">GARCH Parameters</span>
+          <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100 tabular-nums text-xs">
             α: {garchSummary.alpha.toFixed(3)} · β: {garchSummary.beta.toFixed(3)}
           </span>
-          <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5">
+          <span className="text-[11px] text-zinc-500 dark:text-zinc-400 block mt-0.5">
             ω: {garchSummary.omega.toExponential(2)}
           </span>
         </div>
 
-        <div className="bg-slate-50 dark:bg-slate-900/60 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800/60">
-          <span className="text-slate-500 dark:text-slate-400 block">Shock Persistence (α+β)</span>
-          <span className="font-mono font-bold text-slate-900 dark:text-slate-100 tabular-nums text-xs">
+        <div className="bg-zinc-50 dark:bg-zinc-900/60 p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800/60">
+          <span className="text-zinc-500 dark:text-zinc-400 block">Shock Persistence (α+β)</span>
+          <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100 tabular-nums text-xs">
             {garchSummary.persistence.toFixed(4)}
           </span>
-          <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5">
+          <span className="text-[11px] text-zinc-500 dark:text-zinc-400 block mt-0.5">
             Half-life: {garchSummary.halfLife ? `${garchSummary.halfLife.toFixed(1)} days` : 'Infinite'}
           </span>
         </div>
 
-        <div className="bg-slate-50 dark:bg-slate-900/60 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800/60">
-          <span className="text-slate-500 dark:text-slate-400 block">Unconditional Long-Run Vol</span>
-          <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 tabular-nums text-xs">
+        <div className="bg-zinc-50 dark:bg-zinc-900/60 p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800/60">
+          <span className="text-zinc-500 dark:text-zinc-400 block">Unconditional Long-Run Vol</span>
+          <span className="font-mono font-bold text-gold-600 dark:text-gold-400 tabular-nums text-xs">
             {(garchSummary.longRunAnnualizedVol * 100).toFixed(2)}%
           </span>
-          <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5">
+          <span className="text-[11px] text-zinc-500 dark:text-zinc-400 block mt-0.5">
             Log-Likelihood: {garchSummary.logLikelihood.toFixed(1)}
           </span>
         </div>
 
-        <div className="bg-slate-50 dark:bg-slate-900/60 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800/60">
-          <span className="text-slate-500 dark:text-slate-400 block">EWMA Latest vs Mean</span>
-          <span className="font-mono font-bold text-amber-600 dark:text-amber-400 tabular-nums text-xs">
+        <div className="bg-zinc-50 dark:bg-zinc-900/60 p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800/60">
+          <span className="text-zinc-500 dark:text-zinc-400 block">EWMA Latest vs Mean</span>
+          <span className="font-mono font-bold text-gold-600 dark:text-gold-400 tabular-nums text-xs">
             {(ewmaSummary.latestAnnualizedVol * 100).toFixed(1)}% / {(ewmaSummary.meanAnnualizedVol * 100).toFixed(1)}%
           </span>
-          <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5">
+          <span className="text-[11px] text-zinc-500 dark:text-zinc-400 block mt-0.5">
             Range: {(ewmaSummary.minAnnualizedVol * 100).toFixed(1)}% - {(ewmaSummary.maxAnnualizedVol * 100).toFixed(1)}%
           </span>
         </div>

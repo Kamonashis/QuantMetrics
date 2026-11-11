@@ -25,7 +25,7 @@ export function InteractiveGridPattern({
     <svg
       width={width * horizontal}
       height={height * vertical}
-      className={`pointer-events-auto absolute inset-0 h-full w-full stroke-stone-300/30 dark:stroke-stone-800/40 select-none ${className}`}
+      className={`pointer-events-auto absolute inset-0 h-full w-full stroke-zinc-300/30 dark:stroke-zinc-800/40 select-none ${className}`}
       aria-hidden="true"
     >
       <defs>
@@ -64,7 +64,7 @@ export function InteractiveGridPattern({
               height={height}
               className={`stroke-0 transition-all duration-300 ${
                 isHovered
-                  ? 'fill-amber-500/15 dark:fill-amber-400/20'
+                  ? 'fill-gold-500/15 dark:fill-gold-400/20'
                   : 'fill-transparent'
               } ${squaresClassName}`}
               onMouseEnter={() => setHoveredSquare(index)}

@@ -138,27 +138,27 @@ export function AnalysisDynamicsTab({
   return (
     <div className="space-y-6">
       {/* GJR-GARCH News Impact Curve */}
-      <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800/90 rounded-xl p-5 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800/60 gap-3">
+      <div className="panel p-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-zinc-100 dark:border-zinc-800/60 gap-3">
           <div>
             <div className="flex items-center gap-2">
-              <Zap className="w-4 h-4 text-emerald-500" />
-              <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-sm">
+              <Zap className="w-4 h-4 text-gold-500" />
+              <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
                 News Impact Curve (Symmetric GARCH vs. Asymmetric GJR-GARCH)
               </h3>
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
               Empirical asymmetric volatility response: negative return shocks trigger larger conditional variance spikes
             </p>
           </div>
 
-          <div className="flex items-center gap-4 text-xs font-mono text-slate-400">
+          <div className="flex items-center gap-4 text-xs font-mono text-zinc-400">
             <span>
               Shock: <strong>{activeNewsPoint.shockStd > 0 ? `+${activeNewsPoint.shockStd}` : activeNewsPoint.shockStd}σ</strong>
             </span>
-            <span className="text-slate-300 dark:text-slate-700">·</span>
+            <span className="text-zinc-300 dark:text-zinc-700">·</span>
             <span>
-              GJR Var: <strong className="text-emerald-500">{activeNewsPoint.asymmetricVarianceGjr.toFixed(2)}</strong>
+              GJR Var: <strong className="text-gold-500">{activeNewsPoint.asymmetricVarianceGjr.toFixed(2)}</strong>
             </span>
             <NewsImpactEquation className="hidden lg:inline" />
           </div>
@@ -245,22 +245,22 @@ export function AnalysisDynamicsTab({
           </svg>
         </div>
 
-        <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono mt-1">
+        <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono mt-1">
           <span>-5σ (Catastrophic Selloff)</span>
           <div className="flex items-center gap-4">
             <span className="inline-flex items-center gap-1.5">
-              <span className="w-3 h-0.5 bg-slate-400 border-b border-dashed inline-block" /> Symmetric GARCH(1,1)
+              <span className="w-3 h-0.5 bg-zinc-400 border-b border-dashed inline-block" /> Symmetric GARCH(1,1)
             </span>
             <span className="inline-flex items-center gap-1.5">
-              <span className="w-3 h-0.5 bg-emerald-500 inline-block" /> GJR-GARCH (Leverage γ &gt; 0)
+              <span className="w-3 h-0.5 bg-gold-500 inline-block" /> GJR-GARCH (Leverage γ &gt; 0)
             </span>
           </div>
           <span>+5σ (Extreme Rally)</span>
         </div>
 
-        <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/60 text-xs text-slate-500 dark:text-slate-400 flex items-center justify-between">
+        <div className="mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-800/60 text-xs text-zinc-500 dark:text-zinc-400 flex items-center justify-between">
           <div className="flex items-center gap-1.5">
-            <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <Info className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
             <span>
               The asymmetric tilt confirms the Black (1976) financial leverage hypothesis: bad news lowers firm equity,
               increasing debt-to-equity ratio and magnifying downstream asset risk.
@@ -272,18 +272,18 @@ export function AnalysisDynamicsTab({
       {/* Volatility Signature Plot & Overnight vs Intraday Split */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Volatility Signature Plot */}
-        <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800/90 rounded-xl p-5 shadow-xs">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800/60">
+        <div className="panel p-5">
+          <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800/60">
             <div>
-              <h4 className="font-semibold text-slate-900 dark:text-slate-100 text-sm">
+              <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
                 Volatility Signature Plot (Andersen et al., 2000)
               </h4>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
                 Sampling frequency vs. Realized Volatility: isolates microstructure noise bias
               </p>
             </div>
-            <div className="font-mono text-xs text-slate-400">
-              {activeSigPoint.samplingMinutes}m: <strong className="text-blue-500">{(activeSigPoint.annualizedRv * 100).toFixed(2)}%</strong>
+            <div className="font-mono text-xs text-zinc-400">
+              {activeSigPoint.samplingMinutes}m: <strong className="text-gold-600 dark:text-gold-300">{(activeSigPoint.annualizedRv * 100).toFixed(2)}%</strong>
             </div>
           </div>
 
@@ -337,30 +337,30 @@ export function AnalysisDynamicsTab({
             </svg>
           </div>
 
-          <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono mt-1">
+          <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono mt-1">
             <span>1m (High Noise)</span>
             <span>Sampling Horizon</span>
             <span>60m (Diffusion Plateau)</span>
           </div>
 
-          <div className="mt-3 text-[11px] text-slate-400">
+          <div className="mt-3 text-[11px] text-zinc-400">
             Microstructure noise inflates 1-minute RV; the curve stabilizes around the 5–15 min frequency, which provides
             the optimal bias-variance tradeoff for intraday pricing.
           </div>
         </div>
 
         {/* Overnight vs Intraday Split */}
-        <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800/90 rounded-xl p-5 shadow-xs">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800/60">
+        <div className="panel p-5">
+          <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800/60">
             <div>
-              <h4 className="font-semibold text-slate-900 dark:text-slate-100 text-sm">
+              <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
                 Overnight vs. Intraday Variance Decomposition
               </h4>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
                 Earnings releases &amp; macro news break outside market hours
               </p>
             </div>
-            <div className="font-mono text-xs text-emerald-600 dark:text-emerald-400">
+            <div className="font-mono text-xs text-gold-600 dark:text-gold-400">
               Avg Overnight Share: <strong>{avgOvernightPct.toFixed(1)}%</strong>
             </div>
           </div>
@@ -405,7 +405,7 @@ export function AnalysisDynamicsTab({
                       y={yTot}
                       width={barW}
                       height={yIntra - yTot}
-                      fill="#f59e0b"
+                      fill="#DEC084"
                       fillOpacity={0.8}
                       rx={2}
                     />
@@ -415,20 +415,20 @@ export function AnalysisDynamicsTab({
             </svg>
           </div>
 
-          <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono mt-1">
+          <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono mt-1">
             <span>{overnightIntradaySplit[0]?.date}</span>
             <div className="flex items-center gap-3">
               <span className="inline-flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 bg-emerald-500 rounded-xs inline-block" /> Intraday RV
+                <span className="w-2.5 h-2.5 bg-gold-500 rounded-xs inline-block" /> Intraday RV
               </span>
               <span className="inline-flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 bg-amber-500 rounded-xs inline-block" /> Overnight Gap Var
+                <span className="w-2.5 h-2.5 bg-gold-500 rounded-xs inline-block" /> Overnight Gap Var
               </span>
             </div>
             <span>{overnightIntradaySplit[nSplit - 1]?.date}</span>
           </div>
 
-          <div className="mt-3 text-[11px] text-slate-400">
+          <div className="mt-3 text-[11px] text-zinc-400">
             Overnight variance represents gap risk unhedged by standard intraday stops. High overnight ratios favor option
             straddles over delta-neutral spot market-making.
           </div>
@@ -438,17 +438,17 @@ export function AnalysisDynamicsTab({
       {/* Intraday 390-min Diurnal Profile & Jump Decomposition */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Diurnal U-Shape Profile */}
-        <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800/90 rounded-xl p-5 shadow-xs">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800/60">
+        <div className="panel p-5">
+          <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800/60">
             <div>
-              <h4 className="font-semibold text-slate-900 dark:text-slate-100 text-sm">
+              <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
                 390-Minute Intraday Diurnal Volatility Profile
               </h4>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
                 U-shaped intraday volatility smile: open rush → midday lull → market-on-close (MOC)
               </p>
             </div>
-            <Clock className="w-4 h-4 text-emerald-500" />
+            <Clock className="w-4 h-4 text-gold-500" />
           </div>
 
           <div className="mt-4">
@@ -457,18 +457,18 @@ export function AnalysisDynamicsTab({
         </div>
 
         {/* Jump Decomposition */}
-        <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800/90 rounded-xl p-5 shadow-xs">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800/60">
+        <div className="panel p-5">
+          <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800/60">
             <div>
-              <h4 className="font-semibold text-slate-900 dark:text-slate-100 text-sm">
+              <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
                 Bipower Variation &amp; Jump Shock Decomposition
               </h4>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
                 Barndorff-Nielsen &amp; Shephard: RV = Continuous BV + Discrete Jump J_t
               </p>
             </div>
-            <div className="font-mono text-xs text-slate-400">
-              Significant Jumps: <strong className="text-amber-500">{jumpStats.jumpDays}</strong> / {jumpStats.totalDays} days
+            <div className="font-mono text-xs text-zinc-400">
+              Significant Jumps: <strong className="text-gold-500">{jumpStats.jumpDays}</strong> / {jumpStats.totalDays} days
             </div>
           </div>
 
