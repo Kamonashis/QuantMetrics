@@ -7,6 +7,7 @@ import {
   performRegressionAnalysis,
 } from '@/lib/quant-engine';
 import { ResidualDiagnosticsChart } from '@/components/charts/ResidualDiagnosticsChart';
+import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 import {
   RegressionModelEquation,
   OlsMatrixEquation,
@@ -436,7 +437,9 @@ export function RegressionView({
       </div>
 
       {/* Residual Analysis Diagnostics Charts */}
-      <ResidualDiagnosticsChart summary={regressionSummary} />
+      <ChartFullscreen title="Regression Residual Diagnostics">
+        <ResidualDiagnosticsChart summary={regressionSummary} />
+      </ChartFullscreen>
     </div>
   );
 }

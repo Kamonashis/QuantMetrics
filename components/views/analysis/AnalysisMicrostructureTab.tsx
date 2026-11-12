@@ -7,6 +7,7 @@ import {
   AmihudEquation,
   RealizedSemivarianceEquation,
 } from '@/components/math/MathEquations';
+import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 import {
   Waves,
   Clock,
@@ -137,6 +138,7 @@ export function AnalysisMicrostructureTab({
         </div>
 
         <div className="mt-4">
+          <ChartFullscreen title="Estimated Intraday Spread Curve">
           <svg
             viewBox={`0 0 ${spW} ${spH}`}
             className="w-full h-52 select-none"
@@ -192,6 +194,7 @@ export function AnalysisMicrostructureTab({
               <circle cx={getSpX(activeIdx)} cy={getSpY(activePoint.estimatedSpreadBps)} r="4" fill="#10b981" />
             )}
           </svg>
+          </ChartFullscreen>
         </div>
 
         <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono mt-1">

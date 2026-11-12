@@ -4,6 +4,7 @@ import React from 'react';
 import { TrendingUp, Info } from 'lucide-react';
 import type { PanelPayload } from './types';
 import { VolTermStructureChart } from '@/components/charts/VolTermStructureChart';
+import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 
 const fmtPct = (v: number | null | undefined, d = 1) =>
   v === null || v === undefined || !isFinite(v) ? '—' : `${(v * 100).toFixed(d)}%`;
@@ -50,12 +51,14 @@ export function FnoTermStructureTab({ panel, symbol }: { panel: PanelPayload | n
             interpolated on total variance (w = σ²T) · 25Δ RR beneath each point
           </span>
         </div>
-        <VolTermStructureChart
-          points={points.map((p) => ({ dte: p.dte, iv: p.iv }))}
-          axisMode="vol"
-          band={null}
-          iv30Marker={30}
-        />
+        <ChartFullscreen title="ATM IV Term Structure" subtitle="Interpolated on total variance">
+          <VolTermStructureChart
+            points={points.map((p) => ({ dte: p.dte, iv: p.iv }))}
+            axisMode="vol"
+            band={null}
+            iv30Marker={30}
+          />
+        </ChartFullscreen>
       </div>
 
       {/* Carry + skew RR */}

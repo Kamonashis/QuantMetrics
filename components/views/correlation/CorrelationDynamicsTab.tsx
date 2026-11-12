@@ -16,6 +16,7 @@ import {
   DccCorrelationEquation,
   TailDependenceEquation,
 } from '@/components/math/MathEquations';
+import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 import {
   Activity,
   Zap,
@@ -303,6 +304,7 @@ export function CorrelationDynamicsTab({
         </div>
 
         {/* SVG Time-Series Chart */}
+        <ChartFullscreen title="Dynamic Correlation Path vs. Static Baseline">
         <div className="w-full h-64 bg-zinc-50 dark:bg-zinc-900/60 rounded-xl border border-zinc-200 dark:border-zinc-800 relative p-3">
           {activeSeries.length > 5 ? (
             <svg viewBox="0 0 800 220" className="w-full h-full overflow-visible">
@@ -381,6 +383,7 @@ export function CorrelationDynamicsTab({
             </div>
           )}
         </div>
+        </ChartFullscreen>
 
         <div className="mt-3 flex items-center justify-between text-xs text-zinc-500 font-mono">
           <span>Start: {dates[0] || 'Historical'}</span>

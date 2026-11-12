@@ -5,6 +5,7 @@ import { ArrowLeftRight, Info } from 'lucide-react';
 import type { PriceBar } from '@/lib/quant-engine';
 import { historicalAbsMoves, percentileRankLocal, moveVerdict, moveDistributionSummary } from '@/lib/fno/expected-move';
 import { MoveDistributionChart } from '@/components/charts/fno/MoveDistributionChart';
+import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 import { AnimatedTabs } from '@/components/ui/animated-tabs';
 import type { PanelPayload } from './types';
 
@@ -93,11 +94,13 @@ export function FnoExpectedMoveTab({
             {moves[horizonIdx]?.expiry ?? '—'} · histogram of {realizedSamples.length.toLocaleString()} historical windows
           </span>
         </div>
-        <MoveDistributionChart
-          samples={realizedSamples}
-          impliedPct={implied}
-          horizonLabel={`${effectiveHorizon}-session |move| distribution`}
-        />
+        <ChartFullscreen title="Historical |Move| Distribution vs Implied" subtitle={`${effectiveHorizon}-session windows`}>
+          <MoveDistributionChart
+            samples={realizedSamples}
+            impliedPct={implied}
+            horizonLabel={`${effectiveHorizon}-session |move| distribution`}
+          />
+        </ChartFullscreen>
       </div>
 
       {/* Per-expiry table */}

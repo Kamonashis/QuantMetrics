@@ -3,6 +3,7 @@
 import React from 'react';
 import { Crosshair, Info } from 'lucide-react';
 import type { PanelPayload } from './types';
+import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 
 export function FnoMaxPainTab({ panel, symbol }: { panel: PanelPayload | null; symbol: string }) {
   const pain = panel?.maxPain ?? null;
@@ -47,6 +48,7 @@ export function FnoMaxPainTab({ panel, symbol }: { panel: PanelPayload | null; s
           <div className="text-xs text-zinc-400">Chain too thin to build a pain curve — insufficient OI at nearby strikes.</div>
         ) : (
           <div className="w-full overflow-x-auto">
+            <ChartFullscreen title="Max-Pain Curve">
             <svg viewBox={`0 0 720 220`} className="w-full min-w-[560px]" role="img" aria-label="Pain curve">
               {(() => {
                 const midX = 40;
@@ -77,6 +79,7 @@ export function FnoMaxPainTab({ panel, symbol }: { panel: PanelPayload | null; s
                 );
               })()}
             </svg>
+            </ChartFullscreen>
           </div>
         )}
       </div>

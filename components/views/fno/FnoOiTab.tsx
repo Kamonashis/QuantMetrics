@@ -4,6 +4,7 @@ import React from 'react';
 import { Layers, Flame } from 'lucide-react';
 import type { PanelPayload } from './types';
 import { OiLadder } from '@/components/charts/fno/OiLadder';
+import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 
 const fmtOi = (v: number | null | undefined) =>
   v === null || v === undefined ? '—' : v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v.toLocaleString();
@@ -30,7 +31,9 @@ export function FnoOiTab({ panel, symbol }: { panel: PanelPayload | null; symbol
             total OI {fmtOi(totalOi)} · as-of last close
           </span>
         </div>
-        <OiLadder rows={ladder} spot={spot} />
+        <ChartFullscreen title="OI by Strike — Positioning (±15%)">
+          <OiLadder rows={ladder} spot={spot} />
+        </ChartFullscreen>
       </div>
 
       {/* OI by expiry */}

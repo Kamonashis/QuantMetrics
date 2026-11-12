@@ -11,6 +11,7 @@ import type { PriceBar } from '@/lib/quant-engine';
 import { percentileRank, quantileSorted } from '@/lib/vol-analytics';
 import { VolTermStructureChart } from '@/components/charts/VolTermStructureChart';
 import { IvRvChart } from '@/components/charts/IvRvChart';
+import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 import type { ChainPayload, IndicesPayload } from './types';
 
 const pct = (v: number | null | undefined, d = 1) =>
@@ -172,12 +173,14 @@ export function T3TermStructureTab({
               ))}
             </div>
           </div>
-          <VolTermStructureChart
-            points={tsPoints}
-            axisMode={axisMode}
-            band={band}
-            iv30Marker={30}
-          />
+          <ChartFullscreen title="IV Term Structure" subtitle="European BSM · ~15-min delayed">
+            <VolTermStructureChart
+              points={tsPoints}
+              axisMode={axisMode}
+              band={band}
+              iv30Marker={30}
+            />
+          </ChartFullscreen>
           {invert && (
             <div className="mt-2 flex items-center gap-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-[11px] font-medium text-rose-500 dark:text-rose-400">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
@@ -235,7 +238,9 @@ export function T3TermStructureTab({
             IV: {ivProxyLabel} · RV: ticker 20d
           </span>
         </div>
-        <IvRvChart points={ivRvPoints} ivLabel={ivProxyLabel} />
+        <ChartFullscreen title="Implied vs Realized Volatility — 2-Year Tape" subtitle={`IV: ${ivProxyLabel}`}>
+          <IvRvChart points={ivRvPoints} ivLabel={ivProxyLabel} />
+        </ChartFullscreen>
       </div>
 
       {/* Short-vol carry with its tail risk shown */}

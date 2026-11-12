@@ -4,6 +4,7 @@ import React, { useMemo, useState } from 'react';
 import { Radiation, Ruler, Landmark, Info } from 'lucide-react';
 import type { ChainPayload } from './types';
 import { RndChart } from '@/components/charts/RndChart';
+import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 import { normCdf } from '@/lib/options';
 import { calculateReturns } from '@/lib/quant-engine';
 import type { PriceBar } from '@/lib/quant-engine';
@@ -152,7 +153,9 @@ export function T5DensityTab({
           </h3>
         </div>
         {chain?.rnd ? (
-          <RndChart rnd={chain.rnd} spot={spot} realizedReturns={realizedHorizon} />
+          <ChartFullscreen title="Breeden–Litzenberger Risk-Neutral Density vs. Realized">
+            <RndChart rnd={chain.rnd} spot={spot} realizedReturns={realizedHorizon} />
+          </ChartFullscreen>
         ) : (
           <div className="text-xs text-zinc-400">No fitted smile available for the RND build.</div>
         )}

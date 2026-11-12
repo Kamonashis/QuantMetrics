@@ -13,6 +13,7 @@ import {
 } from '@/lib/quant-engine';
 import { VolatilityForecastChart } from '@/components/charts/VolatilityForecastChart';
 import { HarRvForecastChart } from '@/components/charts/HarRvForecastChart';
+import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 import {
   MathDisplay,
   GarchEquation,
@@ -385,21 +386,25 @@ export function ModelingView({
 
       {/* Main Chart Section: GARCH Volatility Cone vs 1-Min HAR-RV Cone */}
       {activeModelTab === 'garch' ? (
-        <VolatilityForecastChart
-          dates={dates}
-          historicalVol={historicalVol}
-          ewmaVol={ewmaResult.ewmaAnnualizedVol}
-          garchVol={garchResult.conditionalAnnualizedVol}
-          forecastPoints={forecastPoints}
-          garchSummary={garchResult.summary}
-          ewmaSummary={ewmaResult.summary}
-        />
+        <ChartFullscreen title="EWMA vs. GARCH(1,1) Volatility Cone & Forecast" subtitle={ticker}>
+          <VolatilityForecastChart
+            dates={dates}
+            historicalVol={historicalVol}
+            ewmaVol={ewmaResult.ewmaAnnualizedVol}
+            garchVol={garchResult.conditionalAnnualizedVol}
+            forecastPoints={forecastPoints}
+            garchSummary={garchResult.summary}
+            ewmaSummary={ewmaResult.summary}
+          />
+        </ChartFullscreen>
       ) : (
-        <HarRvForecastChart
-          dailyRV={dailyRealizedVol}
-          harSummary={harModelSummary}
-          ticker={ticker}
-        />
+        <ChartFullscreen title="HAR-RV Realized Volatility Cone & Forecast" subtitle={ticker}>
+          <HarRvForecastChart
+            dailyRV={dailyRealizedVol}
+            harSummary={harModelSummary}
+            ticker={ticker}
+          />
+        </ChartFullscreen>
       )}
 
       {/* HAR-RV (Heterogeneous Autoregressive Model of Realized Volatility) Informational Panel */}

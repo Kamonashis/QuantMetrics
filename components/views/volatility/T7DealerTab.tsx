@@ -14,6 +14,7 @@ import type { PriceBar } from '@/lib/quant-engine';
 import type { ChainPayload, PanelRowOut, TrapPayload, TrapState } from './types';
 import { GammaProfileChart } from '@/components/charts/GammaProfileChart';
 import { TrapPriceChart } from '@/components/charts/TrapPriceChart';
+import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 import { runTrapBacktest } from '@/lib/trap-backtest';
 import { cn } from '@/lib/utils';
 
@@ -187,13 +188,15 @@ export function T7DealerTab({ chain, panel, bars, ticker }: T7Props) {
                 OI as of last close · squeeze convention assumed
               </span>
             </div>
-            <TrapPriceChart
-              closes={closes}
-              spot={trap.spot}
-              callWall={trap.walls.call?.strike ?? null}
-              putWall={trap.walls.put?.strike ?? null}
-              flip={trap.gammaFlip.flip}
-            />
+            <ChartFullscreen title="Price vs Dealer Levels" subtitle={`${ticker} · squeeze convention assumed`}>
+              <TrapPriceChart
+                closes={closes}
+                spot={trap.spot}
+                callWall={trap.walls.call?.strike ?? null}
+                putWall={trap.walls.put?.strike ?? null}
+                flip={trap.gammaFlip.flip}
+              />
+            </ChartFullscreen>
           </div>
 
           {/* Score + state + hedge flow */}
@@ -272,7 +275,9 @@ export function T7DealerTab({ chain, panel, bars, ticker }: T7Props) {
               total GEX {money(trap.totalGex)} / 1% · per-strike below
             </span>
           </div>
-          <GammaProfileChart points={trap.byStrike} spot={trap.spot} flip={trap.gammaFlip.flip} />
+          <ChartFullscreen title="Dealer Re-hedge Intensity by Strike (≤ 45 DTE)" subtitle={`Total GEX ${money(trap.totalGex)} / 1%`}>
+            <GammaProfileChart points={trap.byStrike} spot={trap.spot} flip={trap.gammaFlip.flip} />
+          </ChartFullscreen>
         </div>
 
         {/* Component breakdown */}

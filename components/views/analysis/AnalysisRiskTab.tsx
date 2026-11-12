@@ -12,6 +12,7 @@ import {
   DrawdownEquation,
   PsrEquation,
 } from '@/components/math/MathEquations';
+import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 import {
   ShieldAlert,
   TrendingDown,
@@ -264,6 +265,7 @@ export function AnalysisRiskTab({
 
         {/* Underwater Chart */}
         <div className="mt-4">
+          <ChartFullscreen title="Underwater Drawdown Curve">
           <svg
             viewBox={`0 0 ${ddW} ${ddH}`}
             className="w-full h-56 select-none"
@@ -325,6 +327,7 @@ export function AnalysisRiskTab({
               </g>
             )}
           </svg>
+          </ChartFullscreen>
         </div>
 
         <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono mt-1">
@@ -386,6 +389,7 @@ export function AnalysisRiskTab({
 
           {/* Rolling Beta Chart */}
           <div className="mt-4">
+            <ChartFullscreen title="60-Day Rolling Beta to SPY">
             <svg
               viewBox={`0 0 ${bW} ${bH}`}
               className="w-full h-36 select-none"
@@ -416,6 +420,7 @@ export function AnalysisRiskTab({
                 <circle cx={getBetaX(activeBetaIdx)} cy={getBetaY(activeBetaPoint.beta)} r="4" fill="#10b981" />
               )}
             </svg>
+            </ChartFullscreen>
           </div>
 
           <div className="flex items-center justify-between text-[10px] text-zinc-400 font-mono">

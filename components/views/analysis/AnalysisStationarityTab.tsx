@@ -8,6 +8,7 @@ import {
 } from '@/lib/analysis-engine';
 import { ReturnStats } from '@/lib/quant-engine';
 import { DistributionFittingPanel } from '@/components/charts/DistributionFittingPanel';
+import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 import {
   AdfEquation,
   ArchLmEquation,
@@ -269,7 +270,9 @@ export function AnalysisStationarityTab({
       </div>
 
       {/* Parametric Distribution Fitting Panel (Student-t, Hansen Skew-t, GED vs Normal) */}
-      <DistributionFittingPanel returns={returns} stats={stats} ticker={ticker} />
+      <ChartFullscreen title="Parametric Distribution Fitting — Return Histogram & MLE Fits" subtitle={ticker}>
+        <DistributionFittingPanel returns={returns} stats={stats} ticker={ticker} />
+      </ChartFullscreen>
 
       {/* Extreme Value Theory (EVT) Heavy-Tail Panel */}
       <div className="panel p-5">

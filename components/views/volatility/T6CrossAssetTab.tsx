@@ -6,6 +6,7 @@ import { crossCorrelation, solveOls } from '@/lib/vol-analytics';
 import { calculateReturns } from '@/lib/quant-engine';
 import type { PriceBar } from '@/lib/quant-engine';
 import type { ChainPayload, IndicesPayload } from './types';
+import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 
 const f2 = (v: number | null | undefined, d = 2) =>
   v === null || v === undefined || !isFinite(v) ? '—' : v.toFixed(d);
@@ -317,6 +318,7 @@ export function T6CrossAssetTab({
         </div>
         {regime ? (
           <div className="w-full overflow-x-auto">
+            <ChartFullscreen title="^VIX × ^VVIX Vol Regime Map — 2y Daily">
             <svg viewBox="0 0 640 260" className="w-full min-w-[520px]" role="img" aria-label="Vol regime scatter">
               {/* quadrant shading */}
               <rect x={40} y={10} width={280} height={110} fill="rgba(63,178,127,0.10)" />
@@ -355,6 +357,7 @@ export function T6CrossAssetTab({
               <text x={40} y={248} fontSize="8.5" fill="#8b8b93" fontFamily="var(--font-mono)">^VIX {vix[vix.length - 1].close.toFixed(1)} today →</text>
               <text x={600} y={248} fontSize="8.5" fill="#8b8b93" textAnchor="end" fontFamily="var(--font-mono)">x: level of vol · y: fragility of vol</text>
             </svg>
+            </ChartFullscreen>
             <div className="mt-2 flex items-center gap-3 font-mono text-[9px] text-zinc-400">
               <span className="flex items-center gap-1.5"><span className="inline-block h-2 w-2 rounded-full bg-[#DEC084]" /> today ({regime.today?.date})</span>
               <span>· quadrant split at 1y medians (^VIX {regime.xMid.toFixed(1)}, ^VVIX {regime.yMid.toFixed(0)})</span>

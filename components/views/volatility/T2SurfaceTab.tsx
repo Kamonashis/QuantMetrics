@@ -5,6 +5,7 @@ import { Grid3x3, ChartSpline, MoveHorizontal, ArrowUpRight } from 'lucide-react
 import type { ChainPayload, IndicesPayload } from './types';
 import { VolSurfaceHeatmap } from '@/components/charts/VolSurfaceHeatmap';
 import { VolatilitySmileChart } from '@/components/charts/VolatilitySmileChart';
+import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 import { expectedMove } from '@/lib/options';
 
 export function T2SurfaceTab({ chain, indices }: { chain: ChainPayload | null; indices: IndicesPayload | null }) {
@@ -46,7 +47,9 @@ export function T2SurfaceTab({ chain, indices }: { chain: ChainPayload | null; i
             k = ln(K / F) · European BSM · quotes → SVI
           </span>
         </div>
-        <VolSurfaceHeatmap slices={slices} />
+        <ChartFullscreen title="IV by Moneyness × Expiry" subtitle="European BSM · SVI fit">
+          <VolSurfaceHeatmap slices={slices} />
+        </ChartFullscreen>
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
@@ -77,7 +80,9 @@ export function T2SurfaceTab({ chain, indices }: { chain: ChainPayload | null; i
               ))}
             </div>
           </div>
-          <VolatilitySmileChart slice={active ?? null} />
+          <ChartFullscreen title="Volatility Smile + SVI Fit" subtitle={active ? `${active.dte}d expiry · ${active.expirationDate}` : undefined}>
+            <VolatilitySmileChart slice={active ?? null} />
+          </ChartFullscreen>
         </div>
 
         {/* Skew term structure + expected move ladder */}

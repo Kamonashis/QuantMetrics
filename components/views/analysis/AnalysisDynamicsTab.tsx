@@ -9,6 +9,7 @@ import {
 import { DailyRealizedVol, DiurnalPoint } from '@/lib/quant-engine';
 import { IntradayDiurnalChart } from '@/components/charts/IntradayDiurnalChart';
 import { JumpDecompositionChart } from '@/components/charts/JumpDecompositionChart';
+import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 import {
   NewsImpactEquation,
   SignaturePlotEquation,
@@ -165,6 +166,7 @@ export function AnalysisDynamicsTab({
         </div>
 
         <div className="mt-4">
+          <ChartFullscreen title="News Impact Curve (Symmetric GARCH vs. Asymmetric GJR-GARCH)">
           <svg
             viewBox={`0 0 ${newsW} ${newsH}`}
             className="w-full h-64 select-none"
@@ -243,6 +245,7 @@ export function AnalysisDynamicsTab({
               />
             )}
           </svg>
+          </ChartFullscreen>
         </div>
 
         <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono mt-1">
@@ -288,6 +291,7 @@ export function AnalysisDynamicsTab({
           </div>
 
           <div className="mt-4">
+            <ChartFullscreen title="Volatility Signature Plot — Realized Vol vs. Sampling Interval">
             <svg
               viewBox={`0 0 ${sigW} ${sigH}`}
               className="w-full h-52 select-none"
@@ -335,6 +339,7 @@ export function AnalysisDynamicsTab({
                 />
               ))}
             </svg>
+            </ChartFullscreen>
           </div>
 
           <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono mt-1">
@@ -366,6 +371,7 @@ export function AnalysisDynamicsTab({
           </div>
 
           <div className="mt-4">
+            <ChartFullscreen title="Overnight vs. Intraday Variance Split">
             <svg
               viewBox={`0 0 ${spW} ${spH}`}
               className="w-full h-52 select-none"
@@ -413,6 +419,7 @@ export function AnalysisDynamicsTab({
                 );
               })}
             </svg>
+            </ChartFullscreen>
           </div>
 
           <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono mt-1">
@@ -452,7 +459,9 @@ export function AnalysisDynamicsTab({
           </div>
 
           <div className="mt-4">
-            <IntradayDiurnalChart points={diurnalProfile} ticker={ticker} />
+            <ChartFullscreen title="390-Minute Intraday Diurnal Volatility Profile" subtitle={ticker}>
+              <IntradayDiurnalChart points={diurnalProfile} ticker={ticker} />
+            </ChartFullscreen>
           </div>
         </div>
 
@@ -473,7 +482,9 @@ export function AnalysisDynamicsTab({
           </div>
 
           <div className="mt-4">
-            <JumpDecompositionChart dailyRV={dailyRealizedVol} ticker={ticker} />
+            <ChartFullscreen title="Bipower Variation & Jump Shock Decomposition" subtitle={ticker}>
+              <JumpDecompositionChart dailyRV={dailyRealizedVol} ticker={ticker} />
+            </ChartFullscreen>
           </div>
         </div>
       </div>

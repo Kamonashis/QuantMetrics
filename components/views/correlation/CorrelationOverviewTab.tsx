@@ -12,6 +12,7 @@ import {
   MarchenkoPasturEquation,
   PartialCorrelationEquation,
 } from '@/components/math/MathEquations';
+import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 import {
   Download,
   Copy,
@@ -425,6 +426,7 @@ export function CorrelationOverviewTab({
                     <span>Synchronized Return Scatter &amp; Regression Slope</span>
                     <span className="font-mono">β = {slope.toFixed(3)}</span>
                   </div>
+                  <ChartFullscreen title="Synchronized Return Scatter & Regression Slope">
                   <div className="w-full aspect-[4/3] bg-zinc-50 dark:bg-zinc-900/80 rounded-lg border border-zinc-200 dark:border-zinc-800 relative p-2">
                     <svg viewBox="0 0 300 200" className="w-full h-full overflow-visible">
                       {/* Zero Crosshairs */}
@@ -466,6 +468,7 @@ export function CorrelationOverviewTab({
                       </text>
                     </svg>
                   </div>
+                  </ChartFullscreen>
                 </div>
 
                 <div className="p-3 bg-zinc-50 dark:bg-zinc-900/60 rounded-lg border border-zinc-200 dark:border-zinc-800 text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">

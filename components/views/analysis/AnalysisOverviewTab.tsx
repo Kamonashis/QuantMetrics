@@ -17,6 +17,7 @@ import { TimeSeriesChart } from '@/components/charts/TimeSeriesChart';
 import { ReturnsChart } from '@/components/charts/ReturnsChart';
 import { RollingVolatilityChart } from '@/components/charts/RollingVolatilityChart';
 import { DecompositionChart } from '@/components/charts/DecompositionChart';
+import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 import {
   SkewnessEquation,
   KurtosisEquation,
@@ -171,13 +172,15 @@ export function AnalysisOverviewTab({
         </div>
 
         <div className="mt-4">
-          <TimeSeriesChart
-            bars={priceChartBars}
-            breakPoints={structuralBreaks.breakDates}
-            cusumSqPoints={structuralBreaks.cusumSqPoints}
-            title="Price Trajectory & Volatility Regime Shifts"
-            subtitle={`${ticker} · ${companyName}`}
-          />
+          <ChartFullscreen title="Price Trajectory & Volatility Regime Shifts" subtitle={`${ticker} · ${companyName}`}>
+            <TimeSeriesChart
+              bars={priceChartBars}
+              breakPoints={structuralBreaks.breakDates}
+              cusumSqPoints={structuralBreaks.cusumSqPoints}
+              title="Price Trajectory & Volatility Regime Shifts"
+              subtitle={`${ticker} · ${companyName}`}
+            />
+          </ChartFullscreen>
         </div>
 
         {/* Structural Break Dates List */}
@@ -241,7 +244,9 @@ export function AnalysisOverviewTab({
         </div>
 
         <div className="mt-4">
-          <ReturnsChart dates={dates.slice(1)} returns={returns} returnType={returnType} />
+          <ChartFullscreen title="Empirical Return Innovations">
+            <ReturnsChart dates={dates.slice(1)} returns={returns} returnType={returnType} />
+          </ChartFullscreen>
         </div>
       </div>
 
@@ -312,7 +317,9 @@ export function AnalysisOverviewTab({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Rolling Volatility */}
         <div>
-          <RollingVolatilityChart series={rollingVolSeries} />
+          <ChartFullscreen title="Rolling Annualized Volatility">
+            <RollingVolatilityChart series={rollingVolSeries} />
+          </ChartFullscreen>
         </div>
 
         {/* Rolling Skewness with Confidence Interval */}
@@ -332,6 +339,7 @@ export function AnalysisOverviewTab({
           </div>
 
           <div className="mt-4">
+            <ChartFullscreen title="Rolling Skewness (60-Day) & Lo (2002) Confidence Bands">
             <svg
               viewBox={`0 0 ${svgW} ${svgH}`}
               className="w-full h-56 select-none"
@@ -415,6 +423,7 @@ export function AnalysisOverviewTab({
                 />
               )}
             </svg>
+            </ChartFullscreen>
           </div>
 
           <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono mt-2">
@@ -574,7 +583,9 @@ export function AnalysisOverviewTab({
         </div>
 
         <div className="mt-4">
-          <DecompositionChart decomposition={decompResult} adfTest={adfResult} />
+          <ChartFullscreen title="Time-Series Decomposition & ADF Test">
+            <DecompositionChart decomposition={decompResult} adfTest={adfResult} />
+          </ChartFullscreen>
         </div>
       </div>
     </div>

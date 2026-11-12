@@ -7,6 +7,7 @@ import {
   computeMatrixStability,
 } from '@/lib/correlation-engine';
 import { MantegnaDistanceEquation } from '@/components/math/MathEquations';
+import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 import {
   GitCommit,
   Network,
@@ -197,6 +198,7 @@ export function CorrelationStructureTab({
             </p>
 
             {/* SVG Network Canvas */}
+            <ChartFullscreen title="Mantegna Minimum Spanning Tree" subtitle="Correlation-metric network — click nodes to inspect neighborhoods">
             <div className="relative w-full aspect-4/3 bg-zinc-50 dark:bg-zinc-900/40 rounded-xl border border-zinc-100 dark:border-zinc-800/80 overflow-hidden flex items-center justify-center p-2">
               <svg
                 viewBox="0 0 520 400"
@@ -359,6 +361,7 @@ export function CorrelationStructureTab({
                 })}
               </svg>
             </div>
+            </ChartFullscreen>
           </div>
 
           <div className="mt-3 flex items-center justify-between text-[11px] text-zinc-500 dark:text-zinc-400 border-t border-zinc-100 dark:border-zinc-800 pt-3">
