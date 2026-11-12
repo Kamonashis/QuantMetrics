@@ -360,7 +360,7 @@ export function AnalysisOverviewTab({
                 y2={getSkewY(0)}
                 stroke="#64748b"
                 strokeDasharray="2 2"
-                strokeWidth={1}
+                strokeWidth={0.65}
                 opacity={0.4}
               />
 
@@ -385,7 +385,7 @@ export function AnalysisOverviewTab({
                   fill="none"
                   stroke="#64748b"
                   strokeDasharray="3 3"
-                  strokeWidth={1}
+                  strokeWidth={0.65}
                 />
               )}
 
@@ -396,7 +396,7 @@ export function AnalysisOverviewTab({
                   fill="none"
                   stroke="#64748b"
                   strokeDasharray="3 3"
-                  strokeWidth={1}
+                  strokeWidth={0.65}
                 />
               )}
 
@@ -406,7 +406,7 @@ export function AnalysisOverviewTab({
                   d={skewData.map((d, i) => `${i === 0 ? 'M' : 'L'} ${getSkewX(i)} ${getSkewY(d.skew)}`).join(' ')}
                   fill="none"
                   stroke="#10b981"
-                  strokeWidth={2}
+                  strokeWidth={1.3}
                 />
               )}
 
@@ -418,7 +418,7 @@ export function AnalysisOverviewTab({
                   x2={getSkewX(skewActiveIdx)}
                   y2={svgH - padB}
                   stroke="#94a3b8"
-                  strokeWidth={1}
+                  strokeWidth={0.65}
                   strokeDasharray="2 2"
                 />
               )}

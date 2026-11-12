@@ -33,7 +33,7 @@ export function OiLadder({
   return (
     <div className="w-full overflow-x-auto">
       <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[440px]" role="img" aria-label="Dual-sided OI ladder">
-        <line x1={mid} x2={mid} y1={2} y2={height - 16} stroke="rgba(236,236,241,0.3)" strokeWidth="1" strokeDasharray="3 3" />
+        <line x1={mid} x2={mid} y1={2} y2={height - 16} stroke="rgba(236,236,241,0.3)" strokeWidth="0.65" strokeDasharray="3 3" />
         {rows.map((r, i) => {
           const y = i * rowH + 6;
           const callW = (r.callOi / maxOi) * half;

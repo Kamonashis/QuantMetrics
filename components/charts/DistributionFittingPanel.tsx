@@ -251,7 +251,7 @@ export function DistributionFittingPanel({
                 fill="#38bdf8"
                 fillOpacity="0.45"
                 stroke="#0284c7"
-                strokeWidth="0.5"
+                strokeWidth="0.3"
                 strokeOpacity="0.6"
                 className="hover:fill-gold-400 transition-colors"
               >
@@ -275,7 +275,7 @@ export function DistributionFittingPanel({
                 d={curvePaths[m.key]}
                 fill="none"
                 stroke={m.color}
-                strokeWidth={isHovered ? 3.5 : isNormal ? 2.0 : 2.5}
+                strokeWidth={isHovered ? 2.3 : isNormal ? 1.3 : 1.6}
                 strokeDasharray={isNormal ? '4 3' : 'none'}
                 strokeOpacity={highlightedModel && !isHovered ? 0.25 : 0.95}
                 className="transition-all duration-200"
@@ -290,7 +290,7 @@ export function DistributionFittingPanel({
             x2={getX(stats.mean)}
             y2={padTop + chartH}
             stroke="#10b981"
-            strokeWidth="1.5"
+            strokeWidth="1"
             strokeDasharray="4 2"
           />
 

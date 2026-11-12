@@ -69,7 +69,7 @@ export function MoveDistributionChart({
           const x = xOf(b.x0);
           const y = yOf(b.count);
           return (
-            <rect key={i} x={x} y={y} width={barW} height={height - pad.b - y} fill="rgba(222,192,132,0.32)" stroke="rgba(222,192,132,0.4)" strokeWidth="0.5">
+            <rect key={i} x={x} y={y} width={barW} height={height - pad.b - y} fill="rgba(222,192,132,0.32)" stroke="rgba(222,192,132,0.4)" strokeWidth="0.3">
               <title>{`|move| ${(b.x0 * 100).toFixed(1)}–${(b.x1 * 100).toFixed(1)}% · ${b.count} sessions`}</title>
             </rect>
           );
@@ -77,7 +77,7 @@ export function MoveDistributionChart({
         {/* implied rule */}
         {impliedPct !== null && impliedPct > 0 && (
           <g>
-            <line x1={xOf(Math.min(impliedPct / 100, hist.cap))} x2={xOf(Math.min(impliedPct / 100, hist.cap))} y1={pad.t} y2={height - pad.b} stroke="#DEC084" strokeWidth="2" />
+            <line x1={xOf(Math.min(impliedPct / 100, hist.cap))} x2={xOf(Math.min(impliedPct / 100, hist.cap))} y1={pad.t} y2={height - pad.b} stroke="#DEC084" strokeWidth="1.3" />
             <text x={xOf(Math.min(impliedPct / 100, hist.cap))} y={height - 4} fontSize="8.5" fill="#DEC084" fontFamily="var(--font-mono)" textAnchor="middle">
               implied {impliedPct.toFixed(1)}%
             </text>

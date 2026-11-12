@@ -153,7 +153,7 @@ export function HomeView({ onNavigate, onSelectPreset, tapeItems }: HomeViewProp
                 </defs>
                 <path
                   d="M0 46 L18 42 L34 48 L52 36 L70 40 L88 28 L104 34 L122 22 L138 30 L156 18 L172 26 L190 14 L208 20 L226 10 L244 16 L260 8"
-                  fill="none" stroke="#DEC084" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"
+                  fill="none" stroke="#DEC084" strokeWidth="1.3" strokeLinejoin="round" strokeLinecap="round"
                 />
                 <path
                   d="M0 46 L18 42 L34 48 L52 36 L70 40 L88 28 L104 34 L122 22 L138 30 L156 18 L172 26 L190 14 L208 20 L226 10 L244 16 L260 8 L260 64 L0 64 Z"

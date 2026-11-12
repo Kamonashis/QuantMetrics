@@ -106,7 +106,7 @@ export function ReturnsChart({
             y2={zeroY}
             stroke="currentColor"
             className="text-zinc-300 dark:text-zinc-700"
-            strokeWidth="1.2"
+            strokeWidth="0.8"
           />
 
           {/* Plus / minus reference lines */}
@@ -120,7 +120,7 @@ export function ReturnsChart({
                 stroke="currentColor"
                 className="text-zinc-200 dark:text-zinc-800/80"
                 strokeDasharray="2 3"
-                strokeWidth="1"
+                strokeWidth="0.65"
               />
               <text
                 x={padLeft - 8}
@@ -171,7 +171,7 @@ export function ReturnsChart({
               x2={getX(activeIndex)}
               y2={padTop + chartH}
               stroke="#38bdf8"
-              strokeWidth="1"
+              strokeWidth="0.65"
               strokeDasharray="2 2"
             />
           )}

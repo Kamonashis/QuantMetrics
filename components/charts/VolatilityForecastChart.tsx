@@ -217,7 +217,7 @@ export function VolatilityForecastChart({
             x2={width - padRight}
             y2={getY(garchSummary.longRunAnnualizedVol)}
             stroke="#10b981"
-            strokeWidth="1.2"
+            strokeWidth="0.8"
             strokeDasharray="4 4"
           />
           <text
@@ -235,7 +235,7 @@ export function VolatilityForecastChart({
             x2={splitX}
             y2={padTop + chartH}
             stroke="#94a3b8"
-            strokeWidth="1.5"
+            strokeWidth="1"
             strokeDasharray="3 3"
           />
           <text
@@ -265,7 +265,7 @@ export function VolatilityForecastChart({
               d={`M ${histPoints.join(' L ')}`}
               fill="none"
               stroke="#64748b"
-              strokeWidth="1.5"
+              strokeWidth="1"
               strokeDasharray="2 2"
             />
           )}
@@ -276,7 +276,7 @@ export function VolatilityForecastChart({
               d={`M ${ewmaPoints}`}
               fill="none"
               stroke="#DEC084"
-              strokeWidth="2"
+              strokeWidth="1.3"
               strokeLinecap="round"
             />
           )}
@@ -287,7 +287,7 @@ export function VolatilityForecastChart({
               d={`M ${garchPoints}`}
               fill="none"
               stroke="#0ea5e9"
-              strokeWidth="2.2"
+              strokeWidth="1.4"
               strokeLinecap="round"
             />
           )}
@@ -297,7 +297,7 @@ export function VolatilityForecastChart({
             d={`M ${fcLinePoints.join(' L ')}`}
             fill="none"
             stroke="#0ea5e9"
-            strokeWidth="2.2"
+            strokeWidth="1.4"
             strokeDasharray="4 2"
           />
 
@@ -318,7 +318,7 @@ export function VolatilityForecastChart({
                 }
                 y2={padTop + chartH}
                 stroke="#38bdf8"
-                strokeWidth="1"
+                strokeWidth="0.65"
                 strokeDasharray="2 2"
               />
             </g>

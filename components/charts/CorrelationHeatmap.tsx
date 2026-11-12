@@ -177,8 +177,8 @@ export function CorrelationHeatmap({
               <div className="w-full aspect-[4/3] bg-white dark:bg-[#101014] rounded-md border border-zinc-200 dark:border-zinc-800 relative p-2">
                 <svg viewBox="0 0 300 220" className="w-full h-full overflow-visible">
                   {/* Axes */}
-                  <line x1="30" y1="110" x2="280" y2="110" stroke="#64748b" strokeWidth="0.8" strokeDasharray="2 2" />
-                  <line x1="155" y1="20" x2="155" y2="200" stroke="#64748b" strokeWidth="0.8" strokeDasharray="2 2" />
+                  <line x1="30" y1="110" x2="280" y2="110" stroke="#64748b" strokeWidth="0.5" strokeDasharray="2 2" />
+                  <line x1="155" y1="20" x2="155" y2="200" stroke="#64748b" strokeWidth="0.5" strokeDasharray="2 2" />
 
                   {/* Scatter points */}
                   {scatterPoints.slice(0, 180).map((pt, idx) => {

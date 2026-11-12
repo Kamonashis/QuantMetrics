@@ -84,9 +84,9 @@ export function IvRvChart({ points, ivLabel }: { points: IvRvPoint[]; ivLabel: s
           return <rect key={i} x={x1} y={top} width={Math.max(1, x2 - x1)} height={botH} fill="rgba(224,101,95,0.12)" />;
         })}
 
-        <path d={ivPath} fill="none" stroke="#DEC084" strokeWidth="1.8" strokeLinejoin="round" />
-        <path d={rvPath} fill="none" stroke="#7dd3fc" strokeWidth="1.5" strokeLinejoin="round" strokeDasharray="4 2.5" opacity="0.9" />
-        <path d={ratioPath} fill="none" stroke="rgba(236,236,241,0.6)" strokeWidth="1.2" />
+        <path d={ivPath} fill="none" stroke="#DEC084" strokeWidth="1.2" strokeLinejoin="round" />
+        <path d={rvPath} fill="none" stroke="#7dd3fc" strokeWidth="1" strokeLinejoin="round" strokeDasharray="4 2.5" opacity="0.9" />
+        <path d={ratioPath} fill="none" stroke="rgba(236,236,241,0.6)" strokeWidth="0.8" />
 
         {/* labels */}
         <text x={pad.l - 6} y={pad.t + 8} fontSize="8.5" fill="#DEC084" textAnchor="end" fontFamily="var(--font-mono)">IV {(yMax * 100).toFixed(0)}%</text>

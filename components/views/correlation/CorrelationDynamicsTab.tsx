@@ -309,9 +309,9 @@ export function CorrelationDynamicsTab({
           {activeSeries.length > 5 ? (
             <svg viewBox="0 0 800 220" className="w-full h-full overflow-visible">
               {/* Horizontal Reference Lines (-1, 0, +1) */}
-              <line x1="40" y1="20" x2="780" y2="20" stroke="#64748b" strokeWidth="0.5" strokeDasharray="3 3" />
-              <line x1="40" y1="110" x2="780" y2="110" stroke="#64748b" strokeWidth="1" strokeDasharray="2 2" />
-              <line x1="40" y1="200" x2="780" y2="200" stroke="#64748b" strokeWidth="0.5" strokeDasharray="3 3" />
+              <line x1="40" y1="20" x2="780" y2="20" stroke="#64748b" strokeWidth="0.3" strokeDasharray="3 3" />
+              <line x1="40" y1="110" x2="780" y2="110" stroke="#64748b" strokeWidth="0.65" strokeDasharray="2 2" />
+              <line x1="40" y1="200" x2="780" y2="200" stroke="#64748b" strokeWidth="0.3" strokeDasharray="3 3" />
 
               {/* Zero & Bounds Labels */}
               <text x="35" y="24" textAnchor="end" className="text-[10px] font-mono fill-zinc-400">+1.0</text>
@@ -325,7 +325,7 @@ export function CorrelationDynamicsTab({
                 x2="780"
                 y2={110 - dccResult.unconditionalCorr * 90}
                 stroke="#94a3b8"
-                strokeWidth="1.2"
+                strokeWidth="0.8"
                 strokeDasharray="4 4"
               />
 
@@ -345,7 +345,7 @@ export function CorrelationDynamicsTab({
                   <polyline
                     fill="none"
                     stroke={modelType === 'dcc' ? '#DEC084' : '#0ea5e9'}
-                    strokeWidth="2"
+                    strokeWidth="1.3"
                     points={pointsStr}
                   />
                 );
@@ -371,7 +371,7 @@ export function CorrelationDynamicsTab({
                     fill="#DEC084"
                     fillOpacity="0.15"
                     stroke="#DEC084"
-                    strokeWidth="0.8"
+                    strokeWidth="0.5"
                     strokeDasharray="2 2"
                   />
                 );

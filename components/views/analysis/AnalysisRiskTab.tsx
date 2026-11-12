@@ -284,7 +284,7 @@ export function AnalysisRiskTab({
               const yPos = getDdY(yVal);
               return (
                 <g key={pct}>
-                  <line x1={dPadL} y1={yPos} x2={ddW - dPadR} y2={yPos} stroke="#334155" strokeDasharray="2 2" strokeWidth={0.8} opacity={0.3} />
+                  <line x1={dPadL} y1={yPos} x2={ddW - dPadR} y2={yPos} stroke="#334155" strokeDasharray="2 2" strokeWidth={0.5} opacity={0.3} />
                   <text x={dPadL - 8} y={yPos + 3} textAnchor="end" fontSize="10" fill="#64748b" className="font-mono">
                     -{yVal.toFixed(1)}%
                   </text>
@@ -293,7 +293,7 @@ export function AnalysisRiskTab({
             })}
 
             {/* Zero top baseline */}
-            <line x1={dPadL} y1={dPadT} x2={ddW - dPadR} y2={dPadT} stroke="#64748b" strokeWidth={1} />
+            <line x1={dPadL} y1={dPadT} x2={ddW - dPadR} y2={dPadT} stroke="#64748b" strokeWidth={0.65} />
 
             {/* Underwater Area */}
             {nDd > 1 && (
@@ -315,14 +315,14 @@ export function AnalysisRiskTab({
                 d={ddData.map((d, i) => `${i === 0 ? 'M' : 'L'} ${getDdX(i)} ${getDdY(d.drawdownPct)}`).join(' ')}
                 fill="none"
                 stroke="#f43f5e"
-                strokeWidth={1.8}
+                strokeWidth={1.2}
               />
             )}
 
             {/* Hover marker */}
             {activeDdIdx >= 0 && activeDdIdx < nDd && (
               <g>
-                <line x1={getDdX(activeDdIdx)} y1={dPadT} x2={getDdX(activeDdIdx)} y2={ddH - dPadB} stroke="#fda4af" strokeDasharray="2 2" strokeWidth={1} />
+                <line x1={getDdX(activeDdIdx)} y1={dPadT} x2={getDdX(activeDdIdx)} y2={ddH - dPadB} stroke="#fda4af" strokeDasharray="2 2" strokeWidth={0.65} />
                 <circle cx={getDdX(activeDdIdx)} cy={getDdY(activeDdPoint.drawdownPct)} r="4" fill="#f43f5e" />
               </g>
             )}
@@ -403,7 +403,7 @@ export function AnalysisRiskTab({
               onMouseLeave={() => setBetaHoverIdx(null)}
             >
               {/* Beta = 1 reference line */}
-              <line x1={bPadL} y1={getBetaY(1)} x2={bW - bPadR} y2={getBetaY(1)} stroke="#64748b" strokeDasharray="3 3" strokeWidth={1} opacity={0.5} />
+              <line x1={bPadL} y1={getBetaY(1)} x2={bW - bPadR} y2={getBetaY(1)} stroke="#64748b" strokeDasharray="3 3" strokeWidth={0.65} opacity={0.5} />
 
               {/* Beta Path */}
               {nBeta > 1 && (
@@ -411,7 +411,7 @@ export function AnalysisRiskTab({
                   d={betaData.map((b, i) => `${i === 0 ? 'M' : 'L'} ${getBetaX(i)} ${getBetaY(b.beta)}`).join(' ')}
                   fill="none"
                   stroke="#10b981"
-                  strokeWidth={2}
+                  strokeWidth={1.3}
                 />
               )}
 

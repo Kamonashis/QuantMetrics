@@ -162,7 +162,7 @@ export function IntradayDiurnalChart({
                   stroke="currentColor"
                   className="text-zinc-300 dark:text-zinc-700/80"
                   strokeDasharray="3 3"
-                  strokeWidth="0.8"
+                  strokeWidth="0.5"
                 />
                 <text
                   x={x}
@@ -184,7 +184,7 @@ export function IntradayDiurnalChart({
             d={`M ${meanPts.join(' L ')}`}
             fill="none"
             stroke="#0ea5e9"
-            strokeWidth="2.2"
+            strokeWidth="1.4"
             strokeLinecap="round"
           />
 
@@ -197,7 +197,7 @@ export function IntradayDiurnalChart({
                 x2={getX(activePt.minuteOfDay)}
                 y2={padTop + chartH}
                 stroke="#38bdf8"
-                strokeWidth="1.2"
+                strokeWidth="0.8"
                 strokeDasharray="2 2"
               />
               <circle
@@ -206,7 +206,7 @@ export function IntradayDiurnalChart({
                 r="4"
                 fill="#38bdf8"
                 stroke="#0E0E11"
-                strokeWidth="2"
+                strokeWidth="1.3"
               />
             </g>
           )}

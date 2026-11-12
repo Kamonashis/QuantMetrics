@@ -192,7 +192,7 @@ export function AnalysisDynamicsTab({
                     y2={yPos}
                     stroke="#334155"
                     strokeDasharray="2 2"
-                    strokeWidth={0.8}
+                    strokeWidth={0.5}
                     opacity={0.3}
                   />
                   <text x={nPadL - 8} y={yPos + 3} textAnchor="end" fontSize="10" fill="#64748b" className="font-mono">
@@ -210,7 +210,7 @@ export function AnalysisDynamicsTab({
               y2={newsH - nPadB}
               stroke="#64748b"
               strokeDasharray="3 3"
-              strokeWidth={1}
+              strokeWidth={0.65}
               opacity={0.4}
             />
 
@@ -221,7 +221,7 @@ export function AnalysisDynamicsTab({
                 fill="none"
                 stroke="#64748b"
                 strokeDasharray="4 4"
-                strokeWidth={1.8}
+                strokeWidth={1.2}
               />
             )}
 
@@ -231,7 +231,7 @@ export function AnalysisDynamicsTab({
                 d={newsImpactPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${getNewsX(i)} ${getNewsY(p.asymmetricVarianceGjr)}`).join(' ')}
                 fill="none"
                 stroke="#10b981"
-                strokeWidth={2.5}
+                strokeWidth={1.6}
               />
             )}
 
@@ -310,7 +310,7 @@ export function AnalysisDynamicsTab({
                 const yPos = getSigY(val);
                 return (
                   <g key={pct}>
-                    <line x1={sPadL} y1={yPos} x2={sigW - sPadR} y2={yPos} stroke="#334155" strokeDasharray="2 2" strokeWidth={0.8} opacity={0.3} />
+                    <line x1={sPadL} y1={yPos} x2={sigW - sPadR} y2={yPos} stroke="#334155" strokeDasharray="2 2" strokeWidth={0.5} opacity={0.3} />
                     <text x={sPadL - 8} y={yPos + 3} textAnchor="end" fontSize="10" fill="#64748b" className="font-mono">
                       {(val * 100).toFixed(1)}%
                     </text>
@@ -324,7 +324,7 @@ export function AnalysisDynamicsTab({
                   d={volSignaturePoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${getSigX(i)} ${getSigY(p.annualizedRv)}`).join(' ')}
                   fill="none"
                   stroke="#3b82f6"
-                  strokeWidth={2.2}
+                  strokeWidth={1.4}
                 />
               )}
 

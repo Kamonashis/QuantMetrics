@@ -430,8 +430,8 @@ export function CorrelationOverviewTab({
                   <div className="w-full aspect-[4/3] bg-zinc-50 dark:bg-zinc-900/80 rounded-lg border border-zinc-200 dark:border-zinc-800 relative p-2">
                     <svg viewBox="0 0 300 200" className="w-full h-full overflow-visible">
                       {/* Zero Crosshairs */}
-                      <line x1="20" y1="100" x2="280" y2="100" stroke="#64748b" strokeWidth="0.8" strokeDasharray="2 2" />
-                      <line x1="150" y1="20" x2="150" y2="180" stroke="#64748b" strokeWidth="0.8" strokeDasharray="2 2" />
+                      <line x1="20" y1="100" x2="280" y2="100" stroke="#64748b" strokeWidth="0.5" strokeDasharray="2 2" />
+                      <line x1="150" y1="20" x2="150" y2="180" stroke="#64748b" strokeWidth="0.5" strokeDasharray="2 2" />
 
                       {/* Regression Line */}
                       <line
@@ -440,7 +440,7 @@ export function CorrelationOverviewTab({
                         x2="270"
                         y2={100 - (slope * 0.05 + intercept) * 1200}
                         stroke="#10b981"
-                        strokeWidth="1.5"
+                        strokeWidth="1"
                       />
 
                       {/* Scatter points */}

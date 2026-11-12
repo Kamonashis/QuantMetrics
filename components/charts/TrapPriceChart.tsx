@@ -50,7 +50,7 @@ export function TrapPriceChart({
     const y = yOf(v);
     return (
       <g key={label}>
-        <line x1={pad.l} x2={width - pad.r} y1={y} y2={y} stroke={color} strokeWidth="1.3" strokeDasharray={dash} opacity="0.85" />
+        <line x1={pad.l} x2={width - pad.r} y1={y} y2={y} stroke={color} strokeWidth="0.85" strokeDasharray={dash} opacity="0.85" />
         <text x={width - pad.r + 2} y={y + 3} fontSize="8" fill={color} fontFamily="var(--font-mono)" textAnchor="start">
           {label}
         </text>
@@ -65,8 +65,8 @@ export function TrapPriceChart({
         {levelLine(callWall, '#DEC084', 'CW')}
         {levelLine(putWall, '#e0655f', 'PW')}
         {levelLine(flip, '#a1a1ad', 'FLIP', '2 3')}
-        <path d={linePath} fill="none" stroke="#ececf1" strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" />
-        <circle cx={xOf(data.length - 1)} cy={yOf(spot)} r="3" fill="#DEC084" stroke="#0B0B0D" strokeWidth="1.4" />
+        <path d={linePath} fill="none" stroke="#ececf1" strokeWidth="1.05" strokeLinejoin="round" strokeLinecap="round" />
+        <circle cx={xOf(data.length - 1)} cy={yOf(spot)} r="3" fill="#DEC084" stroke="#0B0B0D" strokeWidth="0.9" />
         {/* y bounds */}
         <text x={pad.l - 5} y={pad.t + 6} fontSize="8.5" fill="#8b8b93" textAnchor="end" fontFamily="var(--font-mono)">
           {yMax.toFixed(1)}

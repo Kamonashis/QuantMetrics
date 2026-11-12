@@ -92,9 +92,9 @@ export function VolTermStructureChart({
           />
         )}
 
-        <path d={linePath} fill="none" stroke="#DEC084" strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" />
+        <path d={linePath} fill="none" stroke="#DEC084" strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round" />
         {valid.map((p) => (
-          <circle key={p.dte} cx={xOf(p.dte)} cy={yPix(yOf(p))} r="3.4" fill="#0B0B0D" stroke="#DEC084" strokeWidth="1.6">
+          <circle key={p.dte} cx={xOf(p.dte)} cy={yPix(yOf(p))} r="3.4" fill="#0B0B0D" stroke="#DEC084" strokeWidth="1.05">
             <title>{`${p.dte}d: ${(p.iv * 100).toFixed(2)}% IV${axisMode === 'totalVariance' ? ` · w=${(p.iv * p.iv * (p.dte / 365) * 1e4).toFixed(1)} bp` : ''}`}</title>
           </circle>
         ))}

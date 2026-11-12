@@ -142,7 +142,7 @@ export function HarRvForecastChart({
             x2={splitX}
             y2={padTop + chartH}
             stroke="#94a3b8"
-            strokeWidth="1.2"
+            strokeWidth="0.8"
             strokeDasharray="3 3"
           />
           <text
@@ -170,7 +170,7 @@ export function HarRvForecastChart({
             d={`M ${histPoints}`}
             fill="none"
             stroke="#0ea5e9"
-            strokeWidth="2.2"
+            strokeWidth="1.4"
             strokeLinecap="round"
           />
 
@@ -179,7 +179,7 @@ export function HarRvForecastChart({
             d={`M ${fcLinePts.join(' L ')}`}
             fill="none"
             stroke="#0ea5e9"
-            strokeWidth="2"
+            strokeWidth="1.3"
             strokeDasharray="4 2"
           />
 
@@ -192,7 +192,7 @@ export function HarRvForecastChart({
               r="3.5"
               fill="#0ea5e9"
               stroke="#0E0E11"
-              strokeWidth="1.5"
+              strokeWidth="1"
             />
           ))}
 

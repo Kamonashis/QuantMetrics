@@ -67,7 +67,7 @@ export function VolatilitySmileChart({ slice }: { slice: SliceOut | null }) {
         <line x1={xOf(0)} x2={xOf(0)} y1={pad.t} y2={height - pad.b} stroke="rgba(222,192,132,0.35)" strokeDasharray="2 3" />
 
         {/* SVI fit line */}
-        {fitPath && <path d={fitPath} fill="none" stroke="#DEC084" strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" />}
+        {fitPath && <path d={fitPath} fill="none" stroke="#DEC084" strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round" />}
 
         {/* raw quote dots: calls hollow gold, puts solid zinc */}
         {slice.points.map((p, i) => (
@@ -78,7 +78,7 @@ export function VolatilitySmileChart({ slice }: { slice: SliceOut | null }) {
             r={p.type === 'call' ? 3.2 : 3.2}
             fill={p.type === 'call' ? 'transparent' : 'rgba(236,236,241,0.75)'}
             stroke={p.type === 'call' ? '#DEC084' : 'rgba(236,236,241,0.75)'}
-            strokeWidth="1.4"
+            strokeWidth="0.9"
             opacity="0.9"
           >
             <title>{`${p.type.toUpperCase()} K=${p.strike}\nk=${p.k.toFixed(3)} IV=${(p.iv * 100).toFixed(2)}%\nmid=${p.mid.toFixed(2)} · spread ${(p.relSpread * 100).toFixed(1)}%`}</title>

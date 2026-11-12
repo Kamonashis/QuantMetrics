@@ -295,7 +295,7 @@ export function TimeSeriesChart({
                 stroke="currentColor"
                 className="text-zinc-200 dark:text-zinc-800/80"
                 strokeDasharray="3 3"
-                strokeWidth="1"
+                strokeWidth="0.65"
               />
               <text
                 x={padLeft - 8}
@@ -332,7 +332,7 @@ export function TimeSeriesChart({
                     x2={bp.x}
                     y2={padTop + chartH}
                     stroke="#DEC084"
-                    strokeWidth={isHovered ? 2.2 : 1.6}
+                    strokeWidth={isHovered ? 1.4 : 1.05}
                     strokeDasharray="5 3"
                   />
 
@@ -349,7 +349,7 @@ export function TimeSeriesChart({
                       rx="8"
                       fill="#78350f"
                       stroke="#DEC084"
-                      strokeWidth={isHovered ? 1.5 : 1}
+                      strokeWidth={isHovered ? 1 : 0.65}
                       filter={isHovered ? 'url(#breakGlow)' : undefined}
                     />
                     <text
@@ -376,7 +376,7 @@ export function TimeSeriesChart({
                     r={isHovered ? 5.5 : 4}
                     fill="#DEC084"
                     stroke="#ffffff"
-                    strokeWidth="1.5"
+                    strokeWidth="1"
                   />
                 </g>
               );
@@ -408,7 +408,7 @@ export function TimeSeriesChart({
             d={`M ${points}`}
             fill="none"
             stroke={strokeColor}
-            strokeWidth="2"
+            strokeWidth="1.3"
             strokeLinecap="round"
             strokeLinejoin="round"
           />
@@ -435,7 +435,7 @@ export function TimeSeriesChart({
                 x2={getX(activeIndex)}
                 y2={padTop + chartH}
                 stroke="#38bdf8"
-                strokeWidth="1.2"
+                strokeWidth="0.8"
                 strokeDasharray="2 2"
               />
               <circle
@@ -444,7 +444,7 @@ export function TimeSeriesChart({
                 r="4.5"
                 fill="#38bdf8"
                 stroke="#0E0E11"
-                strokeWidth="2"
+                strokeWidth="1.3"
               />
             </g>
           )}
@@ -488,7 +488,7 @@ export function TimeSeriesChart({
                 fill="none"
                 stroke="currentColor"
                 className="text-zinc-200 dark:text-zinc-800"
-                strokeWidth="1"
+                strokeWidth="0.65"
               />
 
               {/* Diagonal Expected line (k / n) */}
@@ -499,7 +499,7 @@ export function TimeSeriesChart({
                 y2={10}
                 stroke="#94a3b8"
                 strokeDasharray="3 3"
-                strokeWidth="1"
+                strokeWidth="0.65"
               />
 
               {/* Upper 95% Band */}
@@ -517,7 +517,7 @@ export function TimeSeriesChart({
                     fill="none"
                     stroke="#DEC084"
                     strokeDasharray="4 3"
-                    strokeWidth="1.2"
+                    strokeWidth="0.8"
                   />
                 );
               })()}
@@ -537,7 +537,7 @@ export function TimeSeriesChart({
                     fill="none"
                     stroke="#DEC084"
                     strokeDasharray="4 3"
-                    strokeWidth="1.2"
+                    strokeWidth="0.8"
                   />
                 );
               })()}
@@ -556,7 +556,7 @@ export function TimeSeriesChart({
                     points={skPoints}
                     fill="none"
                     stroke="#10b981"
-                    strokeWidth="2"
+                    strokeWidth="1.3"
                     strokeLinecap="round"
                   />
                 );
@@ -572,7 +572,7 @@ export function TimeSeriesChart({
                     y2={90}
                     stroke="#DEC084"
                     strokeDasharray="3 3"
-                    strokeWidth="1.5"
+                    strokeWidth="1"
                   />
                   <circle
                     cx={bp.x}

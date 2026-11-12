@@ -90,7 +90,7 @@ export function RndChart({
               height={height - pad.b - y}
               fill="rgba(163,163,173,0.32)"
               stroke="rgba(163,163,173,0.35)"
-              strokeWidth="0.5"
+              strokeWidth="0.3"
             >
               <title>{`${(b.x0 * 100).toFixed(1)}% to ${(b.x1 * 100).toFixed(1)}%\n${b.count} occurrences · density ${density.toFixed(1)}`}</title>
             </rect>
@@ -103,7 +103,7 @@ export function RndChart({
           fill="rgba(222,192,132,0.13)"
           stroke="none"
         />
-        <path d={rndPath} fill="none" stroke="#DEC084" strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" />
+        <path d={rndPath} fill="none" stroke="#DEC084" strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round" />
 
         {/* axis labels */}
         {[kMin, 0, kMax].map((k, i) => (

@@ -215,7 +215,7 @@ export function T7DealerTab({ chain, panel, bars, ticker }: T7Props) {
                 <span className="pb-1 font-mono text-[10px] text-zinc-400">/ 100</span>
                 {sparkPath && (
                   <svg viewBox="0 0 110 36" className="mb-1 h-9 w-24" aria-label="score history">
-                    <path d={sparkPath} fill="none" stroke="#DEC084" strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" />
+                    <path d={sparkPath} fill="none" stroke="#DEC084" strokeWidth="1.05" strokeLinejoin="round" strokeLinecap="round" />
                   </svg>
                 )}
               </div>

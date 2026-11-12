@@ -59,7 +59,7 @@ export function GammaProfileChart({
           const idx = trimmed.findIndex((p) => p.strike >= spot);
           const y = idx === -1 ? (trimmed.length - 0.5) * rowH + 10 : yOf(idx) + rowH / 2;
           return (
-            <line x1={padL - 6} x2={width - padR} y1={y} y2={y} stroke="#DEC084" strokeWidth="1.4" strokeDasharray="5 3" opacity="0.8" />
+            <line x1={padL - 6} x2={width - padR} y1={y} y2={y} stroke="#DEC084" strokeWidth="0.9" strokeDasharray="5 3" opacity="0.8" />
           );
         })()}
         {/* flip rule */}
@@ -67,7 +67,7 @@ export function GammaProfileChart({
           const idx = trimmed.findIndex((p) => p.strike >= flip);
           const y = idx === -1 ? (trimmed.length - 0.5) * rowH + 10 : yOf(idx) + rowH / 2;
           return (
-            <line x1={padL - 6} x2={width - padR} y1={y} y2={y} stroke="rgba(222,192,132,0.5)" strokeWidth="1" strokeDasharray="2 4" />
+            <line x1={padL - 6} x2={width - padR} y1={y} y2={y} stroke="rgba(222,192,132,0.5)" strokeWidth="0.65" strokeDasharray="2 4" />
           );
         })()}
 

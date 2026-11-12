@@ -93,7 +93,7 @@ export function DecompositionChart({
               d={`M ${points.join(' L ')}`}
               fill="none"
               stroke={color}
-              strokeWidth="1.8"
+              strokeWidth="1.2"
               strokeLinecap="round"
               strokeLinejoin="round"
             />

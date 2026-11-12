@@ -342,7 +342,7 @@ export function T6CrossAssetTab({
                     r={isToday ? 6 : 2}
                     fill={isToday ? '#DEC084' : 'rgba(148,148,158,0.6)'}
                     stroke={isToday ? '#0B0B0D' : 'none'}
-                    strokeWidth={isToday ? 1.6 : 0}
+                    strokeWidth={isToday ? 1.05 : 0}
                   >
                     {isToday && <title>{`today: VIX ${p.x.toFixed(1)} / VVIX ${p.y.toFixed(0)}`}</title>}
                   </circle>

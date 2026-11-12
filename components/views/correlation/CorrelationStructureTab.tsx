@@ -231,7 +231,7 @@ export function CorrelationStructureTab({
                   const isConnectedToSelected =
                     selectedNode && (edge.source === selectedNode || edge.target === selectedNode);
                   // Width inversely proportional to distance (dist between 0 and 2)
-                  const strokeWidth = Math.max(1.5, (2 - edge.distance) * 2.8);
+                  const strokeWidth = Math.max(1.0, (2 - edge.distance) * 1.8);
                   const isPositive = edge.correlation >= 0;
 
                   return (
@@ -248,7 +248,7 @@ export function CorrelationStructureTab({
                             ? '#3b82f6'
                             : '#ec4899'
                         }
-                        strokeWidth={isConnectedToSelected ? strokeWidth + 1.5 : strokeWidth}
+                        strokeWidth={isConnectedToSelected ? strokeWidth + 1.0 : strokeWidth}
                         strokeOpacity={
                           selectedNode
                             ? isConnectedToSelected
@@ -301,7 +301,7 @@ export function CorrelationStructureTab({
                           r={radius + 4}
                           fill="none"
                           stroke="#10b981"
-                          strokeWidth="2"
+                          strokeWidth="1.3"
                           strokeDasharray="4 2"
                           className="animate-spin text-gold-500"
                           style={{ transformOrigin: '0 0', animationDuration: '10s' }}
@@ -325,7 +325,7 @@ export function CorrelationStructureTab({
                             ? '#34d399'
                             : '#64748b'
                         }
-                        strokeWidth={isSelected ? 2.5 : 1.5}
+                        strokeWidth={isSelected ? 1.6 : 1.0}
                         className="transition-all duration-200 group-hover:stroke-gold-400 group-hover:scale-105"
                       />
 
@@ -345,7 +345,7 @@ export function CorrelationStructureTab({
                         r="6.5"
                         fill="#0E0E11"
                         stroke="#475569"
-                        strokeWidth="1"
+                        strokeWidth="0.65"
                       />
                       <text
                         x={radius - 2}

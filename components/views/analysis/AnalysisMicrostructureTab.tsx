@@ -157,7 +157,7 @@ export function AnalysisMicrostructureTab({
               const yPos = getSpY(val);
               return (
                 <g key={pct}>
-                  <line x1={pL} y1={yPos} x2={spW - pR} y2={yPos} stroke="#334155" strokeDasharray="2 2" strokeWidth={0.8} opacity={0.3} />
+                  <line x1={pL} y1={yPos} x2={spW - pR} y2={yPos} stroke="#334155" strokeDasharray="2 2" strokeWidth={0.5} opacity={0.3} />
                   <text x={pL - 8} y={yPos + 3} textAnchor="end" fontSize="10" fill="#64748b" className="font-mono">
                     {val.toFixed(1)} bps
                   </text>
@@ -185,7 +185,7 @@ export function AnalysisMicrostructureTab({
                 d={curveData.map((c, i) => `${i === 0 ? 'M' : 'L'} ${getSpX(i)} ${getSpY(c.estimatedSpreadBps)}`).join(' ')}
                 fill="none"
                 stroke="#10b981"
-                strokeWidth={2.2}
+                strokeWidth={1.4}
               />
             )}
 

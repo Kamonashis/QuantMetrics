@@ -99,8 +99,8 @@ export function ResidualDiagnosticsChart({
           <div className="w-full aspect-[2/1] max-h-[300px] min-h-[200px]">
             <svg viewBox="0 0 600 300" className="w-full h-full overflow-visible">
               {/* Axes */}
-              <line x1="60" y1="150" x2="560" y2="150" stroke="#475569" strokeWidth="0.8" strokeDasharray="3 3" />
-              <line x1="310" y1="20" x2="310" y2="270" stroke="#475569" strokeWidth="0.8" strokeDasharray="3 3" />
+              <line x1="60" y1="150" x2="560" y2="150" stroke="#475569" strokeWidth="0.5" strokeDasharray="3 3" />
+              <line x1="310" y1="20" x2="310" y2="270" stroke="#475569" strokeWidth="0.5" strokeDasharray="3 3" />
 
               {/* 45-degree reference line */}
               <line
@@ -109,7 +109,7 @@ export function ResidualDiagnosticsChart({
                 x2="540"
                 y2="40"
                 stroke="#DEC084"
-                strokeWidth="1.8"
+                strokeWidth="1.2"
                 strokeDasharray="4 2"
               />
 
@@ -150,7 +150,7 @@ export function ResidualDiagnosticsChart({
         <div>
           <div className="w-full aspect-[2/1] max-h-[300px] min-h-[200px]">
             <svg viewBox="0 0 600 300" className="w-full h-full overflow-visible">
-              <line x1="60" y1="150" x2="560" y2="150" stroke="#10b981" strokeWidth="1.2" strokeDasharray="3 3" />
+              <line x1="60" y1="150" x2="560" y2="150" stroke="#10b981" strokeWidth="0.8" strokeDasharray="3 3" />
 
               {residuals.map((r, i) => {
                 const cx = 310 + r.fitted * 2500;
@@ -222,7 +222,7 @@ export function ResidualDiagnosticsChart({
                   );
                 });
               })()}
-              <line x1="60" y1="190" x2="540" y2="190" stroke="#64748b" strokeWidth="1" />
+              <line x1="60" y1="190" x2="540" y2="190" stroke="#64748b" strokeWidth="0.65" />
             </svg>
           </div>
         </div>
@@ -234,7 +234,7 @@ export function ResidualDiagnosticsChart({
           <div className="w-full aspect-[2/1] max-h-[300px] min-h-[200px]">
             <svg viewBox="0 0 700 260" className="w-full h-full overflow-visible">
               {/* Grid */}
-              <line x1="50" y1="130" x2="660" y2="130" stroke="#475569" strokeWidth="1" strokeDasharray="2 2" />
+              <line x1="50" y1="130" x2="660" y2="130" stroke="#475569" strokeWidth="0.65" strokeDasharray="2 2" />
               <text x="45" y="133" textAnchor="end" className="text-[9px] font-mono fill-zinc-500">β=0</text>
 
               {/* Render beta lines for each independent ticker */}
@@ -254,7 +254,7 @@ export function ResidualDiagnosticsChart({
                     d={`M ${points.join(' L ')}`}
                     fill="none"
                     stroke={color}
-                    strokeWidth="2"
+                    strokeWidth="1.3"
                     strokeLinecap="round"
                   />
                 );

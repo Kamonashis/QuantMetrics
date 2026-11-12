@@ -153,7 +153,7 @@ export function ReturnDistributionChart({
             d={`M ${normalPoints.join(' ')}`}
             fill="none"
             stroke="#DEC084"
-            strokeWidth="2"
+            strokeWidth="1.3"
             strokeDasharray="3 2"
           />
 
@@ -164,7 +164,7 @@ export function ReturnDistributionChart({
             x2={getX(mean)}
             y2={padTop + chartH}
             stroke="#10b981"
-            strokeWidth="1.5"
+            strokeWidth="1"
             strokeDasharray="4 2"
           />
 

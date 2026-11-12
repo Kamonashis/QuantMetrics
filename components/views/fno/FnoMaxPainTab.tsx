@@ -64,11 +64,11 @@ export function FnoMaxPainTab({ panel, symbol }: { panel: PanelPayload | null; s
                 return (
                   <>
                     <path d={fill} fill="rgba(222,192,132,0.12)" stroke="none" />
-                    <path d={path} fill="none" stroke="#DEC084" strokeWidth="2.2" strokeLinejoin="round" />
+                    <path d={path} fill="none" stroke="#DEC084" strokeWidth="1.4" strokeLinejoin="round" />
                     {maxPainStrike !== null && (
-                      <line x1={xOf(maxPainStrike)} x2={xOf(maxPainStrike)} y1={14} y2={180} stroke="#DEC084" strokeWidth="1.4" strokeDasharray="4 3" />
+                      <line x1={xOf(maxPainStrike)} x2={xOf(maxPainStrike)} y1={14} y2={180} stroke="#DEC084" strokeWidth="0.9" strokeDasharray="4 3" />
                     )}
-                    <line x1={spotX} x2={spotX} y1={14} y2={180} stroke="rgba(236,236,241,0.3)" strokeWidth="1.4" />
+                    <line x1={spotX} x2={spotX} y1={14} y2={180} stroke="rgba(236,236,241,0.3)" strokeWidth="0.9" />
                     <text x={xOf(maxPainStrike ?? bars[0].strike)} y={196} fontSize="8.5" fill="#DEC084" textAnchor="middle" fontFamily="var(--font-mono)">
                       pain {maxPainStrike}
                     </text>

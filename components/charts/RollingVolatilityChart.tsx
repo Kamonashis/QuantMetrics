@@ -152,7 +152,7 @@ export function RollingVolatilityChart({
                 d={`M ${validPoints.join(' L ')}`}
                 fill="none"
                 stroke={color}
-                strokeWidth="2"
+                strokeWidth="1.3"
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
@@ -167,7 +167,7 @@ export function RollingVolatilityChart({
               x2={getX(activeIndex)}
               y2={padTop + chartH}
               stroke="#38bdf8"
-              strokeWidth="1.2"
+              strokeWidth="0.8"
               strokeDasharray="2 2"
             />
           )}

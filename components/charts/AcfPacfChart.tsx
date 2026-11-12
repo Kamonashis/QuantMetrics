@@ -101,7 +101,7 @@ export function AcfPacfChart({ acfPacf }: AcfPacfResultProps & { acfPacf: AcfPac
             y2={zeroY}
             stroke="currentColor"
             className="text-zinc-400 dark:text-zinc-600"
-            strokeWidth="1.2"
+            strokeWidth="0.8"
           />
 
           {/* Upper confidence band */}
@@ -111,7 +111,7 @@ export function AcfPacfChart({ acfPacf }: AcfPacfResultProps & { acfPacf: AcfPac
             x2={width - padRight}
             y2={upperBandY}
             stroke="#38bdf8"
-            strokeWidth="1.2"
+            strokeWidth="0.8"
             strokeDasharray="4 3"
           />
           <text
@@ -130,7 +130,7 @@ export function AcfPacfChart({ acfPacf }: AcfPacfResultProps & { acfPacf: AcfPac
             x2={width - padRight}
             y2={lowerBandY}
             stroke="#38bdf8"
-            strokeWidth="1.2"
+            strokeWidth="0.8"
             strokeDasharray="4 3"
           />
           <text
@@ -158,7 +158,7 @@ export function AcfPacfChart({ acfPacf }: AcfPacfResultProps & { acfPacf: AcfPac
                   x2={x}
                   y2={y}
                   stroke={stemColor}
-                  strokeWidth="2"
+                  strokeWidth="1.3"
                   className="transition-colors group-hover:stroke-gold-400"
                 />
                 <circle
