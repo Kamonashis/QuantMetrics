@@ -183,7 +183,10 @@ export function toRows(
   const rows: RawChainRow[] = [];
   for (const c of contracts) {
     const oi = c.openInterest ?? 0;
-    if (!(oi > 0)) continue;
+    const volume = c.volume ?? 0;
+    // Keep OI>0 (positioning) OR volume>0 (flow) rows — ATM strikes often have OI=0
+    // on names whose weeklies are flow-driven; without them the straddle can't be priced.
+    if (!(oi > 0 || volume > 0)) continue;
     rows.push({
       expiry: expiryDate,
       dte,

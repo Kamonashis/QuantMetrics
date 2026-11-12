@@ -66,9 +66,19 @@ QuantMetrics is an advanced quantitative stock analysis, econometric diagnostics
 - **T4 — Forecast Validation**: forecast horse race (GARCH(1,1) vs EWMA vs HAR-RV vs IV) scored by QLIKE and MSE on log-RV, Mincer–Zarnowitz (a, b, R², joint (a,b)=(0,1) F-test), Diebold–Mariano with Newey–West LRV, encompassing blend (IV + GARCH), and GARCH-X with γ·IV²<sub>t-1</sub>.
 - **T5 — Risk-Neutral Density**: Breeden–Litzenberger density from the fitted smile (vs realized 21d horizon histogram), implied vs realized moments, MFIV vs interpolation consistency audit, digital/touch probabilities (N(d2), 2·N(−|d|)), and a Merton (1974) distance-to-default credit bridge with PD = N(−DD).
 - **T6 — Cross-Asset & Regime**: sortable IV matrix across the watchlist (IV-30, 25Δ RR, BF, skew, MFIV−ATM, accrual days), leverage-effect pricing (corr(Δ^VIX, r)), IV lead–lag cross-correlations, and a ^VIX × ^VVIX regime map (complacent / trending / hedging / panic).
-- **T7 — Dealer Positioning & Trap**: a dealer gamma-hedging state machine, not a prediction arrow. GEX by strike ($ re-hedge per 1% move), gamma-flip point via 121-spot sticky-IV grid, call/put wall detection (excluding the 2 strikes nearest spot), 5-component deterministic trap score (wall / proximity / short-gamma regime / OI velocity / coil), USD hedge-flow per 1% band, and an event-study backtest of every past *triggered* state with a Wilson-interval verdict against the unconditional base rate. The directional arrow renders only when follow-through clears base rate — otherwise the card shows state only. Every GEX figure is captioned "dealer positioning is assumed, not observed" (squeeze convention: dealers long calls / short puts). Daily OI accrual is forward-only via the snapshot store.
+- **T7 — Dealer Positioning & Trap**: a dealer gamma-hedging state machine, not a prediction arrow. GEX by strike ($ re-hedge per 1% move), gamma-flip point via 121-spot sticky-IV grid, call/put wall detection (excluding the 2 strikes nearest spot), 5-component deterministic trap score (wall / proximity / short-gamma regime / OI velocity / coil), USD hedge-flow per 1% band, and an event-study backtest of every past *triggered* state with a Wilson-interval verdict against the unconditional base rate. The directional arrow renders only when follow-through clears base rate — otherwise the card shows state only. Every GEX figure is captioned "dealer positioning is assumed, not observed" (squeeze convention: dealers long calls / short puts). Daily OI accrual is forward-only via the snapshot store. See §8 for the sibling US Options F&O suite.
 
 **Data & honesty**: chains are fetched server-side from Yahoo Finance's options endpoint (crumb session held in memory, ~15-min delayed). Index volatility history (`^VIX`, `^VIX9D`, `^VIX3M`, `^VIX6M`, `^VXN`, `^VVIX`, `^SKEW`, `^IRX`) comes from the chart endpoint. Single-name IV history cannot be backfilled — snapshots accrete per symbol/day in `.cache/iv/{SYMBOL}/{YYYY-MM-DD}.json` (gitignored); until ~60 sessions accrue, IV-rank panels show the real count rather than a fabricated percentile. Indices map to ETF proxies with a visible badge (`^IXIC`→QQQ, `^SPX`→SPY, `^NDX`→QQQ, `^DJI`→DIA, `^RUT`→IWM). Every IV number is a European BSM approximation; the surface reports its own filtered-strike count and median spread.
+
+### 8. US Options F&O Suite (T1–T6)
+- **T1 — Option Chain**: dual-sided table (CE/PE split), ATM row pinned, per-strike mid IV via Newton from mid-quote (never Yahoo's IV field), 25Δ/50Δ approximations, vega & delta per strike, OI/volume bars, strikes-used badge. 0-DTE expiries are displayed correctly (T floored at half a session).
+- **T2 — OI Positioning**: dual-sided OI ladder (±15% of spot), per-expiry OI distribution with expiry-decay visualization, and a ≤7-DTE concentration metric that flags when the positioning is structurally short-dated.
+- **T3 — PCR**: aggregate OI PCR, volume PCR, and ATM ±5-strike PCR side by side, plus a divergence warning when positioning and flow disagree by more than 0.4.
+- **T4 — Max Pain**: full payout curve with the minimum marked, distance-to-pain, basin width (strikes ≤ 105% of minimum pain), and an explicit "heuristic, not a law" honesty footer.
+- **T5 — Term Structure & Carry**: ATM IV across all twelve expiries, verdict anchored to ≥ 10 DTE (front week is event-noise), forward carry between expiries extracted via put–call parity, and 25Δ risk reversal per expiry where the smile fits.
+- **T6 — Expected vs Realized Move**: ATM straddle and σ-implied move per expiry, compared against the realized |log-move| histogram over the matching horizon — with a CHEAP / FAIR / RICH verdict and percentile rank per row. Historical IV is not fetchable; this is today's pricing vs base rates, not an implied-vol backtest.
+
+**Universe**: AAPL, MSFT, NVDA, TSLA, AMZN, GOOGL, META, JPM, SPY, QQQ. American-style equity options; prices are ~15-min delayed from Yahoo Finance; OI is end-of-day; IV history accrues at most one snapshot per day on page load and is never backfilled.
 
 ## 🛠️ Tech Stack
 
@@ -119,6 +129,7 @@ QuantMetrics/
 │       ├── CorrelationView.tsx     # Matrix, RMT, MST & portfolio risk tabs
 │       └── RegressionView.tsx      # CAPM & factor diagnostics
 ├── lib/
+│   ├── fno/                        # US F&O suite: expiry ladder, positioning, term structure, expected move, config
 │   ├── analysis-engine.ts          # Stationarity, EVT, VaR/ES & microstructure math
 │   ├── correlation-engine.ts       # RMT, Ledoit-Wolf, MST & GMV algorithms
 │   ├── distribution-engine.ts      # MLE for Normal, Student-t, Skewed-t, GED

@@ -12,6 +12,7 @@ import { Footer } from '@/components/layout/Footer';
 import { HomeView } from '@/components/views/HomeView';
 import { AnalysisView } from '@/components/views/AnalysisView';
 import { VolatilityView } from '@/components/views/VolatilityView';
+import { FnoView } from '@/components/views/FnoView';
 import { ModelingView } from '@/components/views/ModelingView';
 import { CorrelationView } from '@/components/views/CorrelationView';
 import { RegressionView } from '@/components/views/RegressionView';
@@ -19,7 +20,7 @@ import { RegressionView } from '@/components/views/RegressionView';
 export default function App() {
   // Navigation
   const [activeView, setActiveView] = useState<
-    'home' | 'analysis' | 'modeling' | 'correlation' | 'regression' | 'volatility'
+    'home' | 'analysis' | 'modeling' | 'correlation' | 'regression' | 'volatility' | 'fno'
   >('home');
 
   // Dark / Light Theme: default to true on both server and client for matching hydration
@@ -324,6 +325,20 @@ export default function App() {
         {activeView === 'volatility' && (
           <VolatilityView
             ticker={activeTicker}
+            bars={currentBars}
+            intradayBars={currentIntradayBars}
+            companyName={currentCompanyName}
+            isLoading={isLoading}
+          />
+        )}
+
+        {activeView === 'fno' && (
+          <FnoView
+            ticker={activeTicker}
+            onTickerChange={(t) => {
+              setActiveTicker(t);
+              fetchTickers([t]);
+            }}
             bars={currentBars}
             intradayBars={currentIntradayBars}
             companyName={currentCompanyName}
