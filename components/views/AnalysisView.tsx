@@ -36,6 +36,7 @@ import { AnalysisMicrostructureTab } from './analysis/AnalysisMicrostructureTab'
 import { ShimmerButton } from '@/components/ui/ShimmerButton';
 import { AnimatedTabs } from '@/components/ui/animated-tabs';
 import { Iv30Chip } from '@/components/views/Iv30Chip';
+import { TrapStateChip } from '@/components/views/TrapStateChip';
 import {
   Play,
   RotateCcw,
@@ -473,6 +474,7 @@ export function AnalysisView({
 
         <div className="flex items-center gap-3 font-mono text-[11px] text-zinc-500 dark:text-zinc-400">
           <Iv30Chip ticker={ticker} />
+          <TrapStateChip ticker={ticker} />
           <span>
             Ann Vol: <strong>{(returnStats.annualizedVol * 100).toFixed(2)}%</strong>
           </span>

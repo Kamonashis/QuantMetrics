@@ -162,3 +162,13 @@ export function latestClose(series: VolIndexSeries): number | null {
   const v = series.bars[series.bars.length - 1]?.close;
   return typeof v === 'number' && isFinite(v) ? v : null;
 }
+
+/** Daily close series for any Yahoo chart symbol (used by trap scoring for rv20/ret5d). */
+export async function fetchDailyCloses(
+  symbol: string,
+  range = '1y'
+): Promise<{ date: string; close: number }[] | null> {
+  const bars = await fetchChartBars(symbol, range);
+  if (!bars) return null;
+  return bars.map((b) => ({ date: b.date, close: b.close }));
+}

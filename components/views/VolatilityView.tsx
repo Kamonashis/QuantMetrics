@@ -8,6 +8,7 @@ import {
   Crosshair,
   PieChart,
   Network,
+  Magnet,
   RefreshCw,
   AlertTriangle,
   Info,
@@ -21,7 +22,8 @@ import { T3TermStructureTab } from './volatility/T3TermStructureTab';
 import { T4ForecastTab } from './volatility/T4ForecastTab';
 import { T5DensityTab } from './volatility/T5DensityTab';
 import { T6CrossAssetTab } from './volatility/T6CrossAssetTab';
-import type { ChainPayload, IndicesPayload, IvHistoryEntry } from './volatility/types';
+import { T7DealerTab } from './volatility/T7DealerTab';
+import type { ChainPayload, IndicesPayload, IvHistoryEntry, PanelRowOut } from './volatility/types';
 
 interface VolatilityViewProps {
   ticker: string;
@@ -31,12 +33,13 @@ interface VolatilityViewProps {
   isLoading: boolean;
 }
 
-type SubTab = 't1' | 't2' | 't3' | 't4' | 't5' | 't6';
+type SubTab = 't1' | 't2' | 't3' | 't4' | 't5' | 't6' | 't7';
 
 export function VolatilityView({ ticker, bars, companyName, isLoading }: VolatilityViewProps) {
   const [chain, setChain] = useState<ChainPayload | null>(null);
   const [indices, setIndices] = useState<IndicesPayload | null>(null);
   const [ivHistory, setIvHistory] = useState<IvHistoryEntry[]>([]);
+  const [panel, setPanel] = useState<PanelRowOut[]>([]);
   const [chainLoading, setChainLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const [subTab, setSubTab] = useState<SubTab>('t1');
@@ -47,12 +50,14 @@ export function VolatilityView({ ticker, bars, companyName, isLoading }: Volatil
     Promise.all([
       fetch(`/api/options?mode=chain&symbol=${encodeURIComponent(ticker)}`).then((r) => r.json() as Promise<ChainPayload>).catch(() => ({ available: false, reason: 'fetch failed' } as ChainPayload)),
       fetch(`/api/options?mode=history&symbol=${encodeURIComponent(ticker)}`).then((r) => r.json() as Promise<{ history: IvHistoryEntry[] }>).catch(() => ({ history: [] })),
+      fetch(`/api/options?mode=panel&symbol=${encodeURIComponent(ticker)}`).then((r) => r.json() as Promise<{ panel?: PanelRowOut[] }>).catch(() => ({ panel: [] as PanelRowOut[] })),
     ])
-      .then(([chainData, historyData]) => {
+      .then(([chainData, historyData, panelData]) => {
         if (cancelled) return;
         const requested = ticker.toUpperCase();
         setChain({ ...chainData, requested: chainData.requested ?? requested });
         setIvHistory(Array.isArray(historyData?.history) ? historyData.history : []);
+        setPanel(Array.isArray(panelData?.panel) ? panelData.panel : []);
       })
       .finally(() => {
         if (!cancelled) setChainLoading(false);
@@ -189,6 +194,7 @@ export function VolatilityView({ ticker, bars, companyName, isLoading }: Volatil
             { id: 't4', label: 'Forecast Validation', icon: Crosshair, meta: 'T4' },
             { id: 't5', label: 'Risk-Neutral Density', icon: PieChart, meta: 'T5' },
             { id: 't6', label: 'Cross-Asset & Regime', icon: Network, meta: 'T6' },
+            { id: 't7', label: 'Dealer Positioning & Trap', icon: Magnet, meta: 'T7' },
           ]}
         />
       </div>
@@ -209,6 +215,7 @@ export function VolatilityView({ ticker, bars, companyName, isLoading }: Volatil
       )}
       {subTab === 't5' && <T5DensityTab chain={chain} bars={bars} ticker={ticker} />}
       {subTab === 't6' && <T6CrossAssetTab chain={chain} indices={indices} bars={bars} ticker={ticker} />}
+      {subTab === 't7' && <T7DealerTab chain={chain} panel={panel} bars={bars} ticker={ticker} />}
     </div>
   );
 }

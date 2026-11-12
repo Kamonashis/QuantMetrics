@@ -66,6 +66,7 @@ QuantMetrics is an advanced quantitative stock analysis, econometric diagnostics
 - **T4 — Forecast Validation**: forecast horse race (GARCH(1,1) vs EWMA vs HAR-RV vs IV) scored by QLIKE and MSE on log-RV, Mincer–Zarnowitz (a, b, R², joint (a,b)=(0,1) F-test), Diebold–Mariano with Newey–West LRV, encompassing blend (IV + GARCH), and GARCH-X with γ·IV²<sub>t-1</sub>.
 - **T5 — Risk-Neutral Density**: Breeden–Litzenberger density from the fitted smile (vs realized 21d horizon histogram), implied vs realized moments, MFIV vs interpolation consistency audit, digital/touch probabilities (N(d2), 2·N(−|d|)), and a Merton (1974) distance-to-default credit bridge with PD = N(−DD).
 - **T6 — Cross-Asset & Regime**: sortable IV matrix across the watchlist (IV-30, 25Δ RR, BF, skew, MFIV−ATM, accrual days), leverage-effect pricing (corr(Δ^VIX, r)), IV lead–lag cross-correlations, and a ^VIX × ^VVIX regime map (complacent / trending / hedging / panic).
+- **T7 — Dealer Positioning & Trap**: a dealer gamma-hedging state machine, not a prediction arrow. GEX by strike ($ re-hedge per 1% move), gamma-flip point via 121-spot sticky-IV grid, call/put wall detection (excluding the 2 strikes nearest spot), 5-component deterministic trap score (wall / proximity / short-gamma regime / OI velocity / coil), USD hedge-flow per 1% band, and an event-study backtest of every past *triggered* state with a Wilson-interval verdict against the unconditional base rate. The directional arrow renders only when follow-through clears base rate — otherwise the card shows state only. Every GEX figure is captioned "dealer positioning is assumed, not observed" (squeeze convention: dealers long calls / short puts). Daily OI accrual is forward-only via the snapshot store.
 
 **Data & honesty**: chains are fetched server-side from Yahoo Finance's options endpoint (crumb session held in memory, ~15-min delayed). Index volatility history (`^VIX`, `^VIX9D`, `^VIX3M`, `^VIX6M`, `^VXN`, `^VVIX`, `^SKEW`, `^IRX`) comes from the chart endpoint. Single-name IV history cannot be backfilled — snapshots accrete per symbol/day in `.cache/iv/{SYMBOL}/{YYYY-MM-DD}.json` (gitignored); until ~60 sessions accrue, IV-rank panels show the real count rather than a fabricated percentile. Indices map to ETF proxies with a visible badge (`^IXIC`→QQQ, `^SPX`→SPY, `^NDX`→QQQ, `^DJI`→DIA, `^RUT`→IWM). Every IV number is a European BSM approximation; the surface reports its own filtered-strike count and median spread.
 
@@ -123,9 +124,13 @@ QuantMetrics/
 │   ├── distribution-engine.ts      # MLE for Normal, Student-t, Skewed-t, GED
 │   ├── market-service.ts           # Synthetic generator & live data adapter
 │   ├── options.ts                  # BSM, Newton IV, chain cleaning, SVI, MFIV, Breeden–Litzenberger
+│   ├── gex.ts                      # Dealer GEX, gamma flip grid, walls, trap score & state machine
+│   ├── trap-server.ts              # Server-side trap bundle (closes fetch, ΔOI tracking, panel accrual)
+│   ├── trap-backtest.ts            # Event study of triggered traps (verdict strings, deciles)
 │   ├── vol-analytics.ts            # Horse race (QLIKE/MSE), MZ/DM/encompassing, GARCH-X, moments
+│   ├── options/providers/          # Provider interface + Yahoo adapter (crumb session)
 │   ├── vol-indices.ts              # ^VIX family fetching (timeout + deterministic fallback)
-│   ├── iv-store.ts                 # Accruing IV snapshot store (.cache/iv, server-side fs)
+│   ├── iv-store.ts                 # Accruing OI/IV snapshot store (.cache/iv, server-side fs) + panel.json
 │   ├── quant-engine.ts             # GARCH, HAR-RV, returns & base statistics
 │   └── utils.ts                    # Class name utilities
 ├── next.config.ts                  # Next.js build configuration
@@ -198,6 +203,7 @@ No configuration is required — chains and the vol-index family are fetched fro
 | `npm run start` | Serves the production build |
 | `npm run lint` | Runs ESLint to check for code issues |
 | `npm run clean` | Cleans Next.js build cache |
+| `npm run test:unit` | Pure-math unit tests (`node --test`, zero dependencies) |
 
 ---
 

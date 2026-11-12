@@ -76,7 +76,14 @@ export type FinancialFormulaPreset =
   | 'diebold-mariano'
   | 'garch-x'
   | 'merton-dd'
-  | 'mincer-blend';
+  | 'mincer-blend'
+  | 'gamma-bsm'
+  | 'gex'
+  | 'gamma-flip'
+  | 'wall-share'
+  | 'trap-score'
+  | 'hedge-flow'
+  | 'expected-move';
 
 export type MathSymbolName =
   | 'sigma'
@@ -467,6 +474,41 @@ export const FINANCIAL_FORMULA_PRESETS: Record<FinancialFormulaPreset, { tex: st
     tex: String.raw`RV_{t+h} = a + b \cdot IV_t + \epsilon, \qquad \hat{w}_{IV} = \frac{\hat{\beta}_{IV}}{\hat{\beta}_{GARCH} + \hat{\beta}_{IV}}`,
     label: 'Mincer–Zarnowitz Encompassing',
     description: 'Joint test of forecast optimality (a = 0, b = 1) and the IV-vs-GARCH encompassing weight — empirically ~60/40 IV/GARCH. Blend feeds downstream VaR.',
+  },
+  'gamma-bsm': {
+    tex: String.raw`\Gamma = \frac{\varphi(d_1)}{S \sigma \sqrt{T}}, \qquad d_1 = \frac{\ln(S/K) + (r - q + \sigma^2/2)T}{\sigma\sqrt{T}}`,
+    label: 'Black–Scholes Gamma',
+    description: 'Second derivative of the option price — how much delta changes per unit move. Underpins every GEX number in this terminal.',
+  },
+  'gex': {
+    tex: String.raw`GEX(K) = s(K) \sum_j \Gamma(K, T_j, S) \cdot OI(K, T_j) \cdot 100 \cdot S^2 \cdot 0.01`,
+    label: 'Gamma Exposure per Strike',
+    description: 'Dealer re-hedge currency per 1% move: sign by the Squeeze/Inverse convention (calls +, puts − by default), aggregated over expiries ≤ 45 DTE.',
+  },
+  'gamma-flip': {
+    tex: String.raw`\text{flip} = \min\{ S : \sum_K GEX(K; S) = 0 \}, \quad \sigma, OI \text{ held sticky}`,
+    label: 'Gamma Flip Point',
+    description: 'The spot where net dealer gamma changes sign — computed by repricing the whole surface on a ±15% spot grid with sticky-strike IV, nearest crossing wins.',
+  },
+  'wall-share': {
+    tex: String.raw`share = \frac{OI_{wall}}{\sum_{|ln(K/F)| \le 0.10} OI}, \qquad d_\sigma = \frac{|\ln(K/F)|}{\sigma_{atm}\sqrt{T_{front}}}`,
+    label: 'Wall Concentration & Distance',
+    description: 'The wall is the strike absorbing local open interest; share saturates the score around 25%. Distance in σ — proximity decays over ~2 expected moves.',
+  },
+  'trap-score': {
+    tex: String.raw`score = \underbrace{25f(share)}_{wall} + \underbrace{25e^{-d_\sigma/0.5}}_{proximity} + \underbrace{25g(flip)}_{regime} + \underbrace{15h(z_{\Delta OI})}_{velocity} + \underbrace{10\,i(\text{coil})}_{coil}`,
+    label: 'Trap Score Decomposition',
+    description: 'Deterministic, bounded, monotone in each component. Deliberately not a black box — every point is attributable to one of the five terms.',
+  },
+  'hedge-flow': {
+    tex: String.raw`H_{\pm} = \sum_{|K/S - 1| \le 2\%} GEX(K)^{\pm}, \qquad \text{buy/sell per 1% move}`,
+    label: 'Dealer Hedge Flow',
+    description: 'Notional the dealer must buy or sell to stay flat across a ±2% band around spot — the asymmetry between up and down is the whole trade.',
+  },
+  'expected-move': {
+    tex: String.raw`E = S \cdot \sigma_{atm} \cdot \sqrt{T}, \qquad \text{straddle-implied} \approx 0.8 \times (C + P)`,
+    label: 'Expected Move',
+    description: 'The market’s own one-sigma pricing of the horizon — the yardstick every trap distance is measured against.',
   },
   'news-impact': {
     tex: String.raw`\sigma_t^2 = \omega + (\alpha + \gamma \mathbb{I}_{\{\varepsilon_{t-1} < 0\}})\varepsilon_{t-1}^2 + \beta \sigma_{t-1}^2`,

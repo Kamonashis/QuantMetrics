@@ -68,6 +68,7 @@ export interface ChainPayload {
     writeOk: boolean;
     snapshotError: string | null;
   };
+  trap?: TrapPayload | null;
   ivHistory30?: number[];
   warnings?: string[];
   fetchedAt?: string;
@@ -96,4 +97,79 @@ export interface IvHistoryEntry {
   skewRr25: number | null;
   nContractsUsed: number;
   source: string;
+}
+
+// ---------------------------------------------------------------------------
+// Trap (dealer positioning) payload
+// ---------------------------------------------------------------------------
+
+export interface WallSnapshot {
+  strike: number;
+  oi: number;
+  share: number;
+  distPct: number;
+  distSigma: number;
+}
+
+export type TrapState = 'idle' | 'building' | 'armed' | 'triggered' | 'exhausted';
+export type TrapDirection = 'up' | 'down' | 'none';
+
+export interface TrapPayload {
+  available: boolean;
+  spot: number;
+  forward: number;
+  atmIv: number;
+  headlineDte: number;
+  atmIv30: number | null;
+  totalGex: number;
+  regime: 'long' | 'short' | 'unknown';
+  gammaFlip: { flip: number | null; regime: 'long' | 'short' | 'unknown' };
+  flipProfile: { spot: number; gex: number }[];
+  byStrike: { strike: number; callOi: number; putOi: number; gex: number }[];
+  maxAbsGex: number;
+  walls: {
+    call: WallSnapshot | null;
+    put: WallSnapshot | null;
+    runnerUpCall: WallSnapshot | null;
+    runnerUpPut: WallSnapshot | null;
+    totalOiLocal: number;
+  };
+  flow: { perPctUp: number; perPctDown: number; net: number };
+  expiryConcentration7d: number;
+  expectedMove30: number | null;
+  rv20: number | null;
+  ret5d: number | null;
+  oiChange1d: number | null;
+  oiChange5d: number | null;
+  oiChange5dZ: number | null;
+  convention: 'squeeze' | 'inverse';
+  previousState: TrapState | null;
+  score: number;
+  state: TrapState;
+  direction: TrapDirection;
+  components: { wall: number; proximity: number; regime: number; velocity: number; coil: number };
+  velocityDegraded: boolean;
+  nearWall: 'call' | 'put' | 'none';
+}
+
+export interface PanelRowOut {
+  date: string;
+  spot: number;
+  atmIv30: number | null;
+  expectedMove30: number | null;
+  totalGex: number | null;
+  gammaFlip: number | null;
+  regime: 'long' | 'short' | 'unknown';
+  callWall: WallSnapshot | null;
+  putWall: WallSnapshot | null;
+  expiryConcentration7d: number | null;
+  oiWallChange1d: number | null;
+  oiWallChange5d: number | null;
+  oiWallChangeZ: number | null;
+  trapScore: number | null;
+  trapState: TrapState | null;
+  trapDirection: TrapDirection | null;
+  rv20: number | null;
+  ret5d: number | null;
+  computedAt: string;
 }
