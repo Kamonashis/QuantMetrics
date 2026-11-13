@@ -2,7 +2,7 @@
 
 import { ReactNode, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Maximize2, X } from 'lucide-react';
+import { Maximize2, X, Minus, Plus, RotateCcw } from 'lucide-react';
 
 interface ChartFullscreenProps {
   /** Shown in the full-screen header; also labels the expand button. */
@@ -24,14 +24,22 @@ interface ChartFullscreenProps {
  */
 export function ChartFullscreen({ title, subtitle, className, children }: ChartFullscreenProps) {
   const [open, setOpen] = useState(false);
+  const [zoom, setZoom] = useState(1);
   const closeRef = useRef<HTMLButtonElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+
+  // Zoom intentionally lives here (not in the portal) so it resets on close/reopen via changeOpen
+  const changeOpen = (next: boolean) => {
+    setOpen(next);
+    if (!next) setZoom(1);
+    if (next) setZoom(1);
+  };
 
   useEffect(() => {
     if (!open) return;
     const trigger = triggerRef.current;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key === 'Escape') changeOpen(false);
     };
     window.addEventListener('keydown', onKeyDown);
     const prevOverflow = document.body.style.overflow;
@@ -44,6 +52,9 @@ export function ChartFullscreen({ title, subtitle, className, children }: ChartF
     };
   }, [open]);
 
+  const zoomIn = () => setZoom((z) => Math.min(3, Number((z + 0.25).toFixed(2))));
+  const zoomOut = () => setZoom((z) => Math.max(1, Number((z - 0.25).toFixed(2))));
+  const zoomLabel = `${Math.round(zoom * 100)}%`;
   const heading = title ?? 'Chart';
   const expandLabel = `View ${heading} in full screen`;
 
@@ -64,7 +75,7 @@ export function ChartFullscreen({ title, subtitle, className, children }: ChartF
         <button
           ref={triggerRef}
           type="button"
-          onClick={() => setOpen(true)}
+          onClick={() => changeOpen(true)}
           aria-label={expandLabel}
           title={expandLabel}
           className="absolute right-1.5 top-1/2 z-20 inline-flex h-7 w-7 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md border border-zinc-200/80 dark:border-zinc-700/80 bg-white/85 dark:bg-zinc-900/85 text-zinc-500 dark:text-zinc-400 opacity-0 shadow-sm backdrop-blur-sm transition-opacity hover:border-gold-500/60 hover:text-gold-600 dark:hover:text-gold-400 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-gold-500 group-hover/chartfs:opacity-100 max-sm:opacity-100"
@@ -79,7 +90,7 @@ export function ChartFullscreen({ title, subtitle, className, children }: ChartF
             <button
               type="button"
               aria-label="Close full screen view"
-              onClick={() => setOpen(false)}
+              onClick={() => changeOpen(false)}
               className="absolute inset-0 h-full w-full cursor-zoom-out bg-zinc-950/80 backdrop-blur-sm"
             />
             {/* Stage */}
@@ -95,10 +106,53 @@ export function ChartFullscreen({ title, subtitle, className, children }: ChartF
                       <p className="mt-0.5 truncate text-[11px] text-zinc-500 dark:text-zinc-400">{subtitle}</p>
                     )}
                   </div>
+                  <div className="shrink-0 flex items-center gap-1 sm:gap-1.5">
+                    <button
+                      type="button"
+                      onClick={zoomOut}
+                      disabled={zoom <= 1}
+                      aria-label="Zoom out"
+                      className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400 transition-colors hover:border-gold-500/60 hover:text-gold-600 dark:hover:text-gold-400 focus-visible:outline-2 focus-visible:outline-gold-500 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <Minus className="h-3.5 w-3.5" />
+                    </button>
+                    <input
+                      type="range"
+                      min={1}
+                      max={3}
+                      step={0.05}
+                      value={zoom}
+                      onChange={(e) => setZoom(Number(e.target.value))}
+                      aria-label="Chart zoom"
+                      className="h-1.5 w-20 sm:w-28 md:w-36 accent-gold-500 cursor-pointer"
+                    />
+                    <button
+                      type="button"
+                      onClick={zoomIn}
+                      disabled={zoom >= 3}
+                      aria-label="Zoom in"
+                      className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400 transition-colors hover:border-gold-500/60 hover:text-gold-600 dark:hover:text-gold-400 focus-visible:outline-2 focus-visible:outline-gold-500 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </button>
+                    <span className="w-11 text-right font-mono text-[10px] tabular-nums text-zinc-500 dark:text-zinc-400">
+                      {zoomLabel}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setZoom(1)}
+                      disabled={zoom === 1}
+                      title="Reset zoom to 100%"
+                      className="hidden lg:inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 text-[10px] font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400 transition-colors hover:border-gold-500/60 hover:text-gold-600 dark:hover:text-gold-400 focus-visible:outline-2 focus-visible:outline-gold-500 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <RotateCcw className="h-3 w-3" />
+                      Reset
+                    </button>
+                  </div>
                   <button
                     ref={closeRef}
                     type="button"
-                    onClick={() => setOpen(false)}
+                    onClick={() => changeOpen(false)}
                     aria-label="Close full screen view"
                     title="Close full screen (Esc)"
                     className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400 transition-colors hover:border-gold-500/60 hover:text-gold-600 dark:hover:text-gold-400 focus-visible:outline-2 focus-visible:outline-gold-500"
@@ -107,7 +161,7 @@ export function ChartFullscreen({ title, subtitle, className, children }: ChartF
                   </button>
                 </header>
                 <div className="flex min-h-0 flex-1 flex-col overflow-auto px-4 py-4 sm:px-6">
-                  <div className="m-auto w-full">{children}</div>
+                  <div className="mx-auto my-auto w-full" style={{ width: `${zoom * 100}%` }}>{children}</div>
                 </div>
               </div>
             </div>
