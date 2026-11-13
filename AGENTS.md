@@ -4,7 +4,7 @@ QuantMetrics: a quantitative stock-analysis / volatility-modeling terminal. Next
 
 ## Commands
 
-- `npm run dev` — dev server on :3000 (falls back to :3001).
+- `npm run dev` — dev server on :3528.
 - `npm run lint` — ESLint 9 flat config (`eslint.config.mjs`). Currently passes clean.
 - `npx tsc --noEmit` — typecheck. Currently passes clean. This is the real type gate.
 - `npm run build` / `npm run start` — production build / serve.

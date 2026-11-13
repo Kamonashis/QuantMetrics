@@ -184,7 +184,7 @@ Start the development server with Hot Module Replacement (HMR):
 ```bash
 npm run dev
 ```
-Open **[http://localhost:3000](http://localhost:3000)** (or port `3001` if `3000` is occupied) in your browser.
+Open **[http://localhost:3528](http://localhost:3528)** in your browser.
 
 ### Production Build
 Create an optimized production bundle:
