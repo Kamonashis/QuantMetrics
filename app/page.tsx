@@ -70,7 +70,7 @@ export default function App() {
   const [startDate, setStartDate] = useState<string>(oneYearAgoStr);
   const [endDate, setEndDate] = useState<string>(todayStr);
   const [returnType, setReturnType] = useState<'simple' | 'log'>('log');
-  const [rollingWindows, setRollingWindows] = useState<string>('30,60,90');
+  const [rollingWindows, setRollingWindows] = useState<string>('10,20,30');
   const [decompPeriod, setDecompPeriod] = useState<number>(30);
   const [decompModel, setDecompModel] = useState<'additive' | 'multiplicative'>('additive');
 

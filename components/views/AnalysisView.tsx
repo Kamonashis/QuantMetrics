@@ -137,7 +137,7 @@ export function AnalysisView({
       .split(',')
       .map((w) => parseInt(w.trim(), 10))
       .filter((w) => !isNaN(w) && w > 1 && w < 300);
-    return list.length > 0 ? list : [30, 60, 90];
+    return list.length > 0 ? list : [10, 20, 30];
   }, [rollingWindows]);
 
   // Compute rolling annualized volatility
@@ -400,7 +400,7 @@ export function AnalysisView({
                 type="text"
                 value={rollingWindows}
                 onChange={(e) => onRollingWindowsChange(e.target.value)}
-                placeholder="30,60,90"
+                placeholder="10,20,30"
                 className="w-full px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 font-mono text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-1 focus:ring-gold-500"
               />
             </div>
