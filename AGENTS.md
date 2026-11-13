@@ -36,7 +36,7 @@ QuantMetrics: a quantitative stock-analysis / volatility-modeling terminal. Next
 - `DISABLE_HMR=true` env var makes the dev server ignore all file watching (AI Studio anti-flicker). If the dev server seems to not reload, check that var.
 - `allowedDevOrigins` in `next.config.ts` includes AI Studio `*.run.app` origins — intentional, leave alone.
 - `.env.local` is gitignored and holds AI Studio-injected vars (`GEMINI_API_KEY`, `APP_URL`). **No code uses `@google/genai`** — it's unused scaffolding; don't assume AI features exist. `metadata.json`/`.aistudio/` are AI Studio remnants too.
-- `output: 'standalone'` + `transpilePackages: ['motion']` in `next.config.ts` — motion must stay transpiled or the build breaks.
+- `output: 'standalone'` + `transpilePackages: ['motion']` in `next.config.ts` — motion must stay transpiled or the build breaks. `npm run start` runs `scripts/start-standalone.mjs`: syncs `.next/static` (and `public/`, if any) into `.next/standalone/` and execs `server.js` — plain `next start` warns/mis-serves with `output: 'standalone'`. Override port with `PORT=<n>` (default 3528).
 - `.next/` and `.env*` (except `.env.example`) are gitignored. `tsconfig.tsbuildinfo` is tracked and changes on every `tsc` run — leave it alone.
 - `KNOWN_TICKERS` in `lib/market-service.ts` defines the synthetic-data parameters for AAPL/MSFT/GOOGL/NVDA/TSLA/AMZN/SPY/QQQ/JPM/META; unknown tickers get generic fallback params.
 - **Index→ETF proxies for options**: `^IXIC`/`^NDX`→QQQ, `^SPX`→SPY, `^DJI`→DIA, `^RUT`→IWM (defined in `app/api/options/route.ts`); the substitution is always surfaced in the UI header badge — never silently mix series.

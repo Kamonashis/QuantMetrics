@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev -p 3528",
     "build": "next build",
-    "start": "next start -p 3528",
+    "start": "node scripts/start-standalone.mjs",
     "lint": "eslint .",
     "clean": "rm -rf .next",
     "test:unit": "node scripts/test-unit.mjs"
