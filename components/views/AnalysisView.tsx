@@ -34,6 +34,7 @@ import { AnalysisDynamicsTab } from './analysis/AnalysisDynamicsTab';
 import { AnalysisRiskTab } from './analysis/AnalysisRiskTab';
 import { AnalysisMicrostructureTab } from './analysis/AnalysisMicrostructureTab';
 import { ShimmerButton } from '@/components/ui/ShimmerButton';
+import { TickerSuggest } from '@/components/ui/TickerSuggest';
 import { AnimatedTabs } from '@/components/ui/animated-tabs';
 import { Iv30Chip } from '@/components/views/Iv30Chip';
 import { TrapStateChip } from '@/components/views/TrapStateChip';
@@ -339,12 +340,13 @@ export function AnalysisView({
               <label className="block text-zinc-600 dark:text-zinc-400 font-medium mb-1">
                 Ticker Symbol
               </label>
-              <input
-                type="text"
+              <TickerSuggest
+                id="analysis-ticker-input"
+                ariaLabel="Ticker Symbol"
                 value={localTicker}
-                onChange={(e) => setLocalTicker(e.target.value.toUpperCase())}
-                placeholder="AAPL, MSFT..."
-                className="w-full px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 font-mono font-bold text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-1 focus:ring-gold-500"
+                onChange={setLocalTicker}
+                placeholder="Search U.S. tickers — e.g. NVDA"
+                inputClassName="w-full px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 font-mono font-bold text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-1 focus:ring-gold-500"
               />
             </div>
 

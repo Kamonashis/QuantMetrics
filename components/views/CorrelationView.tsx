@@ -15,6 +15,7 @@ import { CorrelationDynamicsTab } from '@/components/views/correlation/Correlati
 import { CorrelationRiskTab } from '@/components/views/correlation/CorrelationRiskTab';
 import { CorrelationStructureTab } from '@/components/views/correlation/CorrelationStructureTab';
 import { ShimmerButton } from '@/components/ui/ShimmerButton';
+import { TickerSuggest } from '@/components/ui/TickerSuggest';
 import { AnimatedTabs } from '@/components/ui/animated-tabs';
 import {
   Play,
@@ -215,12 +216,14 @@ export function CorrelationView({
               <label className="block text-zinc-700 dark:text-zinc-300 font-medium mb-1">
                 Stock Ticker Symbols (comma separated)
               </label>
-              <input
-                type="text"
+              <TickerSuggest
+                multiple
+                ariaLabel="Stock Ticker Symbols"
+                id="correlation-tickers-input"
                 value={localInput}
-                onChange={(e) => setLocalInput(e.target.value)}
-                placeholder="AAPL, MSFT, GOOGL, NVDA, TSLA, SPY"
-                className="w-full px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 font-mono font-bold text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-1 focus:ring-gold-500 text-sm"
+                onChange={setLocalInput}
+                placeholder="Search U.S. tickers — comma separated, e.g. AAPL, NVDA"
+                inputClassName="w-full px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 font-mono font-bold text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-1 focus:ring-gold-500 text-sm"
               />
               <span className="text-[11px] text-zinc-400 block mt-1">
                 Supports N=2 to 15 tickers. Matrices and network topologies re-evaluate on submit.

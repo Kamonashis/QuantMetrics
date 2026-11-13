@@ -17,6 +17,7 @@ import {
   MathSymbol,
 } from '@/components/math/MathEquations';
 import { ShimmerButton } from '@/components/ui/ShimmerButton';
+import { TickerSuggest } from '@/components/ui/TickerSuggest';
 import { Play, RotateCcw, HelpCircle, ArrowUpRight, TrendingUp, Info } from 'lucide-react';
 
 interface RegressionViewProps {
@@ -167,12 +168,14 @@ export function RegressionView({
               <label className="block text-zinc-700 dark:text-zinc-300 font-medium mb-1">
                 Tickers: <strong className="text-gold-700 dark:text-gold-300">Y (Dependent)</strong>, followed by <strong className="text-gold-600 dark:text-gold-300 dark:text-gold-600 dark:text-gold-300">X₁, X₂, ... (Independent)</strong>
               </label>
-              <input
-                type="text"
+              <TickerSuggest
+                multiple
+                ariaLabel="Regression tickers"
+                id="regression-tickers-input"
                 value={localInput}
-                onChange={(e) => setLocalInput(e.target.value)}
-                placeholder="AAPL, SPY, QQQ"
-                className="w-full px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 font-mono font-bold text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-gold-400"
+                onChange={setLocalInput}
+                placeholder="Search U.S. tickers — Y then X₁, X₂… e.g. AAPL, SPY"
+                inputClassName="w-full px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 font-mono font-bold text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-gold-400"
               />
               <span className="text-[11px] text-zinc-400 block mt-1">
                 Active: Dependent <strong>{dependentTicker}</strong> ~ Intercept + {independentTickers.join(' + ')}
