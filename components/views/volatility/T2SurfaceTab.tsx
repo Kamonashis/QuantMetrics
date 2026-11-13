@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { Grid3x3, ChartSpline, MoveHorizontal, ArrowUpRight } from 'lucide-react';
 import type { ChainPayload, IndicesPayload } from './types';
 import { VolSurfaceHeatmap } from '@/components/charts/VolSurfaceHeatmap';
+import { VolSurface3D } from '@/components/charts/VolSurface3D';
 import { VolatilitySmileChart } from '@/components/charts/VolatilitySmileChart';
 import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 import { expectedMove } from '@/lib/options';
@@ -13,6 +14,7 @@ export function T2SurfaceTab({ chain, indices }: { chain: ChainPayload | null; i
   const fitSlices = slices.filter((s) => s.points.length >= 5);
   const defaultExpiry = fitSlices.find((s) => s.dte >= 21 && s.dte <= 45) ?? fitSlices[0] ?? null;
   const [selectedExpiry, setSelectedExpiry] = useState<string | null>(defaultExpiry?.expirationDate ?? null);
+  const [surfaceView, setSurfaceView] = useState<'three' | 'heatmap'>('three');
   const active = fitSlices.find((s) => s.expirationDate === selectedExpiry) ?? defaultExpiry;
 
   if (slices.length === 0) {
@@ -43,12 +45,42 @@ export function T2SurfaceTab({ chain, indices }: { chain: ChainPayload | null; i
               IV by moneyness × expiry
             </h3>
           </div>
-          <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-zinc-400">
-            k = ln(K / F) · European BSM · quotes → SVI
-          </span>
+          <div className="flex flex-col items-end gap-1.5">
+            <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-zinc-400">
+              k = ln(K / F) · European BSM · quotes → SVI
+            </span>
+            <div className="inline-flex rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 p-0.5 text-[10px] font-medium">
+              {(['three', 'heatmap'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setSurfaceView(m)}
+                  className={`cursor-pointer rounded-md px-2.5 py-1 transition-colors ${
+                    surfaceView === m
+                      ? 'bg-white dark:bg-zinc-800 text-gold-600 dark:text-gold-400 shadow-xs'
+                      : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                  }`}
+                >
+                  {m === 'three' ? '3D Surface' : 'Heatmap'}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
-        <ChartFullscreen title="IV by Moneyness × Expiry" subtitle="European BSM · SVI fit">
-          <VolSurfaceHeatmap slices={slices} />
+        <ChartFullscreen
+          title={surfaceView === 'three' ? 'IV by Moneyness × Expiry — 3D SVI Surface' : 'IV by Moneyness × Expiry'}
+          subtitle="European BSM · SVI fit · ~15-min delayed"
+        >
+          {surfaceView === 'three' ? (
+            <VolSurface3D
+              slices={slices}
+              spot={chain?.quote?.price ?? null}
+              rate={chain?.rate ?? null}
+              dividendYield={chain?.dividendYield ?? null}
+            />
+          ) : (
+            <VolSurfaceHeatmap slices={slices} />
+          )}
         </ChartFullscreen>
       </div>
 
