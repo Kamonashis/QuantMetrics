@@ -821,3 +821,311 @@ export function riskNeutralProbabilities(
   const probTouchApprox = Math.min(1, 2 * normCdf(-Math.abs(d2)));
   return { probAbove, probTouchApprox };
 }
+
+// =============================================================
+// Local smile refit — natural cubic spline & SSVI (surface SVI)
+// Used by the client to offer fitting alternatives to the
+// server-side raw SVI fit. Methods clamp failures honestly and
+// return null rather than fabricate a curve.
+// =============================================================
+
+export interface NaturalSplineSmileFit {
+  model: 'spline';
+  /** knot log-moneyness (sorted, unique) */
+  xs: number[];
+  /** fitted total variance at the knots */
+  ys: number[];
+  /** natural-spline second derivatives (knot arrays, endpoints = 0) */
+  m: number[];
+  rmseIv: number;
+  nUsed: number;
+}
+
+export interface SsviSmileFit {
+  model: 'ssvi';
+  /** w(θ,k) = θ/2·(1 + ρ·φ(θ)·k + √((φ(θ)·k + ρ)² + 1 − ρ²)),  φ(θ) = η·θ^(−γ) */
+  rho: number;
+  eta: number;
+  gamma: number;
+  atmTotalVariance: number;
+  rmseW: number;
+  rmseIv: number;
+  nUsed: number;
+  converged: boolean;
+}
+
+export type LocalSmileFit = NaturalSplineSmileFit | SsviSmileFit;
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+/** Natural cubic spline through (k, w = iv²·T) points — total variance stays linear at the wings. */
+export function fitNaturalSplineSmile(
+  pts: Array<{ k: number; iv: number }>,
+  T: number
+): NaturalSplineSmileFit | null {
+  const n0 = pts.length;
+  if (n0 < 3 || !(T > 0)) return null;
+
+  // Dedupe by k (average weights), then sort ascending
+  const byK = new Map<number, { sumW: number; sumY: number }>();
+  for (const p of pts) {
+    if (!Number.isFinite(p.k) || !Number.isFinite(p.iv) || p.iv <= 0) continue;
+    const w = p.iv * p.iv * T;
+    const key = Math.round(p.k * 1e9);
+    const acc = byK.get(key) ?? { sumW: 0, sumY: 0 };
+    acc.sumW += 1;
+    acc.sumY += w;
+    byK.set(key, acc);
+  }
+  const knots = [...byK.entries()]
+    .map(([key, acc]) => ({ k: key / 1e9, w: acc.sumY / acc.sumW }))
+    .filter((q) => Number.isFinite(q.k) && Number.isFinite(q.w) && q.w > 0)
+    .sort((a, b) => a.k - b.k);
+  const n = knots.length;
+  if (n < 3) return null;
+
+  const xs = knots.map((q) => q.k);
+  const ys = knots.map((q) => q.w);
+  const h: number[] = [];
+  for (let i = 0; i < n - 1; i++) h.push(xs[i + 1] - xs[i]);
+
+  // Natural spline: solve tridiagonal system for second derivatives m[]
+  const alpha: number[] = new Array(n).fill(0);
+  for (let i = 1; i < n - 1; i++) {
+    alpha[i] =
+      3 * ((ys[i + 1] - ys[i]) / h[i] - (ys[i] - ys[i - 1]) / h[i - 1]);
+  }
+  const l: number[] = new Array(n).fill(0);
+  const mu: number[] = new Array(n).fill(0);
+  const z: number[] = new Array(n).fill(0);
+  l[0] = 1;
+  mu[0] = 0;
+  z[0] = 0;
+  for (let i = 1; i < n - 1; i++) {
+    l[i] = 2 * (xs[i + 1] - xs[i - 1]) - h[i - 1] * mu[i - 1];
+    if (Math.abs(l[i]) < 1e-12) return null;
+    mu[i] = h[i] / l[i];
+    z[i] = (alpha[i] - h[i - 1] * z[i - 1]) / l[i];
+  }
+  l[n - 1] = 1;
+  z[n - 1] = 0;
+  const m: number[] = new Array(n).fill(0);
+  for (let j = n - 2; j >= 0; j--) {
+    m[j] = z[j] - mu[j] * m[j + 1];
+  }
+
+  let sseIv = 0;
+  for (const p of pts) {
+    if (!Number.isFinite(p.k) || p.iv <= 0) continue;
+    const wFit = splineTotalVariance({ xs, ys, m }, p.k);
+    const ivFit = Math.sqrt(Math.max(1e-12, wFit / T));
+    sseIv += (ivFit - p.iv) * (ivFit - p.iv);
+  }
+
+  return {
+    model: 'spline',
+    xs,
+    ys,
+    m,
+    rmseIv: Math.sqrt(sseIv / pts.length),
+    nUsed: pts.length,
+  };
+}
+
+export function splineTotalVariance(
+  fit: Pick<NaturalSplineSmileFit, 'xs' | 'ys' | 'm'>,
+  k: number
+): number {
+  const { xs, ys, m } = fit;
+  const n = xs.length;
+  if (n < 2) return 0;
+  if (k <= xs[0]) return ys[0];
+  if (k >= xs[n - 1]) return ys[n - 1];
+  // binary search for segment
+  let lo = 0;
+  let hi = n - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (xs[mid] > k) hi = mid;
+    else lo = mid;
+  }
+  const i = lo;
+  const h = xs[i + 1] - xs[i];
+  const A = (xs[i + 1] - k) / h;
+  const B = (k - xs[i]) / h;
+  const w =
+    m[i] * Math.pow(xs[i + 1] - k, 3) / (6 * h) +
+    m[i + 1] * Math.pow(k - xs[i], 3) / (6 * h) +
+    (ys[i] / h - (m[i] * h) / 6) * (xs[i + 1] - k) +
+    (ys[i + 1] / h - (m[i + 1] * h) / 6) * (k - xs[i]);
+  return Math.max(1e-9, w);
+}
+
+/** SSVI body: w(θ, k) given (θ, ρ, η, γ). Mathematically ≥ 0 for |ρ| < 1. */
+function ssviCore(theta: number, rho: number, eta: number, gamma: number, k: number): number {
+  const phi = eta * Math.pow(theta, -gamma);
+  const t1 = 1 + rho * phi * k;
+  const u = phi * k + rho;
+  const t2 = Math.sqrt(u * u + 1 - rho * rho);
+  return (theta / 2) * (t1 + t2);
+}
+
+function ssviObjectiveFactory(pts: Array<{ k: number; iv: number; weight: number }>, T: number) {
+  return (p: number[]): number => {
+    const [oTheta, oRho, oEta, oGamma] = p;
+    const theta = Math.exp(oTheta);
+    const rho = Math.tanh(oRho) * 0.98;
+    const eta = Math.exp(oEta);
+    const gamma = (1 / (1 + Math.exp(-oGamma))) * 0.5;
+    let err = 0;
+    for (const c of pts) {
+      const model = ssviCore(theta, rho, eta, gamma, c.k);
+      const target = c.iv * c.iv * T;
+      const d = model - target;
+      err += c.weight * d * d;
+    }
+    return err;
+  };
+}
+
+export function fitSsvi(
+  pts: Array<{ k: number; iv: number; weight: number }>,
+  T: number
+): SsviSmileFit | null {
+  const good = pts.filter((c) => Number.isFinite(c.k) && c.iv > 0 && Number.isFinite(c.weight));
+  if (good.length < 5 || !(T > 0)) return null;
+
+  const wAtm = Math.min(...good.map((c) => c.iv * c.iv * T));
+  const logTheta0 = Math.log(Math.max(1e-6, wAtm));
+  const sigmoidInv = (x: number) => Math.log(x / (1 - x));
+
+  // Multi-start Nelder–Mead over the 4-D unconstrained space
+  const starts: Array<[number, number, number, number]> = [
+    [logTheta0, Math.atanh(-0.4), Math.log(0.3), sigmoidInv(0.2)],
+    [logTheta0, Math.atanh(-0.6), Math.log(0.15), sigmoidInv(0.35)],
+    [logTheta0, Math.atanh(-0.2), Math.log(0.5), sigmoidInv(0.1)],
+    [logTheta0, Math.atanh(0.1), Math.log(0.4), sigmoidInv(0.25)],
+  ];
+
+  let best: { p: number[]; f: number } | null = null;
+  for (const start of starts) {
+    const res = nelderMeadMulti(start, ssviObjectiveFactory(good, T), 250);
+    if (!best || res.f < best.f) best = res;
+  }
+  if (!best) return null;
+
+  const [oTheta, oRho, oEta, oGamma] = best.p as [number, number, number, number];
+  const theta = Math.exp(oTheta);
+  const rho = Math.tanh(oRho) * 0.98;
+  const eta = Math.exp(oEta);
+  const gamma = (1 / (1 + Math.exp(-oGamma))) * 0.5;
+
+  let sseW = 0;
+  let sseIv = 0;
+  for (const c of good) {
+    const wFit = ssviCore(theta, rho, eta, gamma, c.k);
+    sseW += (wFit - c.iv * c.iv * T) * (wFit - c.iv * c.iv * T);
+    const dIv = Math.sqrt(Math.max(1e-12, wFit / T)) - c.iv;
+    sseIv += dIv * dIv;
+  }
+
+  return {
+    model: 'ssvi',
+    rho,
+    eta,
+    gamma,
+    atmTotalVariance: theta,
+    rmseW: Math.sqrt(sseW / good.length),
+    rmseIv: Math.sqrt(sseIv / good.length),
+    nUsed: good.length,
+    converged: true,
+  };
+}
+
+export function ssviTotalVariance(fit: SsviSmileFit, k: number): number {
+  return ssviCore(fit.atmTotalVariance, fit.rho, fit.eta, fit.gamma, k);
+}
+
+/** Generic Nelder–Mead on a numeric vector (n-D). */
+function nelderMeadMulti(
+  init: number[],
+  objective: (p: number[]) => number,
+  maxIterations = 250
+): { p: number[]; f: number } {
+  const n = init.length;
+  const step = init.map((v) => Math.max(0.05, Math.abs(v) * 0.25));
+  const simplexPts: number[][] = [init.slice()];
+  for (let i = 0; i < n; i++) {
+    const p = init.slice();
+    p[i] += step[i];
+    simplexPts.push(p);
+  }
+  const simplex = simplexPts.map((p) => ({ p, f: objective(p) }));
+
+  for (let iter = 0; iter < maxIterations; iter++) {
+    simplex.sort((a, b) => a.f - b.f);
+    const best = simplex[0];
+    const worst = simplex[simplex.length - 1];
+    const secondWorst = simplex[simplex.length - 2];
+    if (Math.abs(worst.f - best.f) < 1e-16) break;
+
+    const centroid = new Array(n).fill(0);
+    for (let i = 0; i < simplex.length - 1; i++) {
+      for (let j = 0; j < n; j++) centroid[j] += simplex[i].p[j];
+    }
+    for (let j = 0; j < n; j++) centroid[j] /= n;
+
+    const reflect = centroid.map((c, j) => c + (c - worst.p[j]));
+    const fRef = objective(reflect);
+
+    if (fRef < best.f) {
+      const expand = centroid.map((c, j) => c + 2 * (c - worst.p[j]));
+      const fExp = objective(expand);
+      simplex[simplex.length - 1] = fExp < fRef ? { p: expand, f: fExp } : { p: reflect, f: fRef };
+    } else if (fRef < secondWorst.f) {
+      simplex[simplex.length - 1] = { p: reflect, f: fRef };
+    } else {
+      const contractOut = fRef < worst.f;
+      const gammaC = contractOut ? 0.5 : -0.5;
+      const contract = centroid.map((c, j) => c + gammaC * (c - worst.p[j]));
+      const fCon = objective(contract);
+      if (fCon < (contractOut ? fRef : worst.f)) {
+        simplex[simplex.length - 1] = { p: contract, f: fCon };
+      } else {
+        for (let i = 1; i < simplex.length; i++) {
+          for (let j = 0; j < n; j++) {
+            simplex[i].p[j] = best.p[j] + 0.5 * (simplex[i].p[j] - best.p[j]);
+          }
+          simplex[i].f = objective(simplex[i].p);
+        }
+      }
+    }
+  }
+
+  simplex.sort((a, b) => a.f - b.f);
+  return { p: simplex[0].p, f: simplex[0].f };
+}
+
+/** Dispatch wrapper: fit either local model on a slice's raw points. */
+export function fitLocalSmile(
+  pts: Array<{ k: number; iv: number; weight: number }>,
+  T: number,
+  method: 'spline' | 'ssvi'
+): LocalSmileFit | null {
+  if (method === 'spline') {
+    const out = fitNaturalSplineSmile(
+      pts.map((p) => ({ k: p.k, iv: p.iv })),
+      T
+    );
+    return out;
+  }
+  return fitSsvi(pts, T);
+}
+
+export function evalLocalSmileIv(fit: LocalSmileFit, k: number, T: number): number {
+  const w =
+    fit.model === 'spline'
+      ? splineTotalVariance(fit, k)
+      : ssviTotalVariance(fit, k);
+  return Math.sqrt(Math.max(1e-12, w / T));
+}

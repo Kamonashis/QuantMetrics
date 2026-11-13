@@ -17,6 +17,7 @@ import {
   TailDependenceEquation,
 } from '@/components/math/MathEquations';
 import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
+import { AlgoSelect } from '@/components/ui/AlgoSelect';
 import {
   Activity,
   Zap,
@@ -146,28 +147,16 @@ export function CorrelationDynamicsTab({
             </div>
 
             {/* Model Architecture Switcher */}
-            <div className="inline-flex items-center p-1 bg-zinc-100 dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-800 text-xs">
-              <button
-                onClick={() => setModelType('dcc')}
-                className={`px-3 py-1.5 rounded-md font-medium transition-all ${
-                  modelType === 'dcc'
-                    ? 'bg-gold-500 text-zinc-950 font-bold shadow-xs'
-                    : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
-                }`}
-              >
-                DCC-GARCH (Engle)
-              </button>
-              <button
-                onClick={() => setModelType('ewma')}
-                className={`px-3 py-1.5 rounded-md font-medium transition-all ${
-                  modelType === 'ewma'
-                    ? 'bg-gold-500 text-zinc-950 font-bold shadow-xs'
-                    : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
-                }`}
-              >
-                RiskMetrics EWMA
-              </button>
-            </div>
+            <AlgoSelect
+              ariaLabel="Correlation model"
+              value={modelType}
+              onChange={(v) => setModelType(v as 'dcc' | 'ewma')}
+              options={[
+                { value: 'dcc', label: 'DCC-GARCH', hint: 'Engle · QMLE' },
+                { value: 'ewma', label: 'EWMA', hint: 'RiskMetrics' },
+              ]}
+              className="w-52"
+            />
           </div>
         </div>
 

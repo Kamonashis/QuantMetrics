@@ -7,7 +7,9 @@ import {
   calculateReturns,
   computeEwmaVolatility,
   fitGarch11,
+  fitGjrGarch,
   forecastGarch,
+  forecastGjr,
   computeRealizedVolatilityAndJumps,
   fitHarRvModel,
 } from '@/lib/quant-engine';
@@ -30,7 +32,8 @@ import {
   LongRunVolEquation,
 } from '@/components/math/MathEquations';
 import { ShimmerButton } from '@/components/ui/ShimmerButton';
-import { AnimatedTabs } from '@/components/ui/animated-tabs';
+import { AlgoSelect } from '@/components/ui/AlgoSelect';
+
 import { Play, Zap, Clock, Info, ShieldCheck, Activity, Layers } from 'lucide-react';
 
 interface ModelingViewProps {
@@ -58,7 +61,7 @@ export function ModelingView({
   companyName,
   onNavigateToAnalysis,
 }: ModelingViewProps) {
-  const [activeModelTab, setActiveModelTab] = useState<'garch' | 'har-rv'>('garch');
+  const [activeModelTab, setActiveModelTab] = useState<'garch' | 'gjr' | 'ewma' | 'har'>('garch');
   const [harEquationView, setHarEquationView] = useState<'regression' | 'forecast'>('regression');
   const [lambda, setLambda] = useState<number>(0.94);
   const [forecastDays, setForecastDays] = useState<number>(30);
@@ -109,14 +112,69 @@ export function ModelingView({
     return fitGarch11(returns);
   }, [returns]);
 
+  // Fit GJR-GARCH (asymmetric / leverage) model
+  const gjrResult = useMemo(() => {
+    return fitGjrGarch(returns);
+  }, [returns]);
+
+  // EWMA flat-forward forecast (EWMA has no mean-reversion — flat line, widening cone)
+  const ewmaForecastPoints = useMemo(() => {
+    const vol = ewmaResult.summary.latestAnnualizedVol;
+    const lastDate = dates[dates.length - 1];
+    const baseDate = lastDate ? new Date(lastDate) : new Date();
+    const points: import('@/lib/quant-engine').GarchForecastPoint[] = [];
+    for (let h = 1; h <= forecastDays; h++) {
+      const uncertaintyFactor = 0.08 * Math.sqrt(h);
+      const forecastDate = new Date(baseDate);
+      forecastDate.setDate(forecastDate.getDate() + h);
+      points.push({
+        day: h,
+        date: forecastDate.toISOString().split('T')[0],
+        annualizedVol: vol,
+        upper68: vol * (1 + uncertaintyFactor),
+        lower68: Math.max(0.01, vol * (1 - uncertaintyFactor)),
+        upper95: vol * (1 + 1.96 * uncertaintyFactor),
+        lower95: Math.max(0.01, vol * (1 - 1.96 * uncertaintyFactor)),
+      });
+    }
+    return points;
+  }, [ewmaResult, forecastDays, dates]);
+
+  // EWMA shaped like a garch summary for the cone renderer (persistence = 1 → no mean reversion)
+  const ewmaSummaryShim = useMemo(
+    () => ({
+      omega: 0,
+      alpha: 0.05,
+      beta: 0.95,
+      persistence: 1,
+      logLikelihood: 0,
+      aic: 0,
+      bic: 0,
+      longRunVariance: ewmaResult.summary.latestAnnualizedVol ** 2,
+      longRunAnnualizedVol: ewmaResult.summary.latestAnnualizedVol,
+      halfLife: null,
+      converged: true,
+      iterations: 0,
+    }),
+    [ewmaResult]
+  );
+
   // Forecast future GARCH volatility
+  const gjrForecastPoints = useMemo(() => {
+    const lastVar =
+      gjrResult.conditionalVariance[gjrResult.conditionalVariance.length - 1] || 0.0002;
+    return forecastGjr(gjrResult.summary, lastVar, forecastDays, dates[dates.length - 1]);
+  }, [gjrResult, forecastDays, dates]);
+
   const forecastPoints = useMemo(() => {
+    if (activeModelTab === 'gjr') return gjrForecastPoints;
+    if (activeModelTab === 'ewma') return ewmaForecastPoints;
     const lastVar =
       garchResult.conditionalVariance[garchResult.conditionalVariance.length - 1] ||
       0.0002;
     const lastDate = dates[dates.length - 1];
     return forecastGarch(garchResult.summary, lastVar, forecastDays, lastDate);
-  }, [garchResult, forecastDays, dates]);
+  }, [activeModelTab, garchResult, gjrForecastPoints, ewmaForecastPoints, forecastDays, dates]);
 
   // Compute 1-minute Realized Volatility and Jumps
   const dailyRealizedVol = useMemo(() => {
@@ -161,15 +219,18 @@ export function ModelingView({
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            {/* Model Architecture Switcher Tabs */}
-            <AnimatedTabs
-              size="sm"
+            {/* Model Architecture Switcher Dropdown */}
+            <AlgoSelect
+              ariaLabel="Volatility model"
               value={activeModelTab}
-              onChange={(id) => setActiveModelTab(id as 'garch' | 'har-rv')}
-              tabs={[
-                { id: 'garch', label: 'Daily GARCH & EWMA', icon: Activity },
-                { id: 'har-rv', label: '1-Min HAR-RV (Corsi)', icon: Zap },
+              onChange={(v) => setActiveModelTab(v as 'garch' | 'gjr' | 'ewma' | 'har')}
+              options={[
+                { value: 'garch', label: 'GARCH(1,1)', hint: 'MLE · symmetric' },
+                { value: 'gjr', label: 'GJR-GARCH', hint: 'leverage · MLE' },
+                { value: 'ewma', label: 'EWMA λ = 0.94', hint: 'RiskMetrics' },
+                { value: 'har', label: 'HAR-RV', hint: 'Corsi · OLS' },
               ]}
+              className="w-56"
             />
 
             <button
@@ -189,11 +250,12 @@ export function ModelingView({
           </div>
         </div>
 
-        {/* Dynamic Model Control Panels based on active tab */}
-        {activeModelTab === 'garch' ? (
-          /* Calibration Sliders for Daily GARCH & EWMA */
+        {/* Dynamic Model Control Panels based on active model */}
+        {activeModelTab !== 'har' ? (
+          /* Calibration Sliders for Daily GARCH / GJR / EWMA */
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-4 text-xs">
-            {/* GARCH Terms */}
+            {/* GARCH Terms — symmetric GARCH(1,1) only; GJR fixes asymmetry at (1,1,1) */}
+            {activeModelTab === 'garch' && (
             <div className="p-3 bg-zinc-50 dark:bg-zinc-900/60 rounded-lg border border-zinc-200 dark:border-zinc-800/60">
               <label className="block text-zinc-700 dark:text-zinc-300 font-semibold mb-1">
                 GARCH Order (p, q)
@@ -226,6 +288,27 @@ export function ModelingView({
                 Standard GARCH(1,1) specification
               </span>
             </div>
+            )}
+
+            {/* GJR asymmetry readout — only when GJR is the selected model */}
+            {activeModelTab === 'gjr' && (
+            <div className="p-3 bg-zinc-50 dark:bg-zinc-900/60 rounded-lg border border-zinc-200 dark:border-zinc-800/60">
+              <span className="text-zinc-500 dark:text-zinc-400 block font-medium">
+                Leverage Coefficient γ
+              </span>
+              <div className="flex items-baseline gap-2 mt-1">
+                <span className="font-mono text-xl font-bold text-zinc-900 dark:text-zinc-100 tabular-nums">
+                  {gjrResult.summary.gamma.toFixed(4)}
+                </span>
+                <span className="text-xs text-gold-600 dark:text-gold-400 font-medium">
+                  {gjrResult.summary.gamma > 0.01 ? 'Asymmetry detected' : 'Symmetric-ish'}
+                </span>
+              </div>
+              <span className="text-[11px] text-zinc-400 block mt-1.5">
+                Downside shocks carry {(gjrResult.summary.gamma * 100).toFixed(1)}% extra variance load vs upside ({(gjrResult.summary.negativeFraction * 100).toFixed(0)}% negative returns)
+              </span>
+            </div>
+            )}
 
             {/* EWMA Smoothing Factor */}
             <div className="p-3 bg-zinc-50 dark:bg-zinc-900/60 rounded-lg border border-zinc-200 dark:border-zinc-800/60">
@@ -279,26 +362,45 @@ export function ModelingView({
               </div>
             </div>
 
-            {/* Shock Persistence Readout */}
+            {/* Shock Persistence Readout — swaps to EWMA diagnostic when EWMA is selected */}
+            {activeModelTab !== 'ewma' ? (
             <div className="p-3 bg-zinc-50 dark:bg-zinc-900/60 rounded-lg border border-zinc-200 dark:border-zinc-800/60">
               <span className="text-zinc-500 dark:text-zinc-400 block font-medium">
-                Shock Persistence (α + β)
+                {activeModelTab === 'gjr' ? 'Shock Persistence (asym-weighted)' : 'Shock Persistence (α + β)'}
               </span>
               <div className="flex items-baseline gap-2 mt-1">
                 <span className="font-mono text-xl font-bold text-zinc-900 dark:text-zinc-100 tabular-nums">
-                  {garchResult.summary.persistence.toFixed(4)}
+                  {(activeModelTab === 'gjr' ? gjrResult.summary.persistence : garchResult.summary.persistence).toFixed(4)}
                 </span>
                 <span className="text-xs text-gold-600 dark:text-gold-400 font-medium">
-                  {garchResult.summary.persistence < 1 ? 'Stationary' : 'Explosive'}
+                  {(activeModelTab === 'gjr' ? gjrResult.summary.persistence : garchResult.summary.persistence) < 1 ? 'Stationary' : 'Explosive'}
                 </span>
               </div>
               <span className="text-[11px] text-zinc-400 block mt-1">
                 Shock Half-Life:{' '}
-                {garchResult.summary.halfLife
-                  ? `${garchResult.summary.halfLife.toFixed(1)} trading days`
+                {(activeModelTab === 'gjr' ? gjrResult.summary.halfLife : garchResult.summary.halfLife)
+                  ? `${(activeModelTab === 'gjr' ? gjrResult.summary.halfLife : garchResult.summary.halfLife)!.toFixed(1)} trading days`
                   : 'Permanent'}
               </span>
             </div>
+            ) : (
+            <div className="p-3 bg-zinc-50 dark:bg-zinc-900/60 rounded-lg border border-zinc-200 dark:border-zinc-800/60">
+              <span className="text-zinc-500 dark:text-zinc-400 block font-medium">
+                EWMA — No Mean Reversion
+              </span>
+              <div className="flex items-baseline gap-2 mt-1">
+                <span className="font-mono text-xl font-bold text-zinc-900 dark:text-zinc-100 tabular-nums">
+                  {(ewmaResult.summary.meanAnnualizedVol * 100).toFixed(1)}%
+                </span>
+                <span className="text-xs text-gold-600 dark:text-gold-400 font-medium">
+                  EWMA λ = {lambda.toFixed(2)}
+                </span>
+              </div>
+              <span className="text-[11px] text-zinc-400 block mt-1">
+                Naive recursion — σ̅ path converges to a flat forecast; shocks decay at (1−λ)
+              </span>
+            </div>
+            )}
           </div>
         ) : (
           /* High-Frequency HAR-RV Architecture Panel */
@@ -384,25 +486,46 @@ export function ModelingView({
         )}
       </div>
 
-      {/* Main Chart Section: GARCH Volatility Cone vs 1-Min HAR-RV Cone */}
-      {activeModelTab === 'garch' ? (
-        <ChartFullscreen title="EWMA vs. GARCH(1,1) Volatility Cone & Forecast" subtitle={ticker}>
-          <VolatilityForecastChart
-            dates={dates}
-            historicalVol={historicalVol}
-            ewmaVol={ewmaResult.ewmaAnnualizedVol}
-            garchVol={garchResult.conditionalAnnualizedVol}
-            forecastPoints={forecastPoints}
-            garchSummary={garchResult.summary}
-            ewmaSummary={ewmaResult.summary}
-          />
-        </ChartFullscreen>
-      ) : (
+      {/* Main Chart Section: selected model cone */}
+      {activeModelTab === 'har' ? (
         <ChartFullscreen title="HAR-RV Realized Volatility Cone & Forecast" subtitle={ticker}>
           <HarRvForecastChart
             dailyRV={dailyRealizedVol}
             harSummary={harModelSummary}
             ticker={ticker}
+          />
+        </ChartFullscreen>
+      ) : (
+        <ChartFullscreen
+          title={
+            activeModelTab === 'gjr'
+              ? 'EWMA vs. GJR-GARCH Volatility Cone & Forecast'
+              : activeModelTab === 'ewma'
+                ? 'EWMA Volatility Cone & Forecast (λ = 0.94)'
+                : 'EWMA vs. GARCH(1,1) Volatility Cone & Forecast'
+          }
+          subtitle={ticker}
+        >
+          <VolatilityForecastChart
+            dates={dates}
+            historicalVol={historicalVol}
+            ewmaVol={ewmaResult.ewmaAnnualizedVol}
+            garchVol={
+              activeModelTab === 'gjr'
+                ? gjrResult.conditionalAnnualizedVol
+                : activeModelTab === 'ewma'
+                  ? ewmaResult.ewmaAnnualizedVol
+                  : garchResult.conditionalAnnualizedVol
+            }
+            forecastPoints={forecastPoints}
+            garchSummary={
+              activeModelTab === 'gjr'
+                ? gjrResult.summary
+                : activeModelTab === 'ewma'
+                  ? ewmaSummaryShim
+                  : garchResult.summary
+            }
+            ewmaSummary={ewmaResult.summary}
           />
         </ChartFullscreen>
       )}

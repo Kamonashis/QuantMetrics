@@ -1,14 +1,72 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import type { SliceOut } from '@/components/views/volatility/types';
-import { sviTotalVariance } from '@/lib/options';
+import { sviTotalVariance, fitLocalSmile, evalLocalSmileIv, type LocalSmileFit } from '@/lib/options';
+import { AlgoSelect } from '@/components/ui/AlgoSelect';
+
+export type SmileFitMethod = 'svi' | 'ssvi' | 'spline';
+
+interface VolatilitySmileChartProps {
+  slice: SliceOut | null;
+  fitMethod?: SmileFitMethod;
+  onFitMethodChange?: (method: SmileFitMethod) => void;
+}
+
+const FIT_LABELS: Record<SmileFitMethod, string> = {
+  svi: 'SVI',
+  ssvi: 'SSVI',
+  spline: 'Spline',
+};
 
 /**
- * Smile slice: raw quote IVs (dots, calls hollow / puts solid) with the SVI fit overlay.
+ * Smile slice: raw quote IVs (dots) with the chosen fit overlay.
  * Residuals are visible by construction — that honesty is the point of the chart.
+ * 'svi' = server-side raw SVI fit; 'ssvi'/'spline' = refit client-side from raw quotes.
  */
-export function VolatilitySmileChart({ slice }: { slice: SliceOut | null }) {
+export function VolatilitySmileChart({ slice, fitMethod = 'svi', onFitMethodChange }: VolatilitySmileChartProps) {
+  // Local refit for ssvi/spline from the raw quotes in the slice
+  const localFit = useMemo<LocalSmileFit | null>(() => {
+    if (!slice || fitMethod === 'svi') return null;
+    const pts = slice.points.map((p) => ({ k: p.k, iv: p.iv, weight: p.weight }));
+    return fitLocalSmile(pts, slice.t, fitMethod);
+  }, [slice, fitMethod]);
+
+  // Effective curve writer: chosen fit → fallback to server SVI → else nothing
+  const activeMethod: SmileFitMethod | 'svi-fallback' =
+    fitMethod === 'svi' ? 'svi' : localFit ? fitMethod : 'svi-fallback';
+  const usedViaFallback = fitMethod !== 'svi' && localFit === null;
+
+  const fitIvAt = (k: number): number | null => {
+    const T = slice!.t;
+    if (activeMethod === 'spline' || activeMethod === 'ssvi') {
+      return localFit ? evalLocalSmileIv(localFit, k, T) : null;
+    }
+    if (slice!.svi) {
+      return Math.sqrt(Math.max(1e-12, sviTotalVariance(slice!.svi as { a: number; b: number; rho: number; m: number; sigma: number }, k)) / T);
+    }
+    return null;
+  };
+
+  const fitParamsSummary = (): string => {
+    if (activeMethod === 'ssvi' && localFit?.model === 'ssvi') {
+      return `ρ ${localFit.rho.toFixed(2)} · η ${localFit.eta.toFixed(2)} · γ ${localFit.gamma.toFixed(2)} · θ ${(localFit.atmTotalVariance * 100).toFixed(2)} (w₀)`;
+    }
+    if (activeMethod === 'spline' && localFit?.model === 'spline') {
+      return `${localFit.xs.length} knots · natural cubic in w = σ²·T`;
+    }
+    if (slice?.svi) {
+      return `a ${slice.svi.a.toFixed(4)} · b ${slice.svi.b.toFixed(3)} · ρ ${slice.svi.rho.toFixed(2)} · m ${slice.svi.m.toFixed(3)} · σ ${slice.svi.sigma.toFixed(3)}`;
+    }
+    return 'no fit available';
+  };
+
+  const fitRmseIv = (): string => {
+    if (localFit) return `${(localFit.rmseIv * 100).toFixed(2)} vol pts`;
+    if (slice?.svi) return `${(slice.svi.rmseIv * 100).toFixed(2)} vol pts`;
+    return 'no fit';
+  };
+
   if (!slice || slice.points.length < 3) {
     return (
       <div className="flex h-56 items-center justify-center rounded-xl border border-[var(--hairline)] bg-[var(--bg-inset)] text-xs text-zinc-400">
@@ -27,12 +85,12 @@ export function VolatilitySmileChart({ slice }: { slice: SliceOut | null }) {
   const padK = Math.max(0.02, (kMax - kMin) * 0.06);
 
   const ivs = slice.points.map((p) => p.iv);
-  const fitIvs: number[] = slice.svi
-    ? Array.from({ length: 48 }, (_, i) => {
-        const k = kMin - padK + ((kMax + padK - (kMin - padK)) * i) / 47;
-        return Math.sqrt(Math.max(1e-12, sviTotalVariance(slice.svi as { a: number; b: number; rho: number; m: number; sigma: number }, k)) / slice.t);
-      })
-    : [];
+  const fitIvs: number[] = [];
+  for (let i = 0; i < 48; i++) {
+    const k = kMin - padK + ((kMax + padK - (kMin - padK)) * i) / 47;
+    const iv = fitIvAt(k);
+    if (iv !== null) fitIvs.push(iv);
+  }
   const allIv = [...ivs, ...fitIvs];
   const ivMin = Math.min(...allIv) * 0.97;
   const ivMax = Math.max(...allIv) * 1.03;
@@ -41,18 +99,38 @@ export function VolatilitySmileChart({ slice }: { slice: SliceOut | null }) {
   const xOf = (k: number) => pad.l + ((k - (kMin - padK)) / (kMax + padK - (kMin - padK))) * (width - pad.l - pad.r);
   const yOf = (iv: number) => pad.t + (1 - (iv - ivMin) / spanIv) * (height - pad.t - pad.b);
 
-  const fitPath = slice.svi
+  const fitPath = fitIvs.length === 48
     ? Array.from({ length: 48 }, (_, i) => {
         const k = kMin - padK + ((kMax + padK - (kMin - padK)) * i) / 47;
-        const iv = Math.sqrt(Math.max(1e-12, sviTotalVariance(slice.svi as { a: number; b: number; rho: number; m: number; sigma: number }, k)) / slice.t);
+        const iv = fitIvAt(k)!;
         return `${i === 0 ? 'M' : 'L'}${xOf(k).toFixed(2)},${yOf(iv).toFixed(2)}`;
       }).join(' ')
     : '';
 
   const yTicks = [ivMin, ivMin + spanIv / 2, ivMax];
+  const methodLabel = activeMethod === 'svi-fallback' ? 'SVI (fallback)' : FIT_LABELS[activeMethod as SmileFitMethod];
 
   return (
     <div className="w-full overflow-x-auto">
+      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+        <AlgoSelect
+          ariaLabel="Smile fitting method"
+          value={fitMethod}
+          onChange={(v) => onFitMethodChange?.(v as SmileFitMethod)}
+          options={[
+            { value: 'svi', label: 'SVI', hint: 'server fit · raw SVI' },
+            { value: 'ssvi', label: 'SSVI', hint: 'surface SVI · client refit' },
+            { value: 'spline', label: 'Spline', hint: 'natural cubic · client refit' },
+          ]}
+          className="w-56"
+        />
+        {usedViaFallback && (
+          <span className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wide text-amber-500">
+            {fitMethod} needs ≥5 quotes — showing SVI
+          </span>
+        )}
+      </div>
+
       <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[560px]" role="img" aria-label="Volatility smile">
         {/* gridlines */}
         {yTicks.map((iv, i) => (
@@ -66,16 +144,16 @@ export function VolatilitySmileChart({ slice }: { slice: SliceOut | null }) {
         {/* zero moneyness reference */}
         <line x1={xOf(0)} x2={xOf(0)} y1={pad.t} y2={height - pad.b} stroke="rgba(222,192,132,0.35)" strokeDasharray="2 3" />
 
-        {/* SVI fit line */}
+        {/* Fit line */}
         {fitPath && <path d={fitPath} fill="none" stroke="#DEC084" strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round" />}
 
-        {/* raw quote dots: calls hollow gold, puts solid zinc */}
+        {/* raw quote dots */}
         {slice.points.map((p, i) => (
           <circle
             key={i}
             cx={xOf(p.k)}
             cy={yOf(p.iv)}
-            r={p.type === 'call' ? 3.2 : 3.2}
+            r={3.2}
             fill={p.type === 'call' ? 'transparent' : 'rgba(236,236,241,0.75)'}
             stroke={p.type === 'call' ? '#DEC084' : 'rgba(236,236,241,0.75)'}
             strokeWidth="0.9"
@@ -93,16 +171,14 @@ export function VolatilitySmileChart({ slice }: { slice: SliceOut | null }) {
 
       {/* Fit diagnostics strip */}
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-[var(--hairline)] pt-2 font-mono text-[10px] text-zinc-500 dark:text-zinc-400">
-        <span>SVI RMSE <strong className="text-zinc-800 dark:text-zinc-100">{slice.svi ? `${(slice.svi.rmseIv * 100).toFixed(2)} vol pts` : 'no fit'}</strong></span>
-        {slice.svi && (
-          <span>fit a {slice.svi.a.toFixed(4)} · b {slice.svi.b.toFixed(3)} · ρ {slice.svi.rho.toFixed(2)} · m {slice.svi.m.toFixed(3)} · σ {slice.svi.sigma.toFixed(3)}</span>
-        )}
-        {slice.svi && slice.svi.arbitrageFlags.length > 0 && (
+        <span>{methodLabel} RMSE <strong className="text-zinc-800 dark:text-zinc-100">{fitRmseIv()}</strong></span>
+        <span>{methodLabel} {fitParamsSummary()}</span>
+        {slice.svi && slice.svi.arbitrageFlags.length > 0 && activeMethod === 'svi' && (
           <span className="rounded border border-rose-500/40 bg-rose-500/10 px-1.5 py-0.5 text-rose-500 dark:text-rose-400">
             arbitrage flags: {slice.svi.arbitrageFlags.join(', ')}
           </span>
         )}
-        <span className="text-zinc-400">○ calls · ● puts · line = SVI fit</span>
+        <span className="text-zinc-400">○ calls · ● puts · line = {methodLabel} fit</span>
       </div>
     </div>
   );

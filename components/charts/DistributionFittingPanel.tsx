@@ -23,6 +23,7 @@ import {
   ChevronUp,
   ShieldAlert,
 } from 'lucide-react';
+import { AlgoSelect } from '@/components/ui/AlgoSelect';
 
 interface DistributionFittingPanelProps {
   returns: number[];
@@ -49,6 +50,8 @@ export function DistributionFittingPanel({
   });
 
   const [highlightedModel, setHighlightedModel] = useState<string | null>(null);
+  // Dropdown highlight: 'aic-winner' (default) or a specific model key
+  const [highlightModel, setHighlightModel] = useState<string>('aic-winner');
   const [showMathReference, setShowMathReference] = useState<boolean>(false);
 
   const toggleCurve = (key: string) => {
@@ -123,6 +126,8 @@ export function DistributionFittingPanel({
   const getX = (val: number) => padLeft + ((val - min) / range) * chartW;
   const getY = (count: number) => padTop + chartH - (count / maxCount) * chartH;
   const bestModel = fitResults.models[0];
+  // Effective highlight: hover wins; else dropdown selection; else AIC winner
+  const effectiveHighlight = highlightedModel ?? (highlightModel === 'aic-winner' ? bestModel?.key : highlightModel);
 
   return (
     <div className="panel p-5">
@@ -165,10 +170,20 @@ export function DistributionFittingPanel({
           <span>Fitted Density Curves:</span>
         </div>
 
+        <AlgoSelect
+          ariaLabel="Highlight distribution model"
+          value={highlightModel}
+          onChange={setHighlightModel}
+          options={[
+            { value: 'aic-winner', label: 'Highlight: AIC winner' },
+            ...fitResults.models.map((m) => ({ value: m.key, label: `Highlight: ${m.name.split(' (')[0]}` })),
+          ]}
+          className="w-56"
+        />
         <div className="flex flex-wrap items-center gap-2">
           {fitResults.models.map((m) => {
             const isVisible = activeCurves[m.key];
-            const isHovered = highlightedModel === m.key;
+            const isHovered = effectiveHighlight === m.key;
 
             return (
               <button
@@ -266,7 +281,7 @@ export function DistributionFittingPanel({
           {/* Fitted Distribution Density Curves */}
           {fitResults.models.map((m) => {
             if (!activeCurves[m.key]) return null;
-            const isHovered = highlightedModel === m.key;
+            const isHovered = effectiveHighlight === m.key;
             const isNormal = m.key === 'normal';
 
             return (
@@ -277,7 +292,7 @@ export function DistributionFittingPanel({
                 stroke={m.color}
                 strokeWidth={isHovered ? 2.3 : isNormal ? 1.3 : 1.6}
                 strokeDasharray={isNormal ? '4 3' : 'none'}
-                strokeOpacity={highlightedModel && !isHovered ? 0.25 : 0.95}
+                strokeOpacity={effectiveHighlight && !isHovered ? 0.25 : 0.95}
                 className="transition-all duration-200"
               />
             );

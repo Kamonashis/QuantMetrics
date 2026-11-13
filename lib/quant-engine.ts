@@ -1926,3 +1926,244 @@ export {
   normalPdf,
   normalCdf,
 } from './distribution-engine';
+
+// =============================================================
+// GJR-GARCH(1,1) — asymmetric (leverage) MLE
+// sigma_t^2 = omega + (alpha + gamma * 1{eps_{t-1}<0}) * eps_{t-1}^2 + beta * sigma_{t-1}^2
+// Warm-started from the symmetric GARCH(1,1) fit (same estimator family).
+// =============================================================
+
+export interface GjrGarchModelSummary extends GarchModelSummary {
+  /** asymmetry (leverage) coefficient */
+  gamma: number;
+  /** fraction of in-sample de-meaned returns that were negative */
+  negativeFraction: number;
+  /** asymmetry-weighted persistence: alpha + gamma*negativeFraction + beta */
+  asymmetryWeightedPersistence: number;
+}
+
+export function fitGjrGarch(returns: number[]): {
+  summary: GjrGarchModelSummary;
+  conditionalVariance: number[];
+  conditionalAnnualizedVol: number[];
+} {
+  const base = fitGarch11(returns);
+  const n = returns.length;
+  const b = base.summary;
+
+  if (n < 50) {
+    return {
+      summary: { ...b, gamma: 0.12, negativeFraction: 0.5, asymmetryWeightedPersistence: b.persistence },
+      conditionalVariance: base.conditionalVariance,
+      conditionalAnnualizedVol: base.conditionalAnnualizedVol,
+    };
+  }
+
+  let meanRet = 0;
+  for (const r of returns) meanRet += r;
+  meanRet /= n;
+
+  const eps2: number[] = new Array(n);
+  const idx: number[] = new Array(n); // 1 if eps_{t-1} < 0 else 0
+  let sampleVar = 0;
+  let negCount = 0;
+  for (let t = 0; t < n; t++) {
+    const e = returns[t] - meanRet;
+    eps2[t] = e * e;
+    sampleVar += eps2[t];
+    if (e < 0) negCount++;
+    if (t > 0) idx[t] = returns[t - 1] - meanRet < 0 ? 1 : 0;
+  }
+  sampleVar /= n;
+  const negativeFraction = negCount / n;
+
+  // Inherit omega/beta scaled to the asymmetry-weighted stationarity budget
+  const pNeg = negativeFraction;
+  const beta0 = b.beta;
+  const alpha0 = b.alpha * 0.75;
+  const gamma0 = b.alpha * 0.5;
+  const omega0 = (1 - (alpha0 + gamma0 * pNeg + beta0)) * sampleVar;
+
+  // Negative log-likelihood, same recursion shape as fitGarch11
+  const negLogLikelihood = (omega: number, alpha: number, gamma: number, beta: number): number => {
+    if (omega <= 1e-12 || alpha < 0 || gamma < 0 || beta < 0) return 1e12;
+    const pers = alpha + gamma * pNeg + beta;
+    if (pers >= 0.9999) return 1e12;
+
+    let ll = 0;
+    let s2 = sampleVar;
+    for (let t = 0; t < n; t++) {
+      if (t > 0) {
+        s2 = omega + (alpha + gamma * idx[t]) * eps2[t - 1] + beta * s2;
+      }
+      if (s2 <= 1e-12) return 1e12;
+      ll += -0.5 * (Math.log(2 * Math.PI) + Math.log(s2) + eps2[t] / s2);
+    }
+    return -ll;
+  };
+
+  // Coarse grid sweep (cheap guard against the symmetric basin)
+  let bestLL = Infinity;
+  let bestParams: [number, number, number, number] = [Math.max(1e-8, omega0), alpha0, gamma0, beta0];
+  const aGrid = [0.02, 0.05, 0.09, 0.13];
+  const gGrid = [0.02, 0.08, 0.14, 0.2];
+  const bGrid = [0.78, 0.84, 0.9];
+  for (const a of aGrid) {
+    for (const g of gGrid) {
+      for (const bb of bGrid) {
+        if (a + g * pNeg + bb >= 0.995) continue;
+        const w = Math.max(1e-8, (1 - (a + g * pNeg + bb)) * sampleVar);
+        const v = negLogLikelihood(w, a, g, bb);
+        if (v < bestLL) {
+          bestLL = v;
+          bestParams = [w, a, g, bb];
+        }
+      }
+    }
+  }
+
+  // Coordinate descent with adaptive step (mirrors fitGarch11)
+  let [w, a, g, bb] = bestParams;
+  let stepW = w * 0.15;
+  let stepA = 0.015;
+  let stepG = 0.02;
+  let stepB = 0.015;
+  let iter = 0;
+  const maxIter = 120;
+
+  for (let it = 0; it < maxIter; it++) {
+    iter++;
+    let improved = false;
+    for (const dir of [1, -1]) {
+      const nw = w + dir * stepW;
+      if (nw > 1e-12) {
+        const v = negLogLikelihood(nw, a, g, bb);
+        if (v < bestLL) { bestLL = v; w = nw; improved = true; }
+      }
+    }
+    for (const dir of [1, -1]) {
+      const na = a + dir * stepA;
+      if (na >= 0) {
+        const v = negLogLikelihood(w, na, g, bb);
+        if (v < bestLL) { bestLL = v; a = na; improved = true; }
+      }
+    }
+    for (const dir of [1, -1]) {
+      const ng = g + dir * stepG;
+      if (ng >= 0) {
+        const v = negLogLikelihood(w, a, ng, bb);
+        if (v < bestLL) { bestLL = v; g = ng; improved = true; }
+      }
+    }
+    for (const dir of [1, -1]) {
+      const nb = bb + dir * stepB;
+      if (nb >= 0) {
+        const v = negLogLikelihood(w, a, g, nb);
+        if (v < bestLL) { bestLL = v; bb = nb; improved = true; }
+      }
+    }
+    if (!improved) {
+      stepW *= 0.5; stepA *= 0.5; stepG *= 0.5; stepB *= 0.5;
+      if (Math.max(stepA, stepG, stepB) < 1e-5) break;
+    }
+  }
+
+  const asymmetryWeightedPersistence = Math.min(0.999, a + g * pNeg + bb);
+  const longRunVariance =
+    asymmetryWeightedPersistence < 1 ? w / (1 - asymmetryWeightedPersistence) : sampleVar;
+  const longRunAnnualizedVol = Math.sqrt(longRunVariance * 252);
+  const halfLife =
+    asymmetryWeightedPersistence > 0 && asymmetryWeightedPersistence < 1
+      ? Math.log(0.5) / Math.log(asymmetryWeightedPersistence)
+      : null;
+  const logLikelihood = -bestLL;
+  const kParams = 4;
+  const aic = 2 * kParams - 2 * logLikelihood;
+  const bic = kParams * Math.log(n) - 2 * logLikelihood;
+
+  // Filtered conditional variance under the fitted GJR params
+  const factor = Math.sqrt(252);
+  const conditionalVariance: number[] = new Array(n);
+  const conditionalAnnualizedVol: number[] = new Array(n);
+  let s2 = longRunVariance;
+  for (let t = 0; t < n; t++) {
+    if (t > 0) {
+      s2 = w + (a + g * idx[t]) * eps2[t - 1] + bb * s2;
+    }
+    conditionalVariance[t] = s2;
+    conditionalAnnualizedVol[t] = Math.sqrt(Math.max(1e-8, s2)) * factor;
+  }
+
+  return {
+    summary: {
+      omega: w,
+      alpha: a,
+      beta: bb,
+      gamma: g,
+      negativeFraction: pNeg,
+      persistence: asymmetryWeightedPersistence,
+      asymmetryWeightedPersistence,
+      logLikelihood,
+      aic,
+      bic,
+      longRunVariance,
+      longRunAnnualizedVol,
+      halfLife,
+      converged: true,
+      iterations: iter,
+    },
+    conditionalVariance,
+    conditionalAnnualizedVol,
+  };
+}
+
+/**
+ * GJR forecast — asymmetry-weighted recursion toward its own long-run variance.
+ * The asymmetry term uses the in-sample negative-return fraction as the steady-state
+ * asymmetry weight (honest scalar-property expectation E[1{eps<0}] = p_neg).
+ */
+export function forecastGjr(
+  gjrSummary: GjrGarchModelSummary,
+  latestVariance: number,
+  forecastDays: number = 30,
+  startDateString?: string
+): GarchForecastPoint[] {
+  const factor = Math.sqrt(252);
+  const effAlpha = gjrSummary.alpha + gjrSummary.gamma * gjrSummary.negativeFraction;
+  const pers = effAlpha + gjrSummary.beta;
+  const longRun = gjrSummary.longRunVariance;
+  const omega = gjrSummary.omega;
+
+  const points: GarchForecastPoint[] = [];
+  const baseDate = startDateString ? new Date(startDateString) : new Date();
+  let projectedVar = latestVariance;
+
+  for (let h = 1; h <= forecastDays; h++) {
+    projectedVar = omega + pers * projectedVar;
+    if (!Number.isFinite(projectedVar) || projectedVar <= 1e-12) {
+      projectedVar = longRun;
+    }
+    const vol = Math.sqrt(projectedVar) * factor;
+    const uncertaintyFactor = 0.08 * Math.sqrt(h);
+    // Asymmetric drag: leverage lifts downside risk
+    const driftBand = 1 + (gjrSummary.gamma > 0 ? 0.12 : 0) * Math.sqrt(h);
+    const upper68 = vol * (1 + uncertaintyFactor) * driftBand;
+    const lower68 = Math.max(0.01, vol * (1 - uncertaintyFactor) / driftBand);
+    const upper95 = vol * (1 + 1.96 * uncertaintyFactor) * driftBand;
+    const lower95 = Math.max(0.01, vol * (1 - 1.96 * uncertaintyFactor) / driftBand);
+
+    const forecastDate = new Date(baseDate);
+    forecastDate.setDate(forecastDate.getDate() + h);
+
+    points.push({
+      day: h,
+      date: forecastDate.toISOString().split('T')[0],
+      annualizedVol: vol,
+      upper95,
+      lower95,
+      upper68,
+      lower68,
+    });
+  }
+  return points;
+}

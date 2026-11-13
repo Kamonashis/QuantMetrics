@@ -12,6 +12,7 @@ import {
   IntradayBar,
   computeRealizedVolatilityAndJumps,
   computeDiurnalVolatilityProfile,
+  fitGjrGarch,
 } from '@/lib/quant-engine';
 import {
   computeStationarityBattery,
@@ -203,9 +204,10 @@ export function AnalysisView({
     return computeHurstAndVarianceRatio(returns);
   }, [returns]);
 
-  // Tier 3: News Impact Curve (Symmetric vs GJR-GARCH)
+  // Tier 3: News Impact Curve (Symmetric vs GJR-GARCH) — from fitted GJR-GARCH params
   const newsImpactPoints = useMemo(() => {
-    return computeNewsImpactCurve(returns);
+    const gjr = fitGjrGarch(returns);
+    return computeNewsImpactCurve(returns, gjr.summary.omega, gjr.summary.alpha, gjr.summary.gamma, gjr.summary.beta);
   }, [returns]);
 
   // Tier 3: Volatility Signature Plot

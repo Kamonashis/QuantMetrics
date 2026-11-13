@@ -1031,6 +1031,7 @@ export function computeHurstAndVarianceRatio(
 
 /**
  * GJR-GARCH News Impact Curve: sigma^2_{t+1}(eps_t)
+ * Callers should pass fitted (ω, α, γ, β) — defaults remain as a documented fallback for cold starts.
  */
 export function computeNewsImpactCurve(
   returns: number[],

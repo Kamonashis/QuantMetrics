@@ -2,8 +2,58 @@
 
 import { useMemo, useRef, useState } from 'react';
 import { RotateCw, AlertTriangle } from 'lucide-react';
-import { normCdf, sviTotalVariance, d1d2 } from '@/lib/options';
+import { normCdf, sviTotalVariance, d1d2, fitLocalSmile, evalLocalSmileIv, type LocalSmileFit, type SsviSmileFit, type NaturalSplineSmileFit } from '@/lib/options';
 import type { SliceOut } from '@/components/views/volatility/types';
+
+export type SmileFitMethod = 'svi' | 'ssvi' | 'spline';
+
+/** A per-slice fit resolved once per (slices, method) render — never per rotation frame. */
+export interface ResolvedSliceFit {
+  slice: SliceOut;
+  ivAt: (k: number) => number;
+  source: 'spline' | 'ssvi' | 'svi';
+  nUsed: number;
+}
+
+/** Resolve every fitted slice for a given method, with SVI as per-slice fallback. */
+export function resolveSliceFits(slices: SliceOut[], method: SmileFitMethod): { resolved: ResolvedSliceFit[]; fellBack: number } {
+  const usable = slices
+    .filter((s) => Number.isFinite(s.dte) && s.dte > 0 && s.t > 0 && Number.isFinite(s.forward) && s.forward > 0)
+    .slice()
+    .sort((a, b) => a.dte - b.dte);
+
+  let fellBack = 0;
+  const resolved: ResolvedSliceFit[] = [];
+  for (const s of usable) {
+    if (method === 'svi') {
+      if (!s.svi) continue;
+      const svi = s.svi;
+      resolved.push({
+        slice: s,
+        ivAt: (k) => Math.sqrt(Math.max(1e-12, sviTotalVariance(svi as { a: number; b: number; rho: number; m: number; sigma: number }, k) / s.t)),
+        source: 'svi',
+        nUsed: svi.nUsed,
+      });
+      continue;
+    }
+    const local = fitLocalSmile(s.points.map((p) => ({ k: p.k, iv: p.iv, weight: p.weight })), s.t, method);
+    if (local) {
+      resolved.push({ slice: s, ivAt: (k) => evalLocalSmileIv(local, k, s.t), source: local.model, nUsed: local.nUsed });
+      continue;
+    }
+    if (s.svi) {
+      fellBack += 1;
+      const svi = s.svi;
+      resolved.push({
+        slice: s,
+        ivAt: (k) => Math.sqrt(Math.max(1e-12, sviTotalVariance(svi as { a: number; b: number; rho: number; m: number; sigma: number }, k) / s.t)),
+        source: 'svi',
+        nUsed: svi.nUsed,
+      });
+    }
+  }
+  return { resolved, fellBack };
+}
 
 /* ------------------------------------------------------------------ */
 /*  Pure projection helpers — module scope                              */
@@ -13,14 +63,7 @@ const K_MIN = -0.45;
 const K_MAX = 0.45;
 const K_STEPS = 19; // 0.05 grid
 
-interface SliceInfo {
-  dte: number;
-  iv: number;
-  k: number;
-  strike: number;
-  used: number;
-  fitted: boolean;
-}
+
 
 interface FloorCorner {
   key: string;
@@ -59,17 +102,24 @@ interface SurfaceModel {
   floorVerts: { sx: number; sy: number }[][];
 }
 
-function buildSurface(slices: SliceOut[], yawDeg: number, pitchDeg: number): SurfaceModel | null {
-  const usable = slices
+function buildSurface(
+  resolvedIn: ResolvedSliceFit[],
+  allSlices: SliceOut[],
+  yawDeg: number,
+  pitchDeg: number
+): SurfaceModel | null {
+  // dteMin/Max from ALL usable slices (honest depth axis); fits come pre-resolved (never per frame)
+  const usable = allSlices
     .filter((s) => Number.isFinite(s.dte) && s.dte > 0 && s.t > 0 && Number.isFinite(s.forward) && s.forward > 0)
     .slice()
     .sort((a, b) => a.dte - b.dte);
-  const fitted = usable.filter((s) => s.svi !== null);
-  if (fitted.length === 0) return null;
-
+  if (usable.length === 0) return null;
   const dteMin = usable[0].dte;
   const dteMax = usable[usable.length - 1].dte;
   const dteSpan = Math.max(1, dteMax - dteMin);
+
+  const fitted = resolvedIn;
+  if (fitted.length === 0) return null;
 
   // World spans
   const xSpan = K_MAX - K_MIN;
@@ -82,10 +132,10 @@ function buildSurface(slices: SliceOut[], yawDeg: number, pitchDeg: number): Sur
   const clampIv = (iv: number) => Math.min(2.5, Math.max(0.03, iv));
 
   // First pass: IV grid of fitted slices → z normalization band
-  const grid: number[][] = fitted.map((s) =>
+  const grid: number[][] = fitted.map((r) =>
     Array.from({ length: K_STEPS }, (_, c) => {
       const k = K_MIN + (c / (K_STEPS - 1)) * (K_MAX - K_MIN);
-      const iv = Math.sqrt(Math.max(1e-10, sviTotalVariance(s.svi!, k) / s.t));
+      const iv = r.ivAt(k);
       return clampIv(iv);
     })
   );
@@ -116,7 +166,7 @@ function buildSurface(slices: SliceOut[], yawDeg: number, pitchDeg: number): Sur
 
   // Project everything first, then fit the point cloud into the viewBox with padding.
   const projected: { x: number; y: number; depth: number }[] = [];
-  const worldVert = (r: number, c: number) => ({ x: X(K_MIN + (c / (K_STEPS - 1)) * (K_MAX - K_MIN)), y: Y(fitted[r].dte), z: Z(grid[r][c]) });
+  const worldVert = (r: number, c: number) => ({ x: X(K_MIN + (c / (K_STEPS - 1)) * (K_MAX - K_MIN)), y: Y(fitted[r].slice.dte), z: Z(grid[r][c]) });
   for (let r = 0; r < fitted.length; r++) {
     for (let c = 0; c < K_STEPS; c++) projected.push(project(worldVert(r, c).x, worldVert(r, c).y, worldVert(r, c).z));
   }
@@ -153,22 +203,24 @@ function buildSurface(slices: SliceOut[], yawDeg: number, pitchDeg: number): Sur
     depth: p.depth,
   });
 
-  const vertices: MeshVertex[][] = fitted.map((s, r) =>
-    Array.from({ length: K_STEPS }, (_, c) => {
+  const vertices: MeshVertex[][] = fitted.map((fit, r) => {
+    const s = fit.slice;
+    return Array.from({ length: K_STEPS }, (_, c) => {
       const k = K_MIN + (c / (K_STEPS - 1)) * (K_MAX - K_MIN);
       const iv = grid[r][c];
       const p = project(X(k), Y(s.dte), Z(iv));
       const sc = toScreen(p);
       return { k, sx: sc.sx, sy: sc.sy, depth: sc.depth, iv, row: r };
-    })
-  );
+    });
+  });
 
-  const floorVerts: { sx: number; sy: number }[][] = fitted.map((s) =>
-    Array.from({ length: K_STEPS }, (_, c) => {
+  const floorVerts: { sx: number; sy: number }[][] = fitted.map((fit) => {
+    const s = fit.slice;
+    return Array.from({ length: K_STEPS }, (_, c) => {
       const k = K_MIN + (c / (K_STEPS - 1)) * (K_MAX - K_MIN);
       return toScreen(project(X(k), Y(s.dte), floorZ));
-    })
-  );
+    });
+  });
 
   const floor: FloorCorner[] = floorWorld.map((f, i) => {
     const sc = toScreen(project(f.x, f.y, floorZ));
@@ -209,14 +261,14 @@ function buildSurface(slices: SliceOut[], yawDeg: number, pitchDeg: number): Sur
   const atmCol = Math.round(((0 - K_MIN) / (K_MAX - K_MIN)) * (K_STEPS - 1));
   const atmRidge = vertices.map((row) => `${row[atmCol].sx.toFixed(2)},${row[atmCol].sy.toFixed(2)}`).join(' ');
 
-  const dteLabels = fitted.map((s, r) => ({
-    dte: s.dte,
+  const dteLabels = fitted.map((fit, r) => ({
+    dte: fit.slice.dte,
     sx: vertices[r][0].sx - 10,
     sy: vertices[r][0].sy + 4,
   }));
 
   const flags = fitted
-    .map((s, r) => ({ row: r, dte: s.dte, flags: s.svi?.arbitrageFlags ?? [] }))
+    .map((fit, r) => ({ row: r, dte: fit.slice.dte, flags: fit.slice.svi?.arbitrageFlags ?? [] }))
     .filter((f) => f.flags.length > 0);
 
   return { vertices, quads, dots, atmRidge, minIv, maxIv, dteLabels, flags, floor, floorVerts };
@@ -238,6 +290,8 @@ interface VolSurface3DProps {
   spot: number | null;
   rate?: number | null;
   dividendYield?: number | null;
+  /** smile fitting method for the mesh — 'svi' = server fit, others refit client-side */
+  fitMethod?: SmileFitMethod;
   className?: string;
 }
 
@@ -254,7 +308,7 @@ interface HoverInfo {
   isObserved: boolean;
 }
 
-export function VolSurface3D({ slices, spot, rate, dividendYield, className }: VolSurface3DProps) {
+export function VolSurface3D({ slices, spot, rate, dividendYield, className, fitMethod = 'svi' }: VolSurface3DProps) {
   const [yaw, setYaw] = useState(-26);
   const [pitch, setPitch] = useState(24);
   const [dragging, setDragging] = useState(false);
@@ -266,8 +320,10 @@ export function VolSurface3D({ slices, spot, rate, dividendYield, className }: V
   const q = dividendYield ?? 0;
   const spot0 = spot ?? 0;
 
-  const model = useMemo(() => buildSurface(slices, yaw, pitch), [slices, yaw, pitch]);
+  const { resolved, fellBack } = useMemo(() => resolveSliceFits(slices, fitMethod), [slices, fitMethod]);
+  const model = useMemo(() => buildSurface(resolved, slices, yaw, pitch), [resolved, slices, yaw, pitch]);
   const fittedCount = model ? model.vertices.length : 0;
+  const fitLabel = fitMethod === 'svi' ? 'SVI' : fitMethod === 'ssvi' ? 'SSVI' : 'Spline';
   const unfittedWithPoints = useMemo(
     () => slices.filter((s) => s.svi === null && s.points.length > 0).length,
     [slices]
@@ -276,7 +332,7 @@ export function VolSurface3D({ slices, spot, rate, dividendYield, className }: V
   if (!model) {
     return (
       <div className={`rounded-xl border border-white/[0.07] bg-[#0F0F12] p-6 text-sm text-zinc-500 ${className ?? ''}`}>
-        3D surface needs at least one slice with an SVI fit (≥ 5 quotes). Available slices: {slices.length}, unfitted: {unfittedWithPoints}. Option chain too thin today — check back when OI accrues.
+        3D surface needs at least one slice with a fit (≥ 5 quotes for SVI/SSVI, ≥ 3 for Spline). Available slices: {slices.length}, unfitted slices: {unfittedWithPoints}. Option chain too thin today — check back when OI accrues.
       </div>
     );
   }
@@ -559,7 +615,7 @@ export function VolSurface3D({ slices, spot, rate, dividendYield, className }: V
           <span className="inline-block h-2 w-2 rounded-full border border-zinc-400/70 align-middle" />
           <span>observed quotes</span>
         </div>
-        <div>{fittedCount} fitted · {model.dots.length} quotes · k = ln(K/F) · European BSM · SVI · ~15-min delayed · not executable</div>
+        <div>{fittedCount} fitted ({fitLabel}{fellBack > 0 ? ` +${fellBack} SVI fallback` : ''}) · {model.dots.length} quotes · k = ln(K/F) · European BSM · ~15-min delayed · not executable</div>
       </div>
     </div>
   );

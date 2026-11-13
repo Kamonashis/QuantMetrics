@@ -25,6 +25,8 @@ import {
   Flame,
   Binary,
 } from 'lucide-react';
+import { useState } from 'react';
+import { AlgoSelect } from '@/components/ui/AlgoSelect';
 
 interface AnalysisStationarityTabProps {
   stationarityBattery: StationarityTestRow[];
@@ -43,6 +45,7 @@ export function AnalysisStationarityTab({
   stats,
   ticker,
 }: AnalysisStationarityTabProps) {
+  const [evtView, setEvtView] = useState<'both' | 'hill' | 'gpd'>('both');
   return (
     <div className="space-y-6">
       {/* Stationarity Battery Verdict Table */}
@@ -290,6 +293,17 @@ export function AnalysisStationarityTab({
           </div>
 
           <div className="flex items-center gap-4 text-xs font-mono">
+            <AlgoSelect
+              ariaLabel="EVT estimator emphasis"
+              value={evtView}
+              onChange={(v) => setEvtView(v as 'both' | 'hill' | 'gpd')}
+              options={[
+                { value: 'both', label: 'Emphasis: Both' },
+                { value: 'hill', label: 'Emphasis: Hill ξ' },
+                { value: 'gpd', label: 'Emphasis: GPD tail' },
+              ]}
+              className="w-48"
+            />
             <HillEstimatorEquation className="hidden md:inline" />
             <GpdVarEquation className="hidden md:inline" />
           </div>
@@ -297,7 +311,7 @@ export function AnalysisStationarityTab({
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
           {/* Hill Estimator */}
-          <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40">
+          <div className={`p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40 ${evtView === 'hill' ? 'ring-2 ring-gold-500/60 shadow-[0_0_0_3px_rgba(222,192,132,0.15)]' : ''}`}>
             <div className="text-xs text-zinc-500 dark:text-zinc-400">Hill Tail Index (ξ̂)</div>
             <div className="mt-2 text-2xl font-bold font-mono text-zinc-900 dark:text-zinc-100">
               {evtTail.hillTailIndex.toFixed(3)}
@@ -308,7 +322,7 @@ export function AnalysisStationarityTab({
           </div>
 
           {/* GPD Shape Parameter */}
-          <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40">
+          <div className={`p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40 ${evtView === 'gpd' ? 'ring-2 ring-gold-500/60 shadow-[0_0_0_3px_rgba(222,192,132,0.15)]' : ''}`}>
             <div className="text-xs text-zinc-500 dark:text-zinc-400">GPD Shape (ξ) &amp; Scale (β)</div>
             <div className="mt-2 text-2xl font-bold font-mono text-gold-600 dark:text-gold-400">
               ξ = {evtTail.gpdXi.toFixed(3)}
@@ -319,7 +333,7 @@ export function AnalysisStationarityTab({
           </div>
 
           {/* EVT-VaR 99% */}
-          <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40">
+          <div className={`p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40 ${evtView === 'gpd' ? 'ring-2 ring-gold-500/60 shadow-[0_0_0_3px_rgba(222,192,132,0.15)]' : ''}`}>
             <div className="text-xs text-zinc-500 dark:text-zinc-400">POT-GPD 99% 1-Day VaR</div>
             <div className="mt-2 text-2xl font-bold font-mono text-rose-600 dark:text-rose-400">
               {(evtTail.evtVaR99 * 100).toFixed(2)}%
@@ -330,7 +344,7 @@ export function AnalysisStationarityTab({
           </div>
 
           {/* EVT Expected Shortfall */}
-          <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40">
+          <div className={`p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40 ${evtView === 'gpd' ? 'ring-2 ring-gold-500/60 shadow-[0_0_0_3px_rgba(222,192,132,0.15)]' : ''}`}>
             <div className="text-xs text-zinc-500 dark:text-zinc-400">POT 99% Expected Shortfall (ES)</div>
             <div className="mt-2 text-2xl font-bold font-mono text-rose-700 dark:text-rose-300">
               {(evtTail.evtExpectedShortfall99 * 100).toFixed(2)}%
@@ -344,7 +358,20 @@ export function AnalysisStationarityTab({
         <div className="mt-4 pt-3 border-t border-zinc-100 dark:border-zinc-800/60 text-xs text-zinc-500 dark:text-zinc-400 flex items-center gap-2">
           <Info className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
           <span>
-            {evtTail.tailRiskVerdict} Pickands-Balkema-de Haan theorem guarantees that excesses over high threshold u
+            {evtView === 'hill' && (
+              <>
+                <strong className="text-gold-600 dark:text-gold-400">Hill emphasis:</strong>{' '}
+                with ξ ≈ {evtTail.hillTailIndex.toFixed(2)} (α = {evtTail.alphaPareto.toFixed(1)}), crash probabilities decay hyperbolically — far slower than the Gaussian tail — so VaR backtests routinely understate tail hits.{' '}
+              </>
+            )}
+            {evtView === 'gpd' && (
+              <>
+                <strong className="text-gold-600 dark:text-gold-400">GPD emphasis:</strong>{' '}
+                {evtTail.tailRiskVerdict}{' '}
+              </>
+            )}
+            {evtView === 'both' && <>{evtTail.tailRiskVerdict}{' '}</>}
+            Pickands–Balkema–de Haan theorem guarantees that excesses over high threshold u
             converge to Generalized Pareto (GPD), capturing catastrophic black swan risk where Gaussian models underestimate.
           </span>
         </div>

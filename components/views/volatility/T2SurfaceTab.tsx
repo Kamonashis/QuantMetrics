@@ -15,6 +15,7 @@ export function T2SurfaceTab({ chain, indices }: { chain: ChainPayload | null; i
   const defaultExpiry = fitSlices.find((s) => s.dte >= 21 && s.dte <= 45) ?? fitSlices[0] ?? null;
   const [selectedExpiry, setSelectedExpiry] = useState<string | null>(defaultExpiry?.expirationDate ?? null);
   const [surfaceView, setSurfaceView] = useState<'three' | 'heatmap'>('three');
+  const [smileFit, setSmileFit] = useState<'svi' | 'ssvi' | 'spline'>('svi');
   const active = fitSlices.find((s) => s.expirationDate === selectedExpiry) ?? defaultExpiry;
 
   if (slices.length === 0) {
@@ -77,6 +78,7 @@ export function T2SurfaceTab({ chain, indices }: { chain: ChainPayload | null; i
               spot={chain?.quote?.price ?? null}
               rate={chain?.rate ?? null}
               dividendYield={chain?.dividendYield ?? null}
+              fitMethod={smileFit}
             />
           ) : (
             <VolSurfaceHeatmap slices={slices} />
@@ -112,8 +114,8 @@ export function T2SurfaceTab({ chain, indices }: { chain: ChainPayload | null; i
               ))}
             </div>
           </div>
-          <ChartFullscreen title="Volatility Smile + SVI Fit" subtitle={active ? `${active.dte}d expiry · ${active.expirationDate}` : undefined}>
-            <VolatilitySmileChart slice={active ?? null} />
+          <ChartFullscreen title="Volatility Smile + Fit" subtitle={active ? `${active.dte}d expiry · ${active.expirationDate}` : undefined}>
+            <VolatilitySmileChart slice={active ?? null} fitMethod={smileFit} onFitMethodChange={setSmileFit} />
           </ChartFullscreen>
         </div>
 

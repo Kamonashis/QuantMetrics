@@ -18,6 +18,7 @@ import {
 } from '@/components/math/MathEquations';
 import { ShimmerButton } from '@/components/ui/ShimmerButton';
 import { TickerSuggest } from '@/components/ui/TickerSuggest';
+import { AlgoSelect } from '@/components/ui/AlgoSelect';
 import { Play, RotateCcw, HelpCircle, ArrowUpRight, TrendingUp, Info } from 'lucide-react';
 
 interface RegressionViewProps {
@@ -183,24 +184,22 @@ export function RegressionView({
             </div>
 
             {/* Regression Type */}
-            <div>
-              <label className="block text-zinc-700 dark:text-zinc-300 font-medium mb-1">
-                Regression Engine
-              </label>
-              <select
-                value={regressionType}
-                onChange={(e) =>
-                  setRegressionType(
-                    e.target.value as 'Standard OLS' | 'Robust Regression' | 'Rolling Regression'
-                  )
-                }
-                className="w-full px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 font-medium focus:outline-none focus:ring-1 focus:ring-gold-400"
-              >
-                <option value="Standard OLS">Standard OLS</option>
-                <option value="Robust Regression">Robust Regression (Huber IRLS)</option>
-                <option value="Rolling Regression">Rolling Window Regression</option>
-              </select>
-            </div>
+            <AlgoSelect
+              label="Regression Engine"
+              ariaLabel="Regression engine"
+              value={regressionType}
+              onChange={(v) =>
+                setRegressionType(
+                  v as 'Standard OLS' | 'Robust Regression' | 'Rolling Regression'
+                )
+              }
+              options={[
+                { value: 'Standard OLS', label: 'Standard OLS', hint: 'closed form' },
+                { value: 'Robust Regression', label: 'Robust Regression', hint: 'Huber IRLS' },
+                { value: 'Rolling Regression', label: 'Rolling Regression', hint: 'windowed OLS' },
+              ]}
+              className="w-full"
+            />
 
             {/* Rolling Window / Settings */}
             <div>
