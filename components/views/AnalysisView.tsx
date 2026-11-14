@@ -29,6 +29,7 @@ import {
   computeDownsideAndBenchmark,
   computeMicrostructureDiagnostics,
 } from '@/lib/analysis-engine';
+import { fitGaussianHmm, type HmmFit } from '@/lib/hmm';
 import { AnalysisOverviewTab } from './analysis/AnalysisOverviewTab';
 import { AnalysisStationarityTab } from './analysis/AnalysisStationarityTab';
 import { AnalysisDynamicsTab } from './analysis/AnalysisDynamicsTab';
@@ -224,6 +225,27 @@ export function AnalysisView({
   const varBacktestModels = useMemo(() => {
     return computeVaRBacktestSuite(returns);
   }, [returns]);
+
+  // HMM volatility-regime fit — shared by Overview & Risk tabs. Features: [r, |r|, log GK-RV].
+  const [hmmK, setHmmK] = useState<2 | 3 | 4>(3);
+  const hmmFit = useMemo<HmmFit | null>(() => {
+    if (!filteredBars || filteredBars.length < 60) return null;
+    const feats: number[][] = [];
+    for (let i = 1; i < filteredBars.length; i++) {
+      const b = filteredBars[i];
+      const prev = filteredBars[i - 1];
+      const o = b.open, h = b.high, l = b.low, c = b.close;
+      const po = prev.close;
+      if (!(o > 0 && h > 0 && l > 0 && c > 0 && po > 0)) continue;
+      const r =
+        returnType === 'log'
+          ? Math.log(c / po)
+          : (c - po) / po;
+      const gk = 0.5 * Math.log(h / l) ** 2 - (2 * Math.LN2 - 1) * Math.log(c / o) ** 2;
+      feats.push([r, Math.abs(r), Math.log(Math.max(gk, 1e-8))]);
+    }
+    return fitGaussianHmm(feats, { k: hmmK, rankFeature: 2 });
+  }, [filteredBars, returnType, hmmK]);
 
   // Tier 4: Drawdown Analytics & Underwater Curve
   const drawdownResult = useMemo(() => {
@@ -531,6 +553,9 @@ export function AnalysisView({
           decompModel={decompModel}
           onDecompModelChange={onDecompModelChange}
           onExportCsv={handleExportCsv}
+          hmmFit={hmmFit}
+          hmmK={hmmK}
+          onHmmKChange={setHmmK}
         />
       )}
 
@@ -562,6 +587,7 @@ export function AnalysisView({
           drawdownResult={drawdownResult}
           downsideResult={downsideResult}
           ticker={ticker}
+          hmmFit={hmmFit}
         />
       )}
 

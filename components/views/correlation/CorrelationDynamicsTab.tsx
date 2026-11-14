@@ -18,6 +18,9 @@ import {
 } from '@/components/math/MathEquations';
 import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 import { AlgoSelect } from '@/components/ui/AlgoSelect';
+import { RegimeChip } from '@/components/ui/RegimeChip';
+import { RegimeTransitionMatrix } from '@/components/ui/RegimeTransitionMatrix';
+import { fitGaussianHmm, type HmmFit } from '@/lib/hmm';
 import {
   Activity,
   Zap,
@@ -79,7 +82,62 @@ export function CorrelationDynamicsTab({
     return computeTailDependence(returnsA, returnsB);
   }, [returnsA, returnsB]);
 
-  // Regime conditioning (Calm vs Stress)
+  // Regime conditioning — HMM primary (Calm→Crisis posterior), threshold heuristic as fallback
+  const hmmFit = useMemo<HmmFit | null>(() => {
+    const marketTicker = tickers.includes('SPY') ? 'SPY' : tickers[0];
+    const marketRet = returnsByTicker[marketTicker] || [];
+    const keys = Object.keys(returnsByTicker).slice(0, 25);
+    const minLen = Math.min(...keys.map((k) => returnsByTicker[k].length));
+    const n = Math.min(minLen, marketRet.length);
+    if (n < 120) return null;
+    const x: number[][] = new Array(n);
+    for (let t = 0; t < n; t++) {
+      const absUniverse = keys.map((k) => Math.abs(returnsByTicker[k][t])).sort((a, b) => a - b);
+      const medAbs = absUniverse[Math.floor(absUniverse.length / 2)] ?? 0;
+      x[t] = [marketRet[t], Math.abs(marketRet[t]), medAbs];
+    }
+    return fitGaussianHmm(x, { k: 3, rankFeature: 2 });
+  }, [returnsByTicker, tickers]);
+
+  const hmmRegime = useMemo(() => {
+    if (!hmmFit) return null;
+    const K = hmmFit.k;
+    const keys = Object.keys(returnsByTicker);
+    const covM = (weights: number[], a: string, b: string) => {
+      const n = weights.length;
+      let ma = 0, mb = 0, sw = 0;
+      for (let t = 0; t < n; t++) {
+        ma += weights[t] * returnsByTicker[a][t];
+        mb += weights[t] * returnsByTicker[b][t];
+        sw += weights[t];
+      }
+      ma /= sw; mb /= sw;
+      let sAB = 0, sAA = 0, sBB = 0;
+      for (let t = 0; t < n; t++) {
+        const w = weights[t];
+        const da = returnsByTicker[a][t] - ma;
+        const db = returnsByTicker[b][t] - mb;
+        sAB += w * da * db; sAA += w * da * da; sBB += w * db * db;
+      }
+      const denom = Math.sqrt(sAA * sBB);
+      return denom > 0 ? sAB / denom : 0;
+    };
+    const stateMean = (ki: number) => {
+      const weights = hmmFit.posteriors.map((row) => row[ki]);
+      let sum = 0, count = 0;
+      for (let i = 0; i < keys.length; i++) {
+        for (let j = i + 1; j < keys.length; j++) {
+          sum += covM(weights, keys[i], keys[j]);
+          count++;
+        }
+      }
+      return count > 0 ? sum / count : 0;
+    };
+    const calm = stateMean(0);
+    const crisis = stateMean(K - 1);
+    return { calm, crisis, delta: crisis - calm, converged: hmmFit.converged, bic: hmmFit.bic };
+  }, [hmmFit, returnsByTicker]);
+
   const regimeResult = useMemo(() => {
     const marketTicker = tickers.includes('SPY') ? 'SPY' : tickers[0];
     return computeRegimeCorrelations(returnsByTicker, marketTicker);
@@ -508,15 +566,20 @@ export function CorrelationDynamicsTab({
         <div className="panel p-5">
           <div className="flex items-center justify-between mb-3 pb-2 border-b border-zinc-100 dark:border-zinc-800">
             <div>
-              <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
-                Regime-Conditional Correlation Breakdown
-              </h4>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
+                  Regime-Conditional Correlation Breakdown
+                </h4>
+                {hmmFit && <RegimeChip fit={hmmFit} />}
+              </div>
               <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-                {regimeResult.stressDefinition}
+                {hmmRegime
+                  ? `Gaussian HMM on [SPY r, |SPY r|, median |universe r|] · K = ${hmmFit?.k} · BIC ${hmmRegime.bic.toFixed(0)} · calm→crisis ranked by median |r|`
+                  : regimeResult.stressDefinition}
               </p>
             </div>
             <span className="text-xs font-mono text-gold-500 font-semibold">
-              Calm vs Stress Split
+              {hmmFit ? 'HMM Calm→Crisis' : 'Calm vs Stress Split'}
             </span>
           </div>
 
@@ -526,7 +589,7 @@ export function CorrelationDynamicsTab({
                 Calm Regime Mean ρ
               </span>
               <span className="font-bold text-gold-600 dark:text-gold-400 text-lg">
-                {regimeResult.avgCalmCorr.toFixed(2)}
+                {(hmmRegime ? hmmRegime.calm : regimeResult.avgCalmCorr).toFixed(2)}
               </span>
             </div>
             <div className="p-2.5 bg-rose-500/10 border border-rose-500/20 rounded-lg">
@@ -534,7 +597,7 @@ export function CorrelationDynamicsTab({
                 Stress Regime Mean ρ
               </span>
               <span className="font-bold text-rose-600 dark:text-rose-400 text-lg">
-                {regimeResult.avgStressCorr.toFixed(2)}
+                {(hmmRegime ? hmmRegime.crisis : regimeResult.avgStressCorr).toFixed(2)}
               </span>
             </div>
             <div className="p-2.5 bg-gold-500/10 border border-gold-500/20 rounded-lg">
@@ -542,17 +605,22 @@ export function CorrelationDynamicsTab({
                 Tail Penalty (Δρ)
               </span>
               <span className="font-bold text-gold-600 dark:text-gold-400 text-lg">
-                +{regimeResult.avgDeltaCorr.toFixed(2)}
+                +{(hmmRegime ? hmmRegime.delta : regimeResult.avgDeltaCorr).toFixed(2)}
               </span>
             </div>
           </div>
 
+          {hmmFit && (
+            <RegimeTransitionMatrix fit={hmmFit} className="mt-3 border-t border-zinc-100 dark:border-zinc-800/60 pt-2.5 lg:max-w-md" showStats={false} />
+          )}
+
           <p className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-relaxed">
             Quantifies the empirical phenomenon where asset correlations increase by{' '}
             <strong className="text-gold-500">
-              +{(regimeResult.avgDeltaCorr * 100).toFixed(0)}%
+              +{((hmmRegime ? hmmRegime.delta : regimeResult.avgDeltaCorr) * 100).toFixed(0)}%
             </strong>{' '}
             during market stress, reducing diversification exactly when protection is vital.
+            {hmmFit && <> HMM ranks calm→crisis by median universe |r|; threshold heuristic (bottom-20%) shown for continuity when HMM does not converge.</>}
           </p>
         </div>
 

@@ -4,11 +4,14 @@
 // 2. Standardized Student-t distribution (tail parameter nu)
 // 3. Hansen (1994) Skewed Student-t distribution (tail nu, skewness lambda)
 // 4. Generalized Error Distribution (GED / Subbotin) (shape parameter kappa)
+// 5. Hidden Markov (2-state) — latent calm/stress mixture, unsupervised regime discovery
 // Evaluates AIC, BIC, Delta-AIC, Log-Likelihood, and Kolmogorov-Smirnov (KS) statistic.
+
+import { fitGaussianHmm, type HmmFit } from './hmm';
 
 export interface FittedDistribution {
   name: string;
-  key: 'normal' | 'student-t' | 'hansen-skew-t' | 'ged';
+  key: 'normal' | 'student-t' | 'hansen-skew-t' | 'ged' | 'hmm-2state';
   numParams: number;
   logLikelihood: number;
   aic: number;
@@ -33,6 +36,8 @@ export interface DistributionFitResult {
   models: FittedDistribution[];
   empiricalMin: number;
   empiricalMax: number;
+  /** Transition/stationary/durations from the 2-state HMM candidate (same fit that feeds the horse race). Null if HMM did not converge. */
+  hmm: Pick<HmmFit, 'transition' | 'stationary' | 'expectedDurations' | 'occupancy' | 'logLikelihood' | 'k'> | null;
 }
 
 /**
@@ -240,6 +245,7 @@ export function fitParametricDistributions(returns: number[]): DistributionFitRe
       models: defaultModels,
       empiricalMin: -0.05,
       empiricalMax: 0.05,
+      hmm: null,
     };
   }
 
@@ -382,7 +388,34 @@ export function fitParametricDistributions(returns: number[]): DistributionFitRe
   // -------------------------------------------------------------
   // Construct Models Array & Rank by AIC
   // -------------------------------------------------------------
-  const allAics = [studentAic, hansenAic, gedAic, normalAic];
+  // 5. 2-State HMM Mixture — unsupervised latent calm/stress regime discovery
+  let hmmAic: number | null = null;
+  let hmmBic: number | null = null;
+  let hmmLogL: number | null = null;
+  let hmmKs: number | null = null;
+  let hmmRow: { calmMean: number; calmSd: number; stressMean: number; stressSd: number; pStress: number } | null = null;
+  const hmmFit = fitGaussianHmm(
+    returns.map((r) => [r]),
+    { k: 2, rankFeature: 0, maxIters: 250, tol: 1e-9 }
+  );
+  if (hmmFit && Number.isFinite(hmmFit.logLikelihood)) {
+    const [calmMean] = hmmFit.stateMeans[0];
+    const [stressMean] = hmmFit.stateMeans[1];
+    const [calmSd] = hmmFit.stateStdDevs[0];
+    const [stressSd] = hmmFit.stateStdDevs[1];
+    const pStress = hmmFit.stationary[1] ?? 0.5;
+    const K_PARAMS_HMM = 6;
+    hmmLogL = hmmFit.logLikelihood;
+    hmmAic = 2 * K_PARAMS_HMM - 2 * hmmLogL;
+    hmmBic = K_PARAMS_HMM * Math.log(n) - 2 * hmmLogL;
+    hmmRow = { calmMean, calmSd, stressMean, stressSd, pStress };
+    hmmKs = computeKsDistance(
+      sortedReturns,
+      (x) => (1 - pStress) * normalCdf(x, calmMean, calmSd) + pStress * normalCdf(x, stressMean, stressSd)
+    );
+  }
+
+  const allAics = [studentAic, hansenAic, gedAic, normalAic, ...(hmmAic !== null ? [hmmAic] : [])];
   const minAic = Math.min(...allAics);
 
   const rawModels: Omit<FittedDistribution, 'rank' | 'deltaAic'>[] = [
@@ -441,6 +474,32 @@ export function fitParametricDistributions(returns: number[]): DistributionFitRe
       pdf: (x) => gedPdf(x, mean, stdDev, bestKappaGed),
       cdf: gedCdf,
     },
+    ...(hmmRow
+      ? [{
+          name: 'Hidden Markov 2-State (Latent Regimes)',
+          key: 'hmm-2state' as const,
+          numParams: 6,
+          logLikelihood: hmmLogL ?? 0,
+          aic: hmmAic ?? 0,
+          bic: hmmBic ?? 0,
+          ksStatistic: hmmKs ?? 1,
+          color: '#f43f5e',
+          params: {
+            calmMu: hmmRow.calmMean,
+            calmSigma: hmmRow.calmSd,
+            crisisMu: hmmRow.stressMean,
+            crisisSigma: hmmRow.stressSd,
+            pStress: hmmRow.pStress,
+          },
+          paramDescriptions: `calm μ=${(hmmRow.calmMean * 100).toFixed(2)}% σ=${(hmmRow.calmSd * 100).toFixed(2)}% · crisis μ=${(hmmRow.stressMean * 100).toFixed(2)}% σ=${(hmmRow.stressSd * 100).toFixed(2)}%`,
+          pdf: (x: number) =>
+            (1 - hmmRow!.pStress) * normalPdf(x, hmmRow!.calmMean, hmmRow!.calmSd) +
+            hmmRow!.pStress * normalPdf(x, hmmRow!.stressMean, hmmRow!.stressSd),
+          cdf: (x: number) =>
+            (1 - hmmRow!.pStress) * normalCdf(x, hmmRow!.calmMean, hmmRow!.calmSd) +
+            hmmRow!.pStress * normalCdf(x, hmmRow!.stressMean, hmmRow!.stressSd),
+        }]
+      : []),
     {
       name: 'Normal (Gaussian Baseline)',
       key: 'normal',
@@ -479,5 +538,15 @@ export function fitParametricDistributions(returns: number[]): DistributionFitRe
     models,
     empiricalMin: minVal,
     empiricalMax: maxVal,
+    hmm: hmmRow
+      ? {
+          transition: hmmFit!.transition,
+          stationary: hmmFit!.stationary,
+          expectedDurations: hmmFit!.expectedDurations,
+          occupancy: hmmFit!.occupancy,
+          logLikelihood: hmmFit!.logLikelihood,
+          k: 2,
+        }
+      : null,
   };
 }

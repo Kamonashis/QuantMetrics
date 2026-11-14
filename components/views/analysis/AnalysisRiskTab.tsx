@@ -13,6 +13,10 @@ import {
   PsrEquation,
 } from '@/components/math/MathEquations';
 import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
+import { RegimeChip } from '@/components/ui/RegimeChip';
+import { RegimeTransitionMatrix } from '@/components/ui/RegimeTransitionMatrix';
+import { regimeNames } from '@/components/charts/RegimeTimeline';
+import type { HmmFit } from '@/lib/hmm';
 import {
   ShieldAlert,
   TrendingDown,
@@ -25,6 +29,7 @@ interface AnalysisRiskTabProps {
   drawdownResult: DrawdownResult;
   downsideResult: DownsideBenchmarkResult;
   ticker: string;
+  hmmFit?: HmmFit | null;
 }
 
 export function AnalysisRiskTab({
@@ -32,6 +37,7 @@ export function AnalysisRiskTab({
   drawdownResult,
   downsideResult,
   ticker,
+  hmmFit,
 }: AnalysisRiskTabProps) {
   const [ddHoverIdx, setDdHoverIdx] = useState<number | null>(null);
   const [betaHoverIdx, setBetaHoverIdx] = useState<number | null>(null);
@@ -92,6 +98,71 @@ export function AnalysisRiskTab({
 
   return (
     <div className="space-y-6">
+      {/* Regime-Conditioned VaR Attribution — HMM posterior tags each violation day */}
+      {hmmFit && (
+        <div className="panel p-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-1">
+            <div>
+              <div className="flex items-center gap-2">
+                <ShieldAlert className="w-4 h-4 text-gold-500" />
+                <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
+                  Regime-Conditioned VaR Attribution (HMM)
+                </h3>
+                <RegimeChip fit={hmmFit} />
+              </div>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                Percentage of each model&apos;s 99% exceedances that landed in each HMM state. Stress-heavy clustering ⇒ regime mixture, not a parameter error — the exceedance clustering Christoffersen already flags.
+              </p>
+            </div>
+          </div>
+
+          <RegimeTransitionMatrix fit={hmmFit} labels={regimeNames(hmmFit.k)} className="mt-3 border-t border-zinc-100 dark:border-zinc-800/60 pt-3 lg:max-w-md" showStats={false} />
+
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full text-xs text-left">
+              <thead>
+                <tr className="border-b border-zinc-200 dark:border-zinc-800 text-zinc-400 font-mono">
+                  <th className="py-2 px-2">Model</th>
+                  <th className="py-2 px-2">99% Hits</th>
+                  {regimeNames(hmmFit.k).map((name) => (
+                    <th key={name} className="py-2 px-2 text-right">{name}</th>
+                  ))}
+                  <th className="py-2 px-2 text-right">Stress share</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/60 font-mono">
+                {varBacktestModels.map((m) => {
+                  const hits = m.exceedanceIdx99.length;
+                  const byState = new Array(hmmFit.k).fill(0);
+                  for (const idx of m.exceedanceIdx99) {
+                    const v = hmmFit.viterbi[idx];
+                    if (v !== undefined && v >= 0) byState[v]++;
+                  }
+                  const stressShare = hits > 0 ? (byState[hmmFit.k - 1] / hits) * 100 : null;
+                  return (
+                    <tr key={m.key} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30">
+                      <td className="py-2 px-2 font-semibold text-zinc-800 dark:text-zinc-200">{m.modelName}</td>
+                      <td className="py-2 px-2">{hits}</td>
+                      {byState.map((c, si) => (
+                        <td key={si} className="py-2 px-2 text-right tabular-nums">
+                          {hits > 0 ? c : '—'}
+                          {hits > 0 && <span className="text-zinc-400 pl-1">({((c / hits) * 100).toFixed(0)}%)</span>}
+                        </td>
+                      ))}
+                      <td className="py-2 px-2 text-right">
+                        <span className={stressShare !== null && stressShare > 50 ? 'text-rose-500 font-semibold' : stressShare !== null && stressShare > 33 ? 'text-gold-600 dark:text-gold-400' : 'text-zinc-500'}>
+                          {stressShare !== null ? `${stressShare.toFixed(0)}%` : '—'}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* 5-Model VaR & ES Backtesting Comparison Table */}
       <div className="panel p-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-zinc-100 dark:border-zinc-800/60 gap-3">

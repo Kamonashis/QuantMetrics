@@ -24,6 +24,7 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { AlgoSelect } from '@/components/ui/AlgoSelect';
+import { RegimeTransitionMatrix } from '@/components/ui/RegimeTransitionMatrix';
 
 interface DistributionFittingPanelProps {
   returns: number[];
@@ -443,6 +444,11 @@ export function DistributionFittingPanel({
           </tbody>
         </table>
       </div>
+
+      {/* HMM transition matrix — shown whenever the HMM candidate fit (same MLE pass) exists */}
+      {fitResults.hmm && (
+        <RegimeTransitionMatrix fit={fitResults.hmm} labels={['Calm', 'Crisis']} className="mt-3" showStats={false} />
+      )}
 
       {/* Quantitative Takeaway Banner */}
       <div className="mt-4 p-3 bg-zinc-50 dark:bg-zinc-900/40 rounded-lg border border-zinc-100 dark:border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">

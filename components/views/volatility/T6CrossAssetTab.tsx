@@ -6,6 +6,9 @@ import { crossCorrelation, solveOls } from '@/lib/vol-analytics';
 import { calculateReturns } from '@/lib/quant-engine';
 import type { PriceBar } from '@/lib/quant-engine';
 import type { ChainPayload, IndicesPayload } from './types';
+import { RegimeChip } from '@/components/ui/RegimeChip';
+import { RegimeTransitionMatrix } from '@/components/ui/RegimeTransitionMatrix';
+import { fitGaussianHmm, type HmmFit } from '@/lib/hmm';
 import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 
 const f2 = (v: number | null | undefined, d = 2) =>
@@ -148,6 +151,35 @@ export function T6CrossAssetTab({
     }
     return crossCorrelation(dVixSeries, rSeries, 3);
   }, [returns, bars, vixByDate]);
+
+  // Unsupervised vol regime — HMM on [log ^VIX, log ^VVIX, log RV] — complementary to the rule-based quadrant map
+  const hmmFragility = useMemo<HmmFit | null>(() => {
+    const v = vix;
+    const vvixBars = indices?.series?.VVIX?.bars ?? [];
+    const vMap = new Map(v.map((b) => [b.date, b.close]));
+    const vvixMap = new Map(vvixBars.map((b) => [b.date, b.close]));
+    if (vMap.size < 100 || vvixMap.size < 100 || returns.length < 60 || bars.length < 40) return null;
+    const feats: number[][] = [];
+    for (let i = 20; i < bars.length; i++) {
+      const d = bars[i].date;
+      const x = vMap.get(d);
+      const y = vvixMap.get(d);
+      if (x === undefined || y === undefined) continue;
+      const wins = returns.slice(Math.max(0, i - 20), i);
+      if (wins.length < 15) continue;
+      let m = 0;
+      for (const r of wins) m += r;
+      m /= wins.length;
+      let v2 = 0;
+      for (const r of wins) {
+        const d2 = r - m;
+        v2 += d2 * d2;
+      }
+      const rv = Math.sqrt((v2 / wins.length) * 252);
+      feats.push([Math.log(x), Math.log(y), Math.log(Math.max(rv, 1e-4))]);
+    }
+    return fitGaussianHmm(feats, { k: 3, rankFeature: 0 });
+  }, [vix, indices, bars, returns]);
 
   // --- Regime map: ^VIX × ^VVIX, 2y scatter -----------------------------------
   const regime = useMemo(() => {
@@ -310,12 +342,23 @@ export function T6CrossAssetTab({
 
       {/* Regime map: ^VIX × ^VVIX */}
       <div className="panel p-5">
-        <div className="mb-3 border-b border-[var(--hairline)] pb-3">
-          <p className="kicker mb-1 flex items-center gap-2"><MapIcon className="h-3.5 w-3.5" /> Regime Map</p>
-          <h3 className="font-display text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-            ^VIX (level) × ^VVIX (fragility of the forecast itself) — 2y, daily
-          </h3>
+        <div className="mb-3 border-b border-[var(--hairline)] pb-3 flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <p className="kicker mb-1 flex items-center gap-2"><MapIcon className="h-3.5 w-3.5" /> Regime Map</p>
+            <h3 className="font-display text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+              ^VIX (level) × ^VVIX (fragility of the forecast itself) — 2y, daily
+            </h3>
+            {hmmFragility && (
+              <p className="mt-1 font-mono text-[9px] uppercase tracking-[0.16em] text-zinc-400">
+                HMM overlay · log ^VIX | log ^VVIX | log RV · K = {hmmFragility.k}{hmmFragility.converged ? ` · converged ${hmmFragility.iterations}` : ' · not converged'} · BIC {hmmFragility.bic.toFixed(0)}
+              </p>
+            )}
+          </div>
+          {hmmFragility && <RegimeChip fit={hmmFragility} />}
         </div>
+        {hmmFragility && (
+          <RegimeTransitionMatrix fit={hmmFragility} className="mb-3 border-b border-[var(--hairline)] pb-3" showStats={false} />
+        )}
         {regime ? (
           <div className="w-full overflow-x-auto">
             <ChartFullscreen title="^VIX × ^VVIX Vol Regime Map — 2y Daily">

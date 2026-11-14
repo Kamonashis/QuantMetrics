@@ -2,6 +2,10 @@
 
 import React, { useState, useMemo } from 'react';
 import {
+  fitGaussianHmm,
+  type HmmFit,
+} from '@/lib/hmm';
+import {
   PriceBar,
   IntradayBar,
   calculateReturns,
@@ -33,6 +37,8 @@ import {
 } from '@/components/math/MathEquations';
 import { ShimmerButton } from '@/components/ui/ShimmerButton';
 import { AlgoSelect } from '@/components/ui/AlgoSelect';
+import { regimeNames } from '@/components/charts/RegimeTimeline';
+import { RegimeTransitionMatrix } from '@/components/ui/RegimeTransitionMatrix';
 
 import { Play, Zap, Clock, Info, ShieldCheck, Activity, Layers } from 'lucide-react';
 
@@ -61,7 +67,7 @@ export function ModelingView({
   companyName,
   onNavigateToAnalysis,
 }: ModelingViewProps) {
-  const [activeModelTab, setActiveModelTab] = useState<'garch' | 'gjr' | 'ewma' | 'har'>('garch');
+  const [activeModelTab, setActiveModelTab] = useState<'garch' | 'gjr' | 'ewma' | 'har' | 'hmm'>('garch');
   const [harEquationView, setHarEquationView] = useState<'regression' | 'forecast'>('regression');
   const [lambda, setLambda] = useState<number>(0.94);
   const [forecastDays, setForecastDays] = useState<number>(30);
@@ -111,6 +117,92 @@ export function ModelingView({
   const garchResult = useMemo(() => {
     return fitGarch11(returns);
   }, [returns]);
+
+  // Fit HMM volatility regimes (Gaussian, diagonal covariance, features r + |r| + log GK-RV)
+  const hmmResult = useMemo<HmmFit | null>(() => {
+    if (!bars || bars.length < 60) return null;
+    const feats: number[][] = [];
+    for (let i = 1; i < bars.length; i++) {
+      const b = bars[i];
+      const prev = bars[i - 1];
+      const o = b.open, h = b.high, l = b.low, c = b.close;
+      if (!(o > 0 && h > 0 && l > 0 && c > 0 && prev.close > 0)) continue;
+      const r = returnType === 'log' ? Math.log(c / prev.close) : (c - prev.close) / prev.close;
+      const gk = 0.5 * Math.log(h / l) ** 2 - (2 * Math.LN2 - 1) * Math.log(c / o) ** 2;
+      feats.push([r, Math.abs(r), Math.log(Math.max(gk, 1e-8))]);
+    }
+    return fitGaussianHmm(feats, { k: 3, rankFeature: 2 });
+  }, [bars, returnType]);
+
+  // HMM conditional vol series (per t, expectation of σ² under posterior)
+  const hmmVol = useMemo(() => {
+    if (!hmmResult) return [];
+    const varByState = hmmResult.stateStdDevs.map((sd) => sd[0] * sd[0]);
+    return hmmResult.posteriors.map((row) => {
+      let ev = 0;
+      for (let k = 0; k < row.length; k++) ev += row[k] * varByState[k];
+      return Math.sqrt(ev * 252);
+    });
+  }, [hmmResult]);
+
+  // HMM forecast — stationary mixture, mean-reverting to Σ π_k σ_k² (flat cone)
+  const hmmForecastPoints = useMemo(() => {
+    if (!hmmResult) return [];
+    const varByState = hmmResult.stateStdDevs.map((sd) => sd[0] * sd[0]);
+    let stationaryVar = 0;
+    for (let k = 0; k < varByState.length; k++) {
+      stationaryVar += (hmmResult.stationary[k] ?? 0) * varByState[k];
+    }
+    const stVol = Math.sqrt(stationaryVar * 252);
+    const lastDate = dates[dates.length - 1];
+    const baseDate = lastDate ? new Date(lastDate) : new Date();
+    const points: import('@/lib/quant-engine').GarchForecastPoint[] = [];
+    for (let h = 1; h <= forecastDays; h++) {
+      const uncertaintyFactor = 0.08 * Math.sqrt(h);
+      const forecastDate = new Date(baseDate);
+      forecastDate.setDate(forecastDate.getDate() + h);
+      points.push({
+        day: h,
+        date: forecastDate.toISOString().split('T')[0],
+        annualizedVol: stVol,
+        upper68: stVol * (1 + uncertaintyFactor),
+        lower68: Math.max(0.01, stVol * (1 - uncertaintyFactor)),
+        upper95: stVol * (1 + 1.96 * uncertaintyFactor),
+        lower95: Math.max(0.01, stVol * (1 - 1.96 * uncertaintyFactor)),
+      });
+    }
+    return points;
+  }, [hmmResult, forecastDays, dates]);
+
+  const hmmSummaryShim = useMemo(
+    () => ({
+      omega: 0,
+      alpha: 0.08,
+      beta: 0.9,
+      persistence: 1,
+      logLikelihood: 0,
+      aic: 0,
+      bic: 0,
+      longRunVariance: hmmResult
+        ? hmmResult.stateStdDevs.reduce(
+            (acc, sd, k) => acc + (hmmResult.stationary[k] ?? 0) * sd[0] * sd[0],
+            0
+          )
+        : 0.0004,
+      longRunAnnualizedVol: hmmResult
+        ? Math.sqrt(
+            hmmResult.stateStdDevs.reduce(
+              (acc, sd, k) => acc + (hmmResult.stationary[k] ?? 0) * sd[0] * sd[0],
+              0
+            ) * 252
+          )
+        : 0.2,
+      halfLife: null,
+      converged: true,
+      iterations: 0,
+    }),
+    [hmmResult]
+  );
 
   // Fit GJR-GARCH (asymmetric / leverage) model
   const gjrResult = useMemo(() => {
@@ -169,12 +261,13 @@ export function ModelingView({
   const forecastPoints = useMemo(() => {
     if (activeModelTab === 'gjr') return gjrForecastPoints;
     if (activeModelTab === 'ewma') return ewmaForecastPoints;
+    if (activeModelTab === 'hmm') return hmmForecastPoints;
     const lastVar =
       garchResult.conditionalVariance[garchResult.conditionalVariance.length - 1] ||
       0.0002;
     const lastDate = dates[dates.length - 1];
     return forecastGarch(garchResult.summary, lastVar, forecastDays, lastDate);
-  }, [activeModelTab, garchResult, gjrForecastPoints, ewmaForecastPoints, forecastDays, dates]);
+  }, [activeModelTab, garchResult, gjrForecastPoints, ewmaForecastPoints, hmmForecastPoints, forecastDays, dates]);
 
   // Compute 1-minute Realized Volatility and Jumps
   const dailyRealizedVol = useMemo(() => {
@@ -223,11 +316,12 @@ export function ModelingView({
             <AlgoSelect
               ariaLabel="Volatility model"
               value={activeModelTab}
-              onChange={(v) => setActiveModelTab(v as 'garch' | 'gjr' | 'ewma' | 'har')}
+              onChange={(v) => setActiveModelTab(v as 'garch' | 'gjr' | 'ewma' | 'hmm' | 'har')}
               options={[
                 { value: 'garch', label: 'GARCH(1,1)', hint: 'MLE · symmetric' },
                 { value: 'gjr', label: 'GJR-GARCH', hint: 'leverage · MLE' },
                 { value: 'ewma', label: 'EWMA λ = 0.94', hint: 'RiskMetrics' },
+                { value: 'hmm', label: 'HMM', hint: 'Gaussian · latent regimes' },
                 { value: 'har', label: 'HAR-RV', hint: 'Corsi · OLS' },
               ]}
               className="w-56"
@@ -287,6 +381,25 @@ export function ModelingView({
               <span className="text-[11px] text-zinc-400 block mt-1.5">
                 Standard GARCH(1,1) specification
               </span>
+            </div>
+            )}
+
+            {/* HMM diagnostics — only when HMM is the selected model */}
+            {activeModelTab === 'hmm' && hmmResult && (
+            <div className="p-3 bg-zinc-50 dark:bg-zinc-900/60 rounded-lg border border-zinc-200 dark:border-zinc-800/60">
+              <span className="text-zinc-500 dark:text-zinc-400 block font-medium">
+                HMM Diagnostics — {hmmResult.k} states
+              </span>
+              <p className="mt-1 text-[11px] font-mono text-zinc-500 dark:text-zinc-400 leading-relaxed">
+                logL {hmmResult.logLikelihood.toFixed(1)} · BIC {hmmResult.bic.toFixed(0)} · {hmmResult.converged ? 'converged' : 'NOT converged'} in {hmmResult.iterations} iters
+              </p>
+              <p className="mt-1 text-[11px] font-mono text-zinc-500 dark:text-zinc-400 leading-relaxed">
+                occupancy: {regimeNames(hmmResult.k).map((n, i) => `${n} ${(hmmResult.occupancy[i] * 100).toFixed(0)}%`).join(' · ')}
+              </p>
+              <p className="mt-1 text-[11px] font-mono text-zinc-500 dark:text-zinc-400 leading-relaxed">
+                E[τ]: {regimeNames(hmmResult.k).map((n, i) => `${n} ${hmmResult.expectedDurations[i].toFixed(1)}d`).join(' · ')}
+              </p>
+              <RegimeTransitionMatrix fit={hmmResult} labels={regimeNames(hmmResult.k)} className="mt-2.5 border-t border-zinc-200 dark:border-zinc-800/60 pt-2" showStats={false} />
             </div>
             )}
 
@@ -362,8 +475,8 @@ export function ModelingView({
               </div>
             </div>
 
-            {/* Shock Persistence Readout — swaps to EWMA diagnostic when EWMA is selected */}
-            {activeModelTab !== 'ewma' ? (
+            {/* Shock Persistence Readout — GARCH-family only; HMM has its own diagnostics card */}
+            {activeModelTab !== 'ewma' && activeModelTab !== 'hmm' ? (
             <div className="p-3 bg-zinc-50 dark:bg-zinc-900/60 rounded-lg border border-zinc-200 dark:border-zinc-800/60">
               <span className="text-zinc-500 dark:text-zinc-400 block font-medium">
                 {activeModelTab === 'gjr' ? 'Shock Persistence (asym-weighted)' : 'Shock Persistence (α + β)'}
@@ -502,7 +615,9 @@ export function ModelingView({
               ? 'EWMA vs. GJR-GARCH Volatility Cone & Forecast'
               : activeModelTab === 'ewma'
                 ? 'EWMA Volatility Cone & Forecast (λ = 0.94)'
-                : 'EWMA vs. GARCH(1,1) Volatility Cone & Forecast'
+                : activeModelTab === 'hmm'
+                  ? 'EWMA vs. HMM Regime-Mixture Volatility Cone & Forecast'
+                  : 'EWMA vs. GARCH(1,1) Volatility Cone & Forecast'
           }
           subtitle={ticker}
         >
@@ -515,7 +630,9 @@ export function ModelingView({
                 ? gjrResult.conditionalAnnualizedVol
                 : activeModelTab === 'ewma'
                   ? ewmaResult.ewmaAnnualizedVol
-                  : garchResult.conditionalAnnualizedVol
+                  : activeModelTab === 'hmm'
+                    ? hmmVol
+                    : garchResult.conditionalAnnualizedVol
             }
             forecastPoints={forecastPoints}
             garchSummary={
@@ -523,7 +640,9 @@ export function ModelingView({
                 ? gjrResult.summary
                 : activeModelTab === 'ewma'
                   ? ewmaSummaryShim
-                  : garchResult.summary
+                  : activeModelTab === 'hmm'
+                    ? hmmSummaryShim
+                    : garchResult.summary
             }
             ewmaSummary={ewmaResult.summary}
           />

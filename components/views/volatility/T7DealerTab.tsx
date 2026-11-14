@@ -16,6 +16,9 @@ import { GammaProfileChart } from '@/components/charts/GammaProfileChart';
 import { TrapPriceChart } from '@/components/charts/TrapPriceChart';
 import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 import { runTrapBacktest } from '@/lib/trap-backtest';
+import { RegimeChip } from '@/components/ui/RegimeChip';
+import { RegimeTransitionMatrix } from '@/components/ui/RegimeTransitionMatrix';
+import { fitGaussianHmm, type HmmFit } from '@/lib/hmm';
 import { cn } from '@/lib/utils';
 
 const pct = (v: number | null | undefined, d = 1) =>
@@ -57,6 +60,34 @@ export function T7DealerTab({ chain, panel, bars, ticker }: T7Props) {
     closes.forEach((b, i) => m.set(b.date, i));
     return m;
   }, [closes]);
+
+  // Unsupervised dealer-gamma regime — HMM on [r, |r|, ((spot-flip)/flip)/dailyVol]
+  const hmmGamma = useMemo<HmmFit | null>(() => {
+    if (!trap || !bars || bars.length < 120) return null;
+    const flip = trap.gammaFlip.flip ?? null;
+    if (flip === null || flip <= 0) return null;
+    const closes = bars.map((b) => b.close);
+    const rets: number[] = [];
+    for (let i = 1; i < closes.length; i++) {
+      rets.push(Math.log(closes[i] / closes[i - 1]));
+    }
+    let m = 0;
+    for (const r of rets) m += r;
+    m /= rets.length;
+    let v = 0;
+    for (const r of rets) {
+      const d = r - m;
+      v += d * d;
+    }
+    const sd = Math.sqrt(v / rets.length) || 1e-4;
+    const feats: number[][] = [];
+    for (let i = 1; i < bars.length; i++) {
+      const r = rets[i - 1];
+      const z = (closes[i] - flip) / flip / sd;
+      feats.push([r, Math.abs(r), z]);
+    }
+    return fitGaussianHmm(feats, { k: 2, rankFeature: 2 });
+  }, [bars, trap]);
 
   const [scanRows, setScanRows] = useState<Array<Record<string, unknown>> | null>(null);
   const [scanLoading, setScanLoading] = useState(false);
@@ -219,10 +250,18 @@ export function T7DealerTab({ chain, panel, bars, ticker }: T7Props) {
                   </svg>
                 )}
               </div>
-              <div className="mt-2 font-mono text-[9px] uppercase tracking-[0.14em] text-zinc-400">
-                {trap.direction === 'none' ? 'no directional lean' : `direction: ${trap.direction === 'up' ? '↑ up — call wall' : '↓ down — put wall'}`}
-                {' · '}regime: <span className={trap.regime === 'short' ? 'text-rose-500' : 'text-emerald-600 dark:text-emerald-400'}>{trap.regime} gamma</span>
+              <div className="mt-2 font-mono text-[9px] uppercase tracking-[0.14em] text-zinc-400 flex items-center gap-2 flex-wrap">
+                <span>
+                  {trap.direction === 'none' ? 'no directional lean' : `direction: ${trap.direction === 'up' ? '↑ up — call wall' : '↓ down — put wall'}`}
+                  {' · '}regime: <span className={trap.regime === 'short' ? 'text-rose-500' : 'text-emerald-600 dark:text-emerald-400'}>{trap.regime} gamma</span>
+                </span>
+                {hmmGamma && (
+                  <RegimeChip fit={hmmGamma} labels={['Long γ', 'Short γ']} className="ml-auto" />
+                )}
               </div>
+              {hmmGamma && (
+                <RegimeTransitionMatrix fit={hmmGamma} labels={['Long γ', 'Short γ']} className="mt-3 border-t border-[var(--hairline)] pt-3" showStats={false} />
+              )}
             </div>
 
             {/* Hedge flow sentence */}

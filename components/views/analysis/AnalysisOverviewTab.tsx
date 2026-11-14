@@ -17,6 +17,11 @@ import { TimeSeriesChart } from '@/components/charts/TimeSeriesChart';
 import { ReturnsChart } from '@/components/charts/ReturnsChart';
 import { RollingVolatilityChart } from '@/components/charts/RollingVolatilityChart';
 import { DecompositionChart } from '@/components/charts/DecompositionChart';
+import { RegimeTimeline, regimeNames } from '@/components/charts/RegimeTimeline';
+import { RegimeChip } from '@/components/ui/RegimeChip';
+import { RegimeTransitionMatrix } from '@/components/ui/RegimeTransitionMatrix';
+import { AlgoSelect } from '@/components/ui/AlgoSelect';
+import type { HmmFit } from '@/lib/hmm';
 import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 import {
   SkewnessEquation,
@@ -56,6 +61,9 @@ interface AnalysisOverviewTabProps {
   decompModel: 'additive' | 'multiplicative';
   onDecompModelChange: (m: 'additive' | 'multiplicative') => void;
   onExportCsv: () => void;
+  hmmFit?: HmmFit | null;
+  hmmK?: 2 | 3 | 4;
+  onHmmKChange?: (k: 2 | 3 | 4) => void;
 }
 
 export function AnalysisOverviewTab({
@@ -79,6 +87,9 @@ export function AnalysisOverviewTab({
   decompModel,
   onDecompModelChange,
   onExportCsv,
+  hmmFit,
+  hmmK,
+  onHmmKChange,
 }: AnalysisOverviewTabProps) {
   const [skewHoverIdx, setSkewHoverIdx] = useState<number | null>(null);
 
@@ -181,6 +192,44 @@ export function AnalysisOverviewTab({
               subtitle={`${ticker} · ${companyName}`}
             />
           </ChartFullscreen>
+        </div>
+
+        {/* HMM Volatility Regimes — timeline below price chart */}
+        <div className="mt-4 pt-3 border-t border-zinc-100 dark:border-zinc-800/60">
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-2">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-gold-600 dark:text-gold-400">Volatility Regimes (HMM)</span>
+                <RegimeChip fit={hmmFit ?? null} />
+              </div>
+              <p className="text-[10px] text-zinc-500 dark:text-zinc-400 mt-0.5">
+                Unsupervised latent states, discovered not labelled — calm→crisis ranked by mean GK-RV · K = {hmmK ?? 3} · BIC {hmmFit ? hmmFit.bic.toFixed(0) : '—'} · {hmmFit?.converged ? `converged in ${hmmFit.iterations} iters` : 'did not converge'} · HMM ranks vs CUSUM heuristic
+              </p>
+            </div>
+            {onHmmKChange && (
+              <AlgoSelect
+                ariaLabel="HMM state count"
+                value={String(hmmK ?? 3)}
+                onChange={(v) => onHmmKChange(Number(v) as 2 | 3 | 4)}
+                options={[
+                  { value: '2', label: '2 states', hint: 'Calm | Stress' },
+                  { value: '3', label: '3 states', hint: 'Calm | Normal | Crisis' },
+                  { value: '4', label: '4 states', hint: 'Calm | Watchful | Normal | Crisis' },
+                ]}
+                className="w-52"
+              />
+            )}
+          </div>
+          {hmmFit ? (
+            <>
+              <RegimeTimeline posteriors={hmmFit.posteriors} labels={regimeNames(hmmFit.k)} height={44} />
+              <RegimeTransitionMatrix fit={hmmFit} className="mt-2 border-t border-zinc-100 dark:border-zinc-800/60 pt-2" labels={regimeNames(hmmFit.k)} />
+            </>
+          ) : (
+            <div className="rounded-lg border border-[var(--hairline)] bg-[var(--bg-inset)] p-4 text-center font-mono text-[10px] text-zinc-500">
+              HMM did not converge on this window — regimes suppressed rather than fabricated.
+            </div>
+          )}
         </div>
 
         {/* Structural Break Dates List */}

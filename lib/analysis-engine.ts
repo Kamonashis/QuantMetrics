@@ -114,6 +114,10 @@ export interface VaRBacktestModelResult {
   christoffersenPVal99: number;
   christoffersenVerdict99: 'Pass (Independent)' | 'Fail (Clustered)';
   baselZone: 'Green' | 'Yellow' | 'Red';
+  /** 0-based indices (into the returns series) of 95% historical exceedances */
+  exceedanceIdx95: number[];
+  /** 0-based indices (into the returns series) of 99% historical exceedances */
+  exceedanceIdx99: number[];
 }
 
 export interface DrawdownResult {
@@ -1230,14 +1234,16 @@ export function computeVaRBacktestSuite(
     // Count empirical exceedances (losses exceeding positive VaR threshold)
     let exc95 = 0;
     let exc99 = 0;
+    const excIdx95: number[] = [];
+    const excIdx99: number[] = [];
     const hitSequence99: number[] = [];
 
-    for (const r of returns) {
-      const loss = -r;
+    for (let t = 0; t < returns.length; t++) {
+      const loss = -returns[t];
       const isHit95 = loss > m.var95;
       const isHit99 = loss > m.var99;
-      if (isHit95) exc95++;
-      if (isHit99) exc99++;
+      if (isHit95) { exc95++; excIdx95.push(t); }
+      if (isHit99) { exc99++; excIdx99.push(t); }
       hitSequence99.push(isHit99 ? 1 : 0);
     }
 
@@ -1305,6 +1311,8 @@ export function computeVaRBacktestSuite(
       christoffersenPVal99: pValInd,
       christoffersenVerdict99: pValInd >= 0.05 ? 'Pass (Independent)' : 'Fail (Clustered)',
       baselZone: basel,
+      exceedanceIdx95: excIdx95,
+      exceedanceIdx99: excIdx99,
     };
   });
 }
