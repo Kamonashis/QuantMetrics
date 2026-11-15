@@ -112,7 +112,7 @@ export function RegressionView({
   const isMultiple = independentTickers.length > 1;
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-12">
+    <div className="space-y-6">
       {/* Parameter Control Card */}
       <div className="panel p-5">
         <form onSubmit={handleSubmit} className="space-y-4">

@@ -4,9 +4,10 @@ import React, { useEffect, useState } from 'react';
 import { Gauge } from 'lucide-react';
 
 /**
- * Thin IV state chip for the Analysis tab header — one number, always visible.
+ * IV30 tile content for the Analysis KPI strip — one number, always visible.
  * Fetches the chain itself (server-cached 15 min). While a fetch for the current
- * ticker is in flight it renders a placeholder; on failure it hides silently.
+ * ticker is in flight it renders a pulse placeholder; on failure it renders "—".
+ * The parent tile supplies the label and chrome.
  */
 export function Iv30Chip({ ticker }: { ticker: string }) {
   const [result, setResult] = useState<{ ticker: string; iv30: number } | { ticker: string; error: true } | null>(null);
@@ -34,21 +35,19 @@ export function Iv30Chip({ ticker }: { ticker: string }) {
   const current = result && result.ticker === ticker ? result : null;
 
   if (!current) {
-    return (
-      <span className="hidden md:inline-flex items-center gap-1.5 rounded-lg border border-[var(--hairline)] bg-[var(--bg-inset)] px-2 py-1 font-mono text-[10px] tabular-nums text-zinc-400">
-        IV <span className="animate-pulse">···</span>
-      </span>
-    );
+    return <span className="font-mono text-sm font-semibold text-zinc-400 animate-pulse">···</span>;
   }
-  if ('error' in current) return null;
+  if ('error' in current) {
+    return <span className="font-mono text-sm font-semibold text-zinc-500">—</span>;
+  }
 
   return (
     <span
-      title="30-day implied volatility (interpolated from today's chain, w-linear on total variance). Click the Implied Vol tab for the full surface."
-      className="hidden md:inline-flex cursor-help items-center gap-1.5 rounded-lg border border-gold-500/30 bg-gold-500/8 px-2 py-1 font-mono text-[10px] tabular-nums text-gold-800 dark:border-gold-500/25 dark:bg-gold-500/5 dark:text-gold-300"
+      title="30-day implied volatility (interpolated from today's chain, w-linear on total variance). See the Implied Vol tab for the full surface."
+      className="inline-flex cursor-help items-center gap-1.5 font-mono text-sm font-semibold tabular-nums text-gold-800 dark:text-gold-300"
     >
-      <Gauge className="h-3 w-3" />
-      IV30 <strong>{(current.iv30 * 100).toFixed(1)}%</strong>
+      <Gauge className="h-3.5 w-3.5" aria-hidden="true" />
+      {(current.iv30 * 100).toFixed(1)}%
     </span>
   );
 }

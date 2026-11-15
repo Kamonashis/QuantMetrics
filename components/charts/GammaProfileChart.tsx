@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { useChartSize } from '@/lib/use-chart-size';
 
 export interface GexStrikePoint {
   strike: number;
@@ -37,20 +38,24 @@ export function GammaProfileChart({
       )
     : meaningful;
 
+  const { ref, size } = useChartSize<HTMLDivElement>();
   const maxGex = Math.max(...abs, 1);
-  const width = 720;
+  const width = size.width;
+  const ready = width > 0;
   const rowH = 15;
   const padL = 44;
   const padR = 14;
-  const mid = padL + (width - padL - padR) / 2;
-  const halfW = (width - padL - padR) / 2;
+  const mid = padL + Math.max(1, width - padL - padR) / 2;
+  const halfW = Math.max(1, width - padL - padR) / 2;
   const height = trimmed.length * rowH + 30;
 
   const yOf = (i: number) => i * rowH + 10;
 
   return (
-    <div className="w-full overflow-x-auto">
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[560px]" role="img" aria-label="Gamma exposure by strike">
+    <div>
+      <div ref={ref} className="relative w-full max-h-[540px] overflow-y-auto contain-[layout_paint]">
+      {ready && (
+      <svg width={width} height={height} className="block h-auto w-full" role="img" aria-label="Gamma exposure by strike">
         {/* zero rule */}
         <line x1={mid} x2={mid} y1={4} y2={height - 18} stroke="rgba(236,236,241,0.25)" strokeDasharray="3 3" />
         {/* spot rule */}
@@ -97,6 +102,8 @@ export function GammaProfileChart({
           0 · dealers re-hedge → $ per 1% move
         </text>
       </svg>
+      )}
+      </div>
       <div className="mt-1 flex flex-wrap items-center gap-4 font-mono text-[9px] text-zinc-400">
         <span className="flex items-center gap-1.5"><span className="inline-block h-2 w-3 rounded-sm bg-[rgba(222,192,132,0.75)]" /> long gamma (re-hedge sells rallies)</span>
         <span className="flex items-center gap-1.5"><span className="inline-block h-2 w-3 rounded-sm bg-[rgba(224,101,95,0.7)]" /> short gamma (re-hedge buys rallies)</span>

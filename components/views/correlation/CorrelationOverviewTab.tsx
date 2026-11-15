@@ -43,6 +43,7 @@ export function CorrelationOverviewTab({
   >('pearson');
   const [useClustered, setUseClustered] = useState<boolean>(false);
   const [filterInsignificant, setFilterInsignificant] = useState<boolean>(false);
+  const [matrixFill, setMatrixFill] = useState<boolean>(true);
   const [selectedPair, setSelectedPair] = useState<{ tA: string; tB: string } | null>(null);
   const [copiedLatex, setCopiedLatex] = useState<boolean>(false);
   const [showLatexModal, setShowLatexModal] = useState<boolean>(false);
@@ -286,19 +287,53 @@ export function CorrelationOverviewTab({
               </span>
             </div>
 
-            <span className="text-xs font-mono text-zinc-400">
-              {activeTickers.length} × {activeTickers.length} Matrix
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-mono text-zinc-400">
+                {activeTickers.length} × {activeTickers.length} Matrix
+              </span>
+              <div
+                role="group"
+                aria-label="Matrix density mode"
+                className="flex items-center gap-0.5 rounded-lg border border-[var(--hairline)] bg-[var(--bg-inset)] p-0.5 text-[10px] font-mono"
+              >
+                <button
+                  type="button"
+                  onClick={() => setMatrixFill(true)}
+                  aria-pressed={matrixFill}
+                  className={`cursor-pointer rounded-md px-2 py-1 transition-colors ${matrixFill ? 'bg-gold-400/15 text-gold-800 dark:text-gold-200' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}
+                >
+                  Fit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMatrixFill(false)}
+                  aria-pressed={!matrixFill}
+                  className={`cursor-pointer rounded-md px-2 py-1 transition-colors ${!matrixFill ? 'bg-gold-400/15 text-gold-800 dark:text-gold-200' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}
+                >
+                  Scroll
+                </button>
+              </div>
+            </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-zinc-200 dark:divide-zinc-800 border border-zinc-200 dark:border-zinc-800 rounded-lg overflow-hidden text-xs font-mono">
+          <div className="max-h-[430px] overflow-auto overscroll-contain rounded-lg border border-zinc-200 dark:border-zinc-800">
+            <table
+              className={`divide-y divide-zinc-200 dark:divide-zinc-800 text-xs font-mono ${
+                matrixFill ? 'w-full table-fixed' : 'min-w-full'
+              }`}
+            >
               <thead className="bg-zinc-50 dark:bg-zinc-900/80">
                 <tr>
-                  <th className="py-2.5 px-3 text-left font-semibold text-zinc-500">Asset</th>
-                  {activeTickers.map((t) => (
-                    <th key={t} className="py-2.5 px-3 text-center font-bold text-zinc-700 dark:text-zinc-300">
-                      {t}
+                  <th className="sticky top-0 left-0 z-30 bg-zinc-50 dark:bg-zinc-900 py-2 px-2 text-left font-semibold text-zinc-500">Asset</th>
+                  {activeTickers.map((t, idx) => (
+                    <th
+                      key={t}
+                      className={`sticky top-0 z-20 bg-zinc-50 dark:bg-zinc-900 py-2 text-center font-bold text-zinc-700 dark:text-zinc-300 ${
+                        matrixFill ? 'px-0.5 text-[9px]' : 'px-2 min-w-[56px] text-[10px]'
+                      }`}
+                    >
+                      {/* Thinning: every k-th label when the matrix gets dense so text never collides */}
+                      {(idx % (activeTickers.length > 8 ? 2 : 1) === 0 || idx === activeTickers.length - 1) ? t : ''}
                     </th>
                   ))}
                 </tr>
@@ -306,7 +341,7 @@ export function CorrelationOverviewTab({
               <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/80">
                 {activeTickers.map((rowTicker, i) => (
                   <tr key={rowTicker} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-900/40">
-                    <td className="py-2.5 px-3 font-bold text-zinc-900 dark:text-zinc-100 bg-zinc-50/50 dark:bg-zinc-900/60 whitespace-nowrap">
+                    <td className="sticky left-0 z-10 whitespace-nowrap bg-zinc-50 dark:bg-zinc-900 py-1 pl-2 pr-1 font-bold text-zinc-900 dark:text-zinc-100">
                       {rowTicker}
                     </td>
                     {activeTickers.map((colTicker, j) => {
@@ -326,19 +361,24 @@ export function CorrelationOverviewTab({
                         <td
                           key={colTicker}
                           onClick={() => !isSelf && setSelectedPair({ tA: rowTicker, tB: colTicker })}
+                          title={`${rowTicker} × ${colTicker}: ${corr.toFixed(3)}`}
                           style={{
                             backgroundColor: getCellBg(corr, isMasked),
                             color: getTextColor(corr, isMasked),
                           }}
-                          className={`py-2 px-2.5 text-center font-bold tabular-nums cursor-pointer transition-all ${
+                          className={`p-0.5 text-center font-bold tabular-nums cursor-pointer transition-all ${
+                            matrixFill ? '' : 'min-w-[56px]'
+                          } ${
                             isSelected
-                              ? 'ring-2 ring-gold-400 font-extrabold z-10 scale-[1.03]'
+                              ? 'ring-2 ring-inset ring-gold-400 font-extrabold z-10'
                               : 'hover:opacity-90'
                           } ${isSelf ? 'cursor-default opacity-60 font-medium' : ''} ${
                             isMasked ? 'line-through text-zinc-400' : ''
                           }`}
                         >
-                          {corr.toFixed(2)}
+                          <div className="flex aspect-square items-center justify-center">
+                            {corr.toFixed(2)}
+                          </div>
                         </td>
                       );
                     })}
@@ -428,7 +468,7 @@ export function CorrelationOverviewTab({
                   </div>
                   <ChartFullscreen title="Synchronized Return Scatter & Regression Slope">
                   <div className="w-full aspect-[4/3] bg-zinc-50 dark:bg-zinc-900/80 rounded-lg border border-zinc-200 dark:border-zinc-800 relative p-2">
-                    <svg viewBox="0 0 300 200" className="w-full h-full overflow-visible">
+                    <svg viewBox="0 0 300 200" className="w-full h-full">
                       {/* Zero Crosshairs */}
                       <line x1="20" y1="100" x2="280" y2="100" stroke="#64748b" strokeWidth="0.5" strokeDasharray="2 2" />
                       <line x1="150" y1="20" x2="150" y2="180" stroke="#64748b" strokeWidth="0.5" strokeDasharray="2 2" />
@@ -491,7 +531,7 @@ export function CorrelationOverviewTab({
       </div>
 
       {/* Multi-Horizon Term Structure & Random Matrix Theory (RMT) Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid-cards">
         {/* Correlation Term Structure */}
         <div className="panel p-5">
           <div className="flex items-center justify-between mb-3 pb-2 border-b border-zinc-100 dark:border-zinc-800">

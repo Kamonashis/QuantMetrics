@@ -92,7 +92,7 @@ export function AcfPacfChart({ acfPacf }: AcfPacfResultProps & { acfPacf: AcfPac
       </div>
 
       <div className="relative w-full aspect-[7/2.4] min-h-[190px]">
-        <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible">
+        <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full">
           {/* Zero baseline */}
           <line
             x1={padLeft}

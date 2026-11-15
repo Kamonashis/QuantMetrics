@@ -637,7 +637,7 @@ export function MathDisplay({
 
   return (
     <span
-      className={`inline-flex items-center text-zinc-800 dark:text-zinc-200 align-baseline ${className}`}
+      className={`inline-flex max-w-full items-center overflow-x-auto align-baseline text-zinc-800 dark:text-zinc-200 ${className}`}
       dangerouslySetInnerHTML={{ __html: htmlContent }}
     />
   );

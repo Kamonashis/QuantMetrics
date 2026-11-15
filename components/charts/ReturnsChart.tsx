@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useChartSize } from '@/lib/use-chart-size';
 
 interface ReturnsChartProps {
   dates: string[];
@@ -15,6 +16,7 @@ export function ReturnsChart({
   returnType,
   title = 'Daily Returns Trajectory',
 }: ReturnsChartProps) {
+  const { ref, size } = useChartSize<HTMLDivElement>();
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
   if (!returns || returns.length === 0) {
@@ -24,6 +26,10 @@ export function ReturnsChart({
       </div>
     );
   }
+
+  const width = size.width;
+  const height = size.height;
+  const ready = width > 0;
 
   const alignedDates = dates.slice(1);
   const n = returns.length;
@@ -35,12 +41,10 @@ export function ReturnsChart({
   }
   maxAbs = Math.max(0.02, maxAbs * 1.1);
 
-  const width = 800;
-  const height = 260;
-  const padLeft = 60;
-  const padRight = 20;
-  const padTop = 15;
-  const padBottom = 30;
+  const padLeft = 46;
+  const padRight = 14;
+  const padTop = 14;
+  const padBottom = 28;
 
   const chartW = width - padLeft - padRight;
   const chartH = height - padTop - padBottom;
@@ -91,10 +95,12 @@ export function ReturnsChart({
         )}
       </div>
 
-      <div className="relative w-full aspect-[8/2.6] min-h-[190px]">
+      <div ref={ref} className="chart-frame">
+        {ready && (
         <svg
-          viewBox={`0 0 ${width} ${height}`}
-          className="w-full h-full cursor-crosshair overflow-visible"
+          width={width}
+          height={height}
+          className="block h-full w-full cursor-crosshair"
           onMouseMove={handleMouseMove}
           onMouseLeave={() => setHoverIndex(null)}
         >
@@ -183,8 +189,8 @@ export function ReturnsChart({
               <text
                 key={idx}
                 x={getX(i)}
-                y={height - 5}
-                textAnchor="middle"
+                y={height - 8}
+                textAnchor={idx === 0 ? 'start' : idx === 4 ? 'end' : 'middle'}
                 className="text-[10px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
               >
                 {alignedDates[i]}
@@ -192,6 +198,7 @@ export function ReturnsChart({
             );
           })}
         </svg>
+        )}
       </div>
     </div>
   );

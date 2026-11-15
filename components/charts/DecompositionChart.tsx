@@ -75,7 +75,7 @@ export function DecompositionChart({
         </div>
 
         <div className="w-full aspect-[7.6/1.1]">
-          <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible">
+          <svg viewBox={`0 0 ${width} ${height}`} className="block h-full w-full">
             {/* Zero line if crosses zero */}
             {min < 0 && max > 0 && (
               <line

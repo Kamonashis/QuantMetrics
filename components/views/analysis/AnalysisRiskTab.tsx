@@ -16,6 +16,7 @@ import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 import { RegimeChip } from '@/components/ui/RegimeChip';
 import { RegimeTransitionMatrix } from '@/components/ui/RegimeTransitionMatrix';
 import { regimeNames } from '@/components/charts/RegimeTimeline';
+import { useChartSize } from '@/lib/use-chart-size';
 import type { HmmFit } from '@/lib/hmm';
 import {
   ShieldAlert,
@@ -41,6 +42,8 @@ export function AnalysisRiskTab({
 }: AnalysisRiskTabProps) {
   const [ddHoverIdx, setDdHoverIdx] = useState<number | null>(null);
   const [betaHoverIdx, setBetaHoverIdx] = useState<number | null>(null);
+  const { ref: ddRef, size: ddSize } = useChartSize<HTMLDivElement>();
+  const { ref: betaRef, size: betaSize } = useChartSize<HTMLDivElement>();
 
   // Underwater curve pure SVG scaling
   const ddData = drawdownResult.underwaterCurve;
@@ -51,14 +54,16 @@ export function AnalysisRiskTab({
   }
   maxDd = Math.max(5, maxDd * 1.1);
 
-  const ddW = 700;
-  const ddH = 220;
-  const dPadL = 50;
-  const dPadR = 25;
-  const dPadT = 20;
-  const dPadB = 30;
-  const dcW = ddW - dPadL - dPadR;
-  const dcH = ddH - dPadT - dPadB;
+  const ddW = ddSize.width;
+  const ddH = ddSize.height;
+  const ddReady = ddW > 0;
+  const dPadL = 46;
+  const dPadR = 14;
+  const dPadT = 14;
+  const dPadB = 28;
+  const dcW = Math.max(1, ddW - dPadL - dPadR);
+  const dcH = Math.max(1, ddH - dPadT - dPadB);
+  const ddXTicks = [0, 0.25, 0.5, 0.75, 1].map((pct) => Math.round(pct * Math.max(0, nDd - 1)));
 
   const getDdX = (i: number) => dPadL + (i / Math.max(1, nDd - 1)) * dcW;
   const getDdY = (ddPct: number) => dPadT + (Math.abs(ddPct) / maxDd) * dcH;
@@ -81,14 +86,16 @@ export function AnalysisRiskTab({
   maxBeta = Math.max(1.8, maxBeta + 0.1);
   const betaRange = maxBeta - minBeta || 1;
 
-  const bW = 550;
-  const bH = 160;
-  const bPadL = 40;
-  const bPadR = 20;
-  const bPadT = 15;
-  const bPadB = 25;
-  const bcW = bW - bPadL - bPadR;
-  const bcH = bH - bPadT - bPadB;
+  const bW = betaSize.width;
+  const bH = betaSize.height;
+  const betaReady = bW > 0;
+  const bPadL = 38;
+  const bPadR = 12;
+  const bPadT = 10;
+  const bPadB = 24;
+  const bcW = Math.max(1, bW - bPadL - bPadR);
+  const bcH = Math.max(1, bH - bPadT - bPadB);
+  const betaXTicks = [0, 0.25, 0.5, 0.75, 1].map((pct) => Math.round(pct * Math.max(0, nBeta - 1)));
 
   const getBetaX = (i: number) => bPadL + (i / Math.max(1, nBeta - 1)) * bcW;
   const getBetaY = (val: number) => bPadT + bcH - ((val - minBeta) / betaRange) * bcH;
@@ -119,7 +126,7 @@ export function AnalysisRiskTab({
           <RegimeTransitionMatrix fit={hmmFit} labels={regimeNames(hmmFit.k)} className="mt-3 border-t border-zinc-100 dark:border-zinc-800/60 pt-3 lg:max-w-md" showStats={false} />
 
           <div className="mt-3 overflow-x-auto">
-            <table className="w-full text-xs text-left">
+            <table className="table-sticky-first w-full text-xs text-left">
               <thead>
                 <tr className="border-b border-zinc-200 dark:border-zinc-800 text-zinc-400 font-mono">
                   <th className="py-2 px-2">Model</th>
@@ -185,7 +192,7 @@ export function AnalysisRiskTab({
         </div>
 
         <div className="mt-4 overflow-x-auto">
-          <table className="w-full text-xs text-left">
+          <table className="table-sticky-first w-full text-xs text-left">
             <thead>
               <tr className="border-b border-zinc-200 dark:border-zinc-800 text-zinc-400 font-mono">
                 <th className="py-2.5 px-3">Model Specification</th>
@@ -337,9 +344,12 @@ export function AnalysisRiskTab({
         {/* Underwater Chart */}
         <div className="mt-4">
           <ChartFullscreen title="Underwater Drawdown Curve">
+          <div ref={ddRef} className="chart-frame">
+          {ddReady && (
           <svg
-            viewBox={`0 0 ${ddW} ${ddH}`}
-            className="w-full h-56 select-none"
+            width={ddW}
+            height={ddH}
+            className="block h-full w-full select-none"
             onMouseMove={(e) => {
               const rect = e.currentTarget.getBoundingClientRect();
               const mouseX = e.clientX - rect.left;
@@ -390,6 +400,41 @@ export function AnalysisRiskTab({
               />
             )}
 
+            {/* Y-axis title */}
+            <text
+              x={10}
+              y={dPadT + dcH / 2}
+              textAnchor="middle"
+              transform={`rotate(-90 10 ${dPadT + dcH / 2})`}
+              className="text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 uppercase"
+            >
+              DD %
+            </text>
+
+            {/* X-axis baseline + date ticks */}
+            <line
+              x1={dPadL}
+              y1={ddH - dPadB}
+              x2={ddW - dPadR}
+              y2={ddH - dPadB}
+              stroke="currentColor"
+              className="text-zinc-200 dark:text-zinc-800"
+              strokeWidth={1}
+            />
+            {ddXTicks.map((idx, i) =>
+              ddData[idx] ? (
+                <text
+                  key={`xtick-${i}`}
+                  x={getDdX(idx)}
+                  y={ddH - dPadB + 13}
+                  textAnchor={i === 0 ? 'start' : i === ddXTicks.length - 1 ? 'end' : 'middle'}
+                  className="text-[8px] sm:text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
+                >
+                  {ddData[idx].date}
+                </text>
+              ) : null
+            )}
+
             {/* Hover marker */}
             {activeDdIdx >= 0 && activeDdIdx < nDd && (
               <g>
@@ -398,21 +443,17 @@ export function AnalysisRiskTab({
               </g>
             )}
           </svg>
+          )}
+          </div>
           </ChartFullscreen>
-        </div>
-
-        <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono mt-1">
-          <span>{ddData[0]?.date}</span>
-          <span>Underwater Exposure Path</span>
-          <span>{ddData[nDd - 1]?.date}</span>
         </div>
       </div>
 
       {/* Downside Risk & Asymmetric Beta to SPY Benchmark */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid-cards">
         {/* Downside Risk Metrics */}
         <div className="panel p-5">
-          <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800/60">
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-zinc-100 dark:border-zinc-800/60">
             <div>
               <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
                 Downside Risk &amp; Benchmark Asymmetry (vs. SPY)
@@ -461,9 +502,12 @@ export function AnalysisRiskTab({
           {/* Rolling Beta Chart */}
           <div className="mt-4">
             <ChartFullscreen title="60-Day Rolling Beta to SPY">
+            <div ref={betaRef} className="chart-frame-sm">
+            {betaReady && (
             <svg
-              viewBox={`0 0 ${bW} ${bH}`}
-              className="w-full h-36 select-none"
+              width={bW}
+              height={bH}
+              className="block h-full w-full select-none"
               onMouseMove={(e) => {
                 const rect = e.currentTarget.getBoundingClientRect();
                 const mouseX = e.clientX - rect.left;
@@ -486,24 +530,45 @@ export function AnalysisRiskTab({
                 />
               )}
 
+              {/* X-axis baseline + date ticks */}
+              <line
+                x1={bPadL}
+                y1={bH - bPadB}
+                x2={bW - bPadR}
+                y2={bH - bPadB}
+                stroke="currentColor"
+                className="text-zinc-200 dark:text-zinc-800"
+                strokeWidth={1}
+              />
+              {betaXTicks.map((idx, i) =>
+                betaData[idx] ? (
+                  <text
+                    key={`xtick-${i}`}
+                    x={getBetaX(idx)}
+                    y={bH - bPadB + 13}
+                    textAnchor={i === 0 ? 'start' : i === betaXTicks.length - 1 ? 'end' : 'middle'}
+                    className="text-[8px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
+                  >
+                    {betaData[idx].date}
+                  </text>
+                ) : null
+              )}
+
               {/* Hover dot */}
               {activeBetaIdx >= 0 && activeBetaIdx < nBeta && (
                 <circle cx={getBetaX(activeBetaIdx)} cy={getBetaY(activeBetaPoint.beta)} r="4" fill="#10b981" />
               )}
             </svg>
+            )}
+            </div>
             </ChartFullscreen>
           </div>
 
-          <div className="flex items-center justify-between text-[10px] text-zinc-400 font-mono">
-            <span>{betaData[0]?.date}</span>
-            <span>60-Day Rolling Beta to SPY</span>
-            <span>{betaData[nBeta - 1]?.date}</span>
-          </div>
         </div>
 
         {/* Probabilistic & Deflated Sharpe Ratio (Bailey & López de Prado) */}
         <div className="panel p-5">
-          <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800/60">
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-zinc-100 dark:border-zinc-800/60">
             <div>
               <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
                 Probabilistic Sharpe Ratio (PSR) &amp; Deflated Sharpe (DSR)

@@ -711,7 +711,7 @@ export function CorrelationStructureTab({
         </button>
 
         {showMathReference && (
-          <div className="mt-4 pt-4 border-t border-zinc-100 dark:border-zinc-800 grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="mt-4 pt-4 border-t border-zinc-100 dark:border-zinc-800 grid-cards">
             <div>
               <div className="text-xs font-bold text-zinc-800 dark:text-zinc-200 mb-2">
                 Mantegna Correlation Metric Distance

@@ -5,11 +5,11 @@ import { Magnet } from 'lucide-react';
 import type { TrapState } from '@/components/views/volatility/types';
 
 const STATE_STYLE: Record<TrapState, string> = {
-  idle: 'border-zinc-300 bg-transparent text-zinc-500 dark:border-white/10 dark:text-zinc-500',
-  building: 'border-gold-500/40 bg-gold-500/10 text-gold-800 dark:text-gold-300',
-  armed: 'border-gold-500/60 bg-gold-500/15 text-gold-800 dark:text-gold-200',
-  triggered: 'border-rose-500/50 bg-rose-500/10 text-rose-600 dark:text-rose-400',
-  exhausted: 'border-zinc-400/40 text-zinc-500',
+  idle: 'text-zinc-500 dark:text-zinc-400',
+  building: 'text-gold-700 dark:text-gold-300',
+  armed: 'text-gold-800 dark:text-gold-200',
+  triggered: 'text-rose-600 dark:text-rose-400',
+  exhausted: 'text-zinc-500 dark:text-zinc-500',
 };
 const STATE_LABEL: Record<TrapState, string> = {
   idle: 'IDLE',
@@ -19,7 +19,11 @@ const STATE_LABEL: Record<TrapState, string> = {
   exhausted: 'EXHAUST',
 };
 
-/** Trap-state chip for the Analysis header — score + state pill, hides on failure. */
+/**
+ * Trap-score tile content for the Analysis KPI strip — score + state pill.
+ * Hides the numeric slot on failure (never fabricates). The parent tile
+ * supplies the label and chrome.
+ */
 export function TrapStateChip({ ticker }: { ticker: string }) {
   const [result, setResult] = useState<{ ticker: string; score: number; state: TrapState } | { ticker: string; error: true } | null>(null);
 
@@ -44,17 +48,18 @@ export function TrapStateChip({ ticker }: { ticker: string }) {
   }, [ticker]);
 
   const current = result && result.ticker === ticker ? result : null;
-  if (!current) return null;
-  if ('error' in current) return null;
+  if (!current || 'error' in current) {
+    return <span className="font-mono text-sm font-semibold text-zinc-500">—</span>;
+  }
 
   return (
     <span
       title={`Dealer trap score ${current.score}/100 — ${current.state.toUpperCase()}. Assumed positioning, not observed; see the Implied Vol tab, T7 panel.`}
-      className={`hidden md:inline-flex cursor-help items-center gap-1.5 rounded-lg border px-2 py-1 font-mono text-[10px] tabular-nums ${STATE_STYLE[current.state]}`}
+      className="inline-flex cursor-help items-center gap-1.5 font-mono text-sm font-semibold tabular-nums text-zinc-800 dark:text-zinc-100"
     >
-      <Magnet className="h-3 w-3" />
-      TRAP <strong>{current.score}</strong>
-      <span className="text-[8px] font-bold tracking-wider opacity-80">{STATE_LABEL[current.state]}</span>
+      <Magnet className="h-3.5 w-3.5" aria-hidden="true" />
+      {current.score}
+      <span className={`text-[9px] font-bold tracking-wider ${STATE_STYLE[current.state]}`}>{STATE_LABEL[current.state]}</span>
     </span>
   );
 }

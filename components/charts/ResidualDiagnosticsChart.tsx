@@ -97,7 +97,7 @@ export function ResidualDiagnosticsChart({
       {activeTab === 'qq' && (
         <div>
           <div className="w-full aspect-[2/1] max-h-[300px] min-h-[200px]">
-            <svg viewBox="0 0 600 300" className="w-full h-full overflow-visible">
+            <svg viewBox="0 0 600 300" className="w-full h-full">
               {/* Axes */}
               <line x1="60" y1="150" x2="560" y2="150" stroke="#475569" strokeWidth="0.5" strokeDasharray="3 3" />
               <line x1="310" y1="20" x2="310" y2="270" stroke="#475569" strokeWidth="0.5" strokeDasharray="3 3" />
@@ -149,7 +149,7 @@ export function ResidualDiagnosticsChart({
       {activeTab === 'fitted' && (
         <div>
           <div className="w-full aspect-[2/1] max-h-[300px] min-h-[200px]">
-            <svg viewBox="0 0 600 300" className="w-full h-full overflow-visible">
+            <svg viewBox="0 0 600 300" className="w-full h-full">
               <line x1="60" y1="150" x2="560" y2="150" stroke="#10b981" strokeWidth="0.8" strokeDasharray="3 3" />
 
               {residuals.map((r, i) => {
@@ -189,7 +189,7 @@ export function ResidualDiagnosticsChart({
             <span>Regression SE: <strong className="text-zinc-900 dark:text-zinc-100">{(summary.standardErrorOfRegression * 100).toFixed(3)}%</strong></span>
           </div>
           <div className="w-full aspect-[2/0.9] max-h-[260px] flex items-center justify-center text-xs text-zinc-500">
-            <svg viewBox="0 0 600 220" className="w-full h-full overflow-visible">
+            <svg viewBox="0 0 600 220" className="w-full h-full">
               {/* Binned bar distribution of residuals */}
               {(() => {
                 const resVals = residuals.map((r) => r.residual);
@@ -232,7 +232,7 @@ export function ResidualDiagnosticsChart({
       {activeTab === 'rolling' && rollingBetas && (
         <div>
           <div className="w-full aspect-[2/1] max-h-[300px] min-h-[200px]">
-            <svg viewBox="0 0 700 260" className="w-full h-full overflow-visible">
+            <svg viewBox="0 0 700 260" className="w-full h-full">
               {/* Grid */}
               <line x1="50" y1="130" x2="660" y2="130" stroke="#475569" strokeWidth="0.65" strokeDasharray="2 2" />
               <text x="45" y="133" textAnchor="end" className="text-[9px] font-mono fill-zinc-500">β=0</text>

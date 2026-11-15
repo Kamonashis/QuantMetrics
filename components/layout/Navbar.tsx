@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Sun, Moon, Menu, X, CandlestickChart } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { Sun, Moon, Home, Activity, Sigma, Waves, CandlestickChart, Network, TrendingUp } from 'lucide-react';
+import { motion } from 'motion/react';
 
 interface NavbarProps {
   activeView: 'home' | 'analysis' | 'modeling' | 'correlation' | 'regression' | 'volatility' | 'fno';
@@ -13,18 +13,17 @@ interface NavbarProps {
 }
 
 const NAV_ITEMS = [
-  { id: 'home', label: 'Home' },
-  { id: 'analysis', label: 'Analysis' },
-  { id: 'modeling', label: 'Modeling' },
-  { id: 'volatility', label: 'Implied Vol' },
-  { id: 'fno', label: 'F&O' },
-  { id: 'correlation', label: 'Correlation' },
-  { id: 'regression', label: 'Regression' },
+  { id: 'home', label: 'Home', shortLabel: 'Home', icon: Home },
+  { id: 'analysis', label: 'Analysis', shortLabel: 'Analysis', icon: Activity },
+  { id: 'modeling', label: 'Modeling', shortLabel: 'Model', icon: Sigma },
+  { id: 'volatility', label: 'Implied Vol', shortLabel: 'Vol', icon: Waves },
+  { id: 'fno', label: 'F&O', shortLabel: 'F&O', icon: CandlestickChart },
+  { id: 'correlation', label: 'Correlation', shortLabel: 'Corr.', icon: Network },
+  { id: 'regression', label: 'Regression', shortLabel: 'Regr.', icon: TrendingUp },
 ] as const;
 
 export function Navbar({ activeView, onViewChange, isDark, onToggleTheme, activeTicker }: NavbarProps) {
   const [scrolled, setScrolled] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
@@ -35,23 +34,22 @@ export function Navbar({ activeView, onViewChange, isDark, onToggleTheme, active
 
   const handleNav = (view: NavbarProps['activeView']) => {
     onViewChange(view);
-    setMobileOpen(false);
   };
 
   return (
-    <header className="sticky top-0 z-40 w-full px-3 pt-3 sm:px-6">
+    <header className="sticky top-0 z-40 w-full px-3 pt-3 sm:px-[clamp(16px,2.2vw,48px)] sm:pt-4 [@media(min-width:1920px)]:mx-auto [@media(min-width:1920px)]:max-w-[2400px]">
       <div
-        className={`mx-auto flex items-center justify-between gap-3 border backdrop-blur-xl transition-all duration-500 ease-out ${
+        className={`mx-auto flex h-12 sm:h-14 w-full min-w-0 items-center justify-between gap-3 border backdrop-blur-xl transition-all duration-500 ease-out ${
           scrolled
-            ? 'h-12 max-w-5xl rounded-2xl border-zinc-200/80 bg-[#f5f4f1]/85 px-3 shadow-[0_10px_36px_-18px_rgba(0,0,0,0.35)] dark:border-white/[0.07] dark:bg-[#0e0e11]/80'
-            : 'h-14 max-w-7xl rounded-2xl border-transparent bg-transparent px-1'
+            ? 'rounded-2xl border-zinc-200/80 bg-[#f5f4f1]/85 px-3 shadow-[0_10px_36px_-18px_rgba(0,0,0,0.35)] dark:border-white/[0.07] dark:bg-[#0e0e11]/80'
+            : 'rounded-2xl border-transparent bg-transparent px-1'
         }`}
       >
         {/* Brand */}
         <button
           type="button"
           onClick={() => handleNav('home')}
-          className="flex shrink-0 cursor-pointer items-center gap-2.5 whitespace-nowrap text-left focus:outline-none"
+          className="flex min-h-[44px] shrink-0 cursor-pointer items-center gap-2.5 whitespace-nowrap text-left focus:outline-none"
           aria-label="QuantMetrics home"
         >
           <span className="relative flex h-8 w-8 items-center justify-center rounded-[10px] border border-gold-500/40 bg-gradient-to-b from-gold-400/25 to-gold-600/15 text-gold-700 dark:text-gold-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]">
@@ -67,8 +65,8 @@ export function Navbar({ activeView, onViewChange, isDark, onToggleTheme, active
           </span>
         </button>
 
-        {/* Desktop nav — layoutId gold pill */}
-        <nav className="hidden items-center gap-0.5 md:flex" aria-label="Primary">
+        {/* Desktop nav — scrollable chip strip below xl so it never overflows the header */}
+        <nav className="hidden min-w-0 items-center gap-0 overflow-x-auto scrollbar-none md:flex xl:gap-0.5" aria-label="Primary">
           {NAV_ITEMS.map((item) => {
             const active = item.id === activeView;
             return (
@@ -77,7 +75,7 @@ export function Navbar({ activeView, onViewChange, isDark, onToggleTheme, active
                 type="button"
                 onClick={() => handleNav(item.id)}
                 aria-current={active ? 'page' : undefined}
-                className={`relative cursor-pointer rounded-lg px-3.5 py-2 text-[12.5px] font-medium transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-400/60 ${
+                className={`relative inline-flex min-h-[44px] shrink-0 cursor-pointer items-center whitespace-nowrap rounded-lg px-2 py-2 text-[11px] font-medium transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-400/60 lg:px-2.5 xl:px-3.5 xl:text-[12.5px] ${
                   active
                     ? 'text-gold-800 dark:text-gold-200'
                     : 'text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100'
@@ -115,57 +113,49 @@ export function Navbar({ activeView, onViewChange, isDark, onToggleTheme, active
             onClick={onToggleTheme}
             aria-label="Toggle dark and light theme"
             title={isDark ? 'Switch to Paper Light' : 'Switch to Obsidian Dark'}
-            className="cursor-pointer rounded-lg border border-zinc-200/80 p-2 text-zinc-500 transition-colors hover:border-gold-500/40 hover:text-gold-700 dark:border-white/[0.07] dark:text-zinc-400 dark:hover:text-gold-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-400/60"
+            className="cursor-pointer rounded-lg border border-zinc-200/80 p-2.5 text-zinc-500 transition-colors hover:border-gold-500/40 hover:text-gold-700 dark:border-white/[0.07] dark:text-zinc-400 dark:hover:text-gold-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-400/60"
           >
             {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-          </button>
-
-          {/* Mobile hamburger */}
-          <button
-            type="button"
-            className="cursor-pointer rounded-lg border border-zinc-200/80 p-2 text-zinc-600 dark:border-white/[0.07] dark:text-zinc-300 md:hidden"
-            aria-label="Toggle menu"
-            aria-expanded={mobileOpen}
-            onClick={() => setMobileOpen((v) => !v)}
-          >
-            {mobileOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
           </button>
         </div>
       </div>
 
-      {/* Mobile menu */}
-      <AnimatePresence>
-        {mobileOpen && (
-          <motion.nav
-            key="mobile-menu"
-            initial={{ opacity: 0, y: -12, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -8, scale: 0.98 }}
-            transition={{ duration: 0.22, ease: 'easeOut' }}
-            className="mx-3 mt-2 rounded-2xl border border-zinc-200/80 bg-[#f5f4f1]/95 p-2 shadow-xl backdrop-blur-xl dark:border-white/[0.07] dark:bg-[#0e0e11]/95 md:hidden"
-            aria-label="Mobile"
-          >
-            {NAV_ITEMS.map((item) => {
-              const active = item.id === activeView;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => handleNav(item.id)}
-                  className={`flex w-full cursor-pointer items-center justify-between rounded-xl px-4 py-3 text-sm font-medium transition-colors ${
-                    active
-                      ? 'bg-gold-400/15 text-gold-800 dark:text-gold-200'
-                      : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-white/[0.04]'
+      {/* Mobile primary nav — <768px bottom tab bar (icons + short labels, safe-area aware) */}
+      <nav
+        className="fixed inset-x-0 bottom-0 z-40 border-t border-zinc-200/80 bg-[#f5f4f1]/92 backdrop-blur-xl dark:border-white/[0.07] dark:bg-[#0e0e11]/92 md:hidden pb-safe"
+        aria-label="Primary"
+      >
+        <div className="grid grid-cols-7">
+          {NAV_ITEMS.map((item) => {
+            const active = item.id === activeView;
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => handleNav(item.id)}
+                aria-current={active ? 'page' : undefined}
+                className={`flex h-14 min-w-0 cursor-pointer flex-col items-center justify-center gap-0.5 px-0.5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gold-400/60 ${
+                  active
+                    ? 'text-gold-800 dark:text-gold-200'
+                    : 'text-zinc-500 dark:text-zinc-400'
+                }`}
+              >
+                <Icon className="h-5 w-5" strokeWidth={active ? 2.2 : 1.8} aria-hidden="true" />
+                <span className="w-full truncate text-center font-mono text-[8px] font-medium uppercase leading-none tracking-wide">
+                  {item.shortLabel}
+                </span>
+                <span
+                  aria-hidden="true"
+                  className={`h-0.5 w-6 rounded-full transition-colors ${
+                    active ? 'bg-gold-500 dark:bg-gold-300' : 'bg-transparent'
                   }`}
-                >
-                  {item.label}
-                  {active && <span className="h-1.5 w-1.5 rounded-full bg-gold-500 dark:bg-gold-300" />}
-                </button>
-              );
-            })}
-          </motion.nav>
-        )}
-      </AnimatePresence>
+                />
+              </button>
+            );
+          })}
+        </div>
+      </nav>
     </header>
   );
 }

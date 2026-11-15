@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   PriceBar,
   calculateReturns,
@@ -61,6 +61,29 @@ export function CorrelationView({
 }: CorrelationViewProps) {
   const [localInput, setLocalInput] = useState(tickersInput);
   const [activeSubTab, setActiveSubTab] = useState<SubTabId>('overview');
+
+  // Deep-link: ?corr=dynamics restores the selection (replaceState keeps history clean).
+  // Deferred 0ms so the setState doesn't cascade synchronously inside the effect.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const timer = setTimeout(() => {
+      const t = new URLSearchParams(window.location.search).get('corr');
+      const valid: SubTabId[] = ['overview', 'dynamics', 'risk', 'structure'];
+      if (t && (valid as string[]).includes(t)) {
+        setActiveSubTab(t as SubTabId);
+      }
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const handleSubTabChange = (id: SubTabId) => {
+    setActiveSubTab(id);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('corr', id);
+      window.history.replaceState(null, '', url.toString());
+    }
+  };
 
   const activeTickers = useMemo(() => {
     return tickersInput
@@ -160,7 +183,7 @@ export function CorrelationView({
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-12">
+    <div className="space-y-6">
       {/* Parameter Control Card */}
       <div className="panel p-5">
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -301,11 +324,10 @@ export function CorrelationView({
         </div>
       </div>
 
-      {/* Sub-Tab Navigation Bar */}
-      <div className="overflow-x-auto pb-1">
+      {/* Sub-Tab Navigation Bar — scrollable chips, deep-linked via ?corr= */}
         <AnimatedTabs
           value={activeSubTab}
-          onChange={(id) => setActiveSubTab(id as typeof activeSubTab)}
+          onChange={(id) => handleSubTabChange(id as typeof activeSubTab)}
           tabs={[
             { id: 'overview', label: 'Overview & Matrix', icon: Layers, meta: 'T1' },
             { id: 'dynamics', label: 'Dynamics & Regimes', icon: Activity, meta: 'T2' },
@@ -313,7 +335,6 @@ export function CorrelationView({
             { id: 'structure', label: 'Structure & Network', icon: Network, meta: 'T4' },
           ]}
         />
-      </div>
 
       {/* Sub-Tab Content Mounts */}
       {activeSubTab === 'overview' && (

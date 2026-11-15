@@ -354,7 +354,7 @@ export function CorrelationDynamicsTab({
         <ChartFullscreen title="Dynamic Correlation Path vs. Static Baseline">
         <div className="w-full h-64 bg-zinc-50 dark:bg-zinc-900/60 rounded-xl border border-zinc-200 dark:border-zinc-800 relative p-3">
           {activeSeries.length > 5 ? (
-            <svg viewBox="0 0 800 220" className="w-full h-full overflow-visible">
+            <svg viewBox="0 0 800 220" className="w-full h-full">
               {/* Horizontal Reference Lines (-1, 0, +1) */}
               <line x1="40" y1="20" x2="780" y2="20" stroke="#64748b" strokeWidth="0.3" strokeDasharray="3 3" />
               <line x1="40" y1="110" x2="780" y2="110" stroke="#64748b" strokeWidth="0.65" strokeDasharray="2 2" />
@@ -442,7 +442,7 @@ export function CorrelationDynamicsTab({
       </div>
 
       {/* Rolling Windows & Tail Copula Breakdown Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid-cards">
         {/* Rolling Window Correlation with Historical Percentile Bands */}
         <div className="panel p-5">
           <div className="flex items-center justify-between mb-3 pb-2 border-b border-zinc-100 dark:border-zinc-800">
@@ -561,7 +561,7 @@ export function CorrelationDynamicsTab({
       </div>
 
       {/* Regime-Conditional Matrices & 1-Min Intraday Realized Correlation */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid-cards">
         {/* Calm vs Stress Regime Split */}
         <div className="panel p-5">
           <div className="flex items-center justify-between mb-3 pb-2 border-b border-zinc-100 dark:border-zinc-800">

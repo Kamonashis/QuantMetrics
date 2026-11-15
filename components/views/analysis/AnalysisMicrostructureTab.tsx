@@ -8,6 +8,7 @@ import {
   RealizedSemivarianceEquation,
 } from '@/components/math/MathEquations';
 import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
+import { useChartSize } from '@/lib/use-chart-size';
 import {
   Waves,
   Clock,
@@ -24,6 +25,7 @@ export function AnalysisMicrostructureTab({
   ticker,
 }: AnalysisMicrostructureTabProps) {
   const [spreadHoverIdx, setSpreadHoverIdx] = useState<number | null>(null);
+  const { ref: spreadRef, size: spreadSize } = useChartSize<HTMLDivElement>();
 
   // Pure SVG Intraday spread curve scaling
   const curveData = microstructure.intradaySpreadCurve;
@@ -39,14 +41,15 @@ export function AnalysisMicrostructureTab({
   const sprMax = maxSpread + sPad;
   const sprRange = sprMax - sprMin || 1;
 
-  const spW = 700;
-  const spH = 200;
-  const pL = 50;
-  const pR = 25;
-  const pT = 15;
-  const pB = 30;
-  const cW = spW - pL - pR;
-  const cH = spH - pT - pB;
+  const spW = spreadSize.width;
+  const spH = spreadSize.height;
+  const spreadReady = spW > 0;
+  const pL = 46;
+  const pR = 14;
+  const pT = 14;
+  const pB = 28;
+  const cW = Math.max(1, spW - pL - pR);
+  const cH = Math.max(1, spH - pT - pB);
 
   const getSpX = (i: number) => pL + (i / Math.max(1, nCurve - 1)) * cW;
   const getSpY = (val: number) => pT + cH - ((val - sprMin) / sprRange) * cH;
@@ -139,9 +142,12 @@ export function AnalysisMicrostructureTab({
 
         <div className="mt-4">
           <ChartFullscreen title="Estimated Intraday Spread Curve">
+          <div ref={spreadRef} className="chart-frame">
+          {spreadReady && (
           <svg
-            viewBox={`0 0 ${spW} ${spH}`}
-            className="w-full h-52 select-none"
+            width={spW}
+            height={spH}
+            className="block h-full w-full select-none"
             onMouseMove={(e) => {
               const rect = e.currentTarget.getBoundingClientRect();
               const mouseX = e.clientX - rect.left;
@@ -189,18 +195,51 @@ export function AnalysisMicrostructureTab({
               />
             )}
 
+            {/* Y-axis title */}
+            <text
+              x={10}
+              y={pT + cH / 2}
+              textAnchor="middle"
+              transform={`rotate(-90 10 ${pT + cH / 2})`}
+              className="text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 uppercase"
+            >
+              bps
+            </text>
+
+            {/* X-axis baseline + time ticks */}
+            <line
+              x1={pL}
+              y1={spH - pB}
+              x2={spW - pR}
+              y2={spH - pB}
+              stroke="currentColor"
+              className="text-zinc-200 dark:text-zinc-800"
+              strokeWidth={1}
+            />
+            {[0, 0.25, 0.5, 0.75, 1].map((pct) => {
+              const i = Math.round(pct * Math.max(0, nCurve - 1));
+              const pt = curveData[i];
+              return pt ? (
+                <text
+                  key={`xtick-${i}`}
+                  x={getSpX(i)}
+                  y={spH - pB + 13}
+                  textAnchor={pct === 0 ? 'start' : pct === 1 ? 'end' : 'middle'}
+                  className="text-[8px] sm:text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
+                >
+                  {pt.timeStr}
+                </text>
+              ) : null;
+            })}
+
             {/* Hover marker */}
             {activeIdx >= 0 && activeIdx < nCurve && (
               <circle cx={getSpX(activeIdx)} cy={getSpY(activePoint.estimatedSpreadBps)} r="4" fill="#10b981" />
             )}
           </svg>
+          )}
+          </div>
           </ChartFullscreen>
-        </div>
-
-        <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono mt-1">
-          <span>09:30 (Market Open Rush)</span>
-          <span>Intraday Liquidity Smile Curve</span>
-          <span>16:00 (Market-on-Close)</span>
         </div>
 
         <div className="mt-3 text-[11px] text-zinc-400">
@@ -210,10 +249,10 @@ export function AnalysisMicrostructureTab({
       </div>
 
       {/* Realized Semivariance & Realized Quarticity (RQ) Panel */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid-cards">
         {/* Realized Semivariance */}
         <div className="panel p-5">
-          <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800/60">
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-zinc-100 dark:border-zinc-800/60">
             <div>
               <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
                 Realized Semivariance Decomposition (Barndorff-Nielsen et al., 2010)
@@ -263,7 +302,7 @@ export function AnalysisMicrostructureTab({
 
         {/* Amihud Illiquidity & Realized Quarticity (RQ) */}
         <div className="panel p-5">
-          <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800/60">
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-zinc-100 dark:border-zinc-800/60">
             <div>
               <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
                 Amihud Illiquidity &amp; Realized Quarticity (RQ) Error Bars

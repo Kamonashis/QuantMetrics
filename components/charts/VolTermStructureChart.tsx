@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { useChartSize } from '@/lib/use-chart-size';
 
 export interface TermStructurePoint {
   dte: number;
@@ -24,6 +25,7 @@ export function VolTermStructureChart({
   band?: { low: number; high: number; label: string } | null;
   iv30Marker?: number | null;
 }) {
+  const { ref, size } = useChartSize<HTMLDivElement>();
   const valid = points.filter((p): p is { dte: number; iv: number } => p.iv !== null && isFinite(p.iv) && p.iv > 0);
   if (valid.length < 2) {
     return (
@@ -33,8 +35,9 @@ export function VolTermStructureChart({
     );
   }
 
-  const width = 560;
-  const height = 210;
+  const width = size.width;
+  const height = size.height;
+  const ready = width > 0;
   const pad = { l: 40, r: 12, t: 14, b: 26 };
 
   const yOf = (p: { dte: number; iv: number }) =>
@@ -71,8 +74,10 @@ export function VolTermStructureChart({
       : null;
 
   return (
-    <div className="w-full overflow-x-auto">
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[420px]" role="img" aria-label="IV term structure">
+    <div>
+      <div ref={ref} className="chart-frame">
+      {ready && (
+      <svg width={width} height={height} className="block h-full w-full" role="img" aria-label="IV term structure">
         {/* reference band */}
         {bandPix && (
           <rect x={pad.l} y={bandPix.y1} width={width - pad.l - pad.r} height={Math.max(1, bandPix.y2 - bandPix.y1)} fill="rgba(222,192,132,0.07)" />
@@ -112,6 +117,8 @@ export function VolTermStructureChart({
           </text>
         ))}
       </svg>
+      )}
+      </div>
       {band && axisMode === 'vol' && (
         <p className="mt-1.5 font-mono text-[9px] text-zinc-400">
           dashed band = {band.label} · full curve labelled; markers = chain ATM IV

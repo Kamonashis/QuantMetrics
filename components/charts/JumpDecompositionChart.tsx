@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { DailyRealizedVol } from '@/lib/quant-engine';
+import { useChartSize } from '@/lib/use-chart-size';
 import { Zap, AlertTriangle } from 'lucide-react';
 
 interface JumpDecompositionChartProps {
@@ -13,6 +14,7 @@ export function JumpDecompositionChart({
   dailyRV,
   ticker,
 }: JumpDecompositionChartProps) {
+  const { ref, size } = useChartSize<HTMLDivElement>();
   if (!dailyRV || dailyRV.length === 0) {
     return (
       <div className="h-60 flex items-center justify-center border border-zinc-200 dark:border-zinc-800 rounded-lg text-zinc-500 text-xs">
@@ -29,12 +31,13 @@ export function JumpDecompositionChart({
   }
   maxAnnVol = Math.max(0.2, maxAnnVol * 1.2);
 
-  const width = 800;
-  const height = 240;
-  const padLeft = 55;
-  const padRight = 20;
-  const padTop = 20;
-  const padBottom = 30;
+  const width = size.width;
+  const height = size.height;
+  const ready = width > 0;
+  const padLeft = 46;
+  const padRight = 14;
+  const padTop = 16;
+  const padBottom = 26;
 
   const chartW = width - padLeft - padRight;
   const chartH = height - padTop - padBottom;
@@ -91,8 +94,9 @@ export function JumpDecompositionChart({
         </div>
       </div>
 
-      <div className="relative w-full aspect-[8/2.4] min-h-[190px]">
-        <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible">
+      <div ref={ref} className="chart-frame">
+        {ready && (
+        <svg width={width} height={height} className="block h-full w-full">
           {/* Grid lines */}
           {[0, 0.33, 0.66, 1].map((pct) => {
             const val = pct * maxAnnVol;
@@ -174,7 +178,7 @@ export function JumpDecompositionChart({
                   x={centerX}
                   y={yTotal - 4}
                   textAnchor="middle"
-                  className="text-[9px] font-mono fill-zinc-600 dark:fill-zinc-400 font-bold tabular-nums opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="pointer-events-none text-[9px] font-mono fill-zinc-600 dark:fill-zinc-400 font-bold tabular-nums opacity-0 group-hover:opacity-100 transition-opacity"
                 >
                   {(totalVol * 100).toFixed(1)}%
                 </text>
@@ -192,6 +196,7 @@ export function JumpDecompositionChart({
             );
           })}
         </svg>
+        )}
       </div>
 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs text-zinc-500 dark:text-zinc-400 mt-2 pt-2 border-t border-zinc-100 dark:border-zinc-800/60 gap-2">

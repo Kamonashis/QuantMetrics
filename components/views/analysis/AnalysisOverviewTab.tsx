@@ -20,6 +20,7 @@ import { DecompositionChart } from '@/components/charts/DecompositionChart';
 import { RegimeTimeline, regimeNames } from '@/components/charts/RegimeTimeline';
 import { RegimeChip } from '@/components/ui/RegimeChip';
 import { RegimeTransitionMatrix } from '@/components/ui/RegimeTransitionMatrix';
+import { useChartSize } from '@/lib/use-chart-size';
 import { AlgoSelect } from '@/components/ui/AlgoSelect';
 import type { HmmFit } from '@/lib/hmm';
 import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
@@ -108,6 +109,7 @@ export function AnalysisOverviewTab({
   // Rolling skew data scaling for pure SVG
   const skewData = rollingMoments.rollingSkew;
   const nSkew = skewData.length;
+  const { ref: skewRef, size: skewSize } = useChartSize<HTMLDivElement>();
   let minSkew = -2.5;
   let maxSkew = 2.5;
   if (nSkew > 0) {
@@ -117,17 +119,23 @@ export function AnalysisOverviewTab({
     }
   }
   const skewRange = maxSkew - minSkew || 1;
-  const svgW = 600;
-  const svgH = 220;
-  const padL = 40;
-  const padR = 20;
-  const padT = 20;
-  const padB = 30;
-  const cW = svgW - padL - padR;
-  const cH = svgH - padT - padB;
+  const svgW = skewSize.width;
+  const svgH = skewSize.height;
+  const skewReady = svgW > 0;
+  const padL = 46;
+  const padR = 16;
+  const padT = 14;
+  const padB = 34;
+  const cW = Math.max(1, svgW - padL - padR);
+  const cH = Math.max(1, svgH - padT - padB);
 
   const getSkewX = (i: number) => padL + (i / Math.max(1, nSkew - 1)) * cW;
   const getSkewY = (val: number) => padT + cH - ((val - minSkew) / skewRange) * cH;
+
+  // Axis ticks: 5 linear y-ticks (skew units) + date x-ticks (3 on xs, 5 otherwise)
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((pct) => minSkew + pct * skewRange);
+  const xTickPcts = skewSize.width > 0 && skewSize.width < 640 ? [0, 0.5, 1] : [0, 0.25, 0.5, 0.75, 1];
+  const xTicks = xTickPcts.map((pct) => Math.round(pct * Math.max(0, nSkew - 1)));
 
   const skewActiveIdx = skewHoverIdx !== null ? skewHoverIdx : nSkew - 1;
   const activeSkewPoint = skewData[skewActiveIdx] || { date: '', skew: 0, lowerCi: 0, upperCi: 0 };
@@ -265,11 +273,11 @@ export function AnalysisOverviewTab({
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="inline-flex p-0.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs">
+            <div className="scrollbar-none inline-flex max-w-full overflow-x-auto p-0.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs">
               <button
                 type="button"
                 onClick={() => onReturnTypeChange('log')}
-                className={`px-3 py-1 rounded-md font-medium transition-colors cursor-pointer ${
+                className={`shrink-0 px-3 py-1 rounded-md font-medium transition-colors cursor-pointer ${
                   returnType === 'log'
                     ? 'bg-white dark:bg-zinc-800 text-gold-600 dark:text-gold-400 shadow-xs'
                     : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
@@ -280,7 +288,7 @@ export function AnalysisOverviewTab({
               <button
                 type="button"
                 onClick={() => onReturnTypeChange('simple')}
-                className={`px-3 py-1 rounded-md font-medium transition-colors cursor-pointer ${
+                className={`shrink-0 px-3 py-1 rounded-md font-medium transition-colors cursor-pointer ${
                   returnType === 'simple'
                     ? 'bg-white dark:bg-zinc-800 text-gold-600 dark:text-gold-400 shadow-xs'
                     : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
@@ -363,7 +371,7 @@ export function AnalysisOverviewTab({
       </div>
 
       {/* Rolling Moments with Lo (2002) Confidence Bands */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid-cards">
         {/* Rolling Volatility */}
         <div>
           <ChartFullscreen title="Rolling Annualized Volatility">
@@ -373,7 +381,7 @@ export function AnalysisOverviewTab({
 
         {/* Rolling Skewness with Confidence Interval */}
         <div className="panel p-5">
-          <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800/60">
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-zinc-100 dark:border-zinc-800/60">
             <div>
               <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
                 Rolling Skewness (60-Day) &amp; Lo (2002) Confidence Bands
@@ -389,9 +397,12 @@ export function AnalysisOverviewTab({
 
           <div className="mt-4">
             <ChartFullscreen title="Rolling Skewness (60-Day) & Lo (2002) Confidence Bands">
+            <div ref={skewRef} className="chart-frame">
+            {skewReady && (
             <svg
-              viewBox={`0 0 ${svgW} ${svgH}`}
-              className="w-full h-56 select-none"
+              width={svgW}
+              height={svgH}
+              className="block h-full w-full select-none"
               onMouseMove={(e) => {
                 const rect = e.currentTarget.getBoundingClientRect();
                 const mouseX = e.clientX - rect.left;
@@ -401,6 +412,65 @@ export function AnalysisOverviewTab({
               }}
               onMouseLeave={() => setSkewHoverIdx(null)}
             >
+              {/* Y-axis gridlines + tick labels */}
+              {yTicks.map((v, i) => (
+                <g key={`ytick-${i}`}>
+                  <line
+                    x1={padL}
+                    y1={getSkewY(v)}
+                    x2={svgW - padR}
+                    y2={getSkewY(v)}
+                    stroke="currentColor"
+                    className="text-zinc-200 dark:text-zinc-800/70"
+                    strokeDasharray="2 3"
+                    strokeWidth={0.65}
+                  />
+                  <text
+                    x={padL - 6}
+                    y={getSkewY(v) + 3.5}
+                    textAnchor="end"
+                    className="text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
+                  >
+                    {v.toFixed(1)}
+                  </text>
+                </g>
+              ))}
+
+              {/* Y-axis title (rotated) */}
+              <text
+                x={12}
+                y={padT + cH / 2}
+                textAnchor="middle"
+                transform={`rotate(-90 12 ${padT + cH / 2})`}
+                className="text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 uppercase tracking-wider"
+              >
+                Skewness
+              </text>
+
+              {/* X-axis baseline + date tick labels */}
+              <line
+                x1={padL}
+                y1={svgH - padB}
+                x2={svgW - padR}
+                y2={svgH - padB}
+                stroke="currentColor"
+                className="text-zinc-200 dark:text-zinc-800"
+                strokeWidth={1}
+              />
+              {xTicks.map((idx, i) =>
+                skewData[idx] ? (
+                  <text
+                    key={`xtick-${i}`}
+                    x={getSkewX(idx)}
+                    y={svgH - padB + 12}
+                    textAnchor={i === 0 ? 'start' : i === xTicks.length - 1 ? 'end' : 'middle'}
+                    className="text-[8px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
+                  >
+                    {skewData[idx].date}
+                  </text>
+                ) : null
+              )}
+
               {/* Zero line */}
               <line
                 x1={padL}
@@ -472,12 +542,14 @@ export function AnalysisOverviewTab({
                 />
               )}
             </svg>
+            )}
+            </div>
             </ChartFullscreen>
           </div>
 
-          <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono mt-2">
-            <span>{skewData[0]?.date}</span>
-            <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px] text-zinc-400 font-mono mt-2">
+            <span className="tabular-nums">{skewData[0]?.date}</span>
+            <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-0.5 order-3 sm:order-none w-full sm:w-auto">
               <span className="inline-flex items-center gap-1">
                 <span className="w-2.5 h-0.5 bg-gold-500 inline-block" /> 60d Skew
               </span>
@@ -485,7 +557,7 @@ export function AnalysisOverviewTab({
                 <span className="w-2.5 h-0.5 bg-zinc-400 border-b border-dashed inline-block" /> 95% Confidence Band
               </span>
             </div>
-            <span>{skewData[nSkew - 1]?.date}</span>
+            <span className="tabular-nums">{skewData[nSkew - 1]?.date}</span>
           </div>
         </div>
       </div>
@@ -520,7 +592,7 @@ export function AnalysisOverviewTab({
         </div>
 
         <div className="mt-4 overflow-x-auto">
-          <table className="w-full text-xs text-left">
+          <table className="table-sticky-first w-full text-xs text-left">
             <thead>
               <tr className="border-b border-zinc-200 dark:border-zinc-800 text-zinc-400 font-mono">
                 <th className="py-2.5 px-3">Horizon Lag (q)</th>
@@ -604,11 +676,11 @@ export function AnalysisOverviewTab({
               </select>
             </div>
 
-            <div className="inline-flex p-0.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs">
+            <div className="scrollbar-none inline-flex max-w-full overflow-x-auto p-0.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs">
               <button
                 type="button"
                 onClick={() => onDecompModelChange('additive')}
-                className={`px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer ${
+                className={`shrink-0 px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer ${
                   decompModel === 'additive'
                     ? 'bg-white dark:bg-zinc-800 text-gold-600 dark:text-gold-400 shadow-xs'
                     : 'text-zinc-500 hover:text-zinc-900'
@@ -619,7 +691,7 @@ export function AnalysisOverviewTab({
               <button
                 type="button"
                 onClick={() => onDecompModelChange('multiplicative')}
-                className={`px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer ${
+                className={`shrink-0 px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer ${
                   decompModel === 'multiplicative'
                     ? 'bg-white dark:bg-zinc-800 text-gold-600 dark:text-gold-400 shadow-xs'
                     : 'text-zinc-500 hover:text-zinc-900'

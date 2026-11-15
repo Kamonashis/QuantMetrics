@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { RollingVolSeries } from '@/lib/quant-engine';
+import { useChartSize } from '@/lib/use-chart-size';
 
 interface RollingVolatilityChartProps {
   series: RollingVolSeries[];
@@ -14,6 +15,7 @@ export function RollingVolatilityChart({
   series,
   title = 'Rolling Annualized Volatility (σ × √252)',
 }: RollingVolatilityChartProps) {
+  const { ref, size } = useChartSize<HTMLDivElement>();
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
   if (!series || series.length === 0 || !series[0].values.length) {
@@ -23,6 +25,10 @@ export function RollingVolatilityChart({
       </div>
     );
   }
+
+  const width = size.width;
+  const height = size.height;
+  const ready = width > 0;
 
   const n = series[0].values.length;
   const dates = series[0].values.map((v) => v.date);
@@ -36,15 +42,14 @@ export function RollingVolatilityChart({
   }
   maxVol = Math.max(0.2, maxVol * 1.15);
 
-  const width = 800;
-  const height = 270;
-  const padLeft = 55;
-  const padRight = 20;
-  const padTop = 20;
-  const padBottom = 30;
-
+  const padLeft = 46;
+  const padRight = 14;
+  const padTop = 16;
+  const padBottom = 28;
   const chartW = width - padLeft - padRight;
   const chartH = height - padTop - padBottom;
+  // Density-adaptive x labels: 3 on xs, 5 otherwise
+  const xTickPcts = width < 640 ? [0, 0.5, 1] : [0, 0.25, 0.5, 0.75, 1];
 
   const getX = (i: number) => padLeft + (i / Math.max(1, n - 1)) * chartW;
   const getY = (val: number) => padTop + chartH - (val / maxVol) * chartH;
@@ -99,10 +104,12 @@ export function RollingVolatilityChart({
         </div>
       </div>
 
-      <div className="relative w-full aspect-[8/2.7] min-h-[200px]">
+      <div ref={ref} className="chart-frame">
+        {ready && (
         <svg
-          viewBox={`0 0 ${width} ${height}`}
-          className="w-full h-full cursor-crosshair overflow-visible"
+          width={width}
+          height={height}
+          className="block h-full w-full cursor-crosshair"
           onMouseMove={handleMouseMove}
           onMouseLeave={() => setHoverIndex(null)}
         >
@@ -173,24 +180,25 @@ export function RollingVolatilityChart({
           )}
 
           {/* Date ticks */}
-          {[0, 0.25, 0.5, 0.75, 1].map((pct, idx) => {
+          {xTickPcts.map((pct, idx) => {
             const i = Math.round(pct * (n - 1));
             return (
               <text
                 key={idx}
                 x={getX(i)}
-                y={height - 6}
-                textAnchor="middle"
-                className="text-[10px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
+                y={height - 8}
+                textAnchor={idx === 0 ? 'start' : idx === xTickPcts.length - 1 ? 'end' : 'middle'}
+                className="text-[9px] sm:text-[10px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
               >
                 {dates[i]}
               </text>
             );
           })}
         </svg>
+        )}
       </div>
 
-      <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400 mt-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-500 dark:text-zinc-400 mt-2">
         <span>Cursor Date: <span className="font-mono text-zinc-800 dark:text-zinc-200 font-semibold">{activeDate}</span></span>
         <span>Annualized Factor: <span className="font-mono">√252 ≈ 15.874</span></span>
       </div>

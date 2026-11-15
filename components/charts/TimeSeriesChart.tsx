@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { PriceBar } from '@/lib/quant-engine';
+import { useChartSize } from '@/lib/use-chart-size';
 
 export interface StructuralBreakMarker {
   date: string;
@@ -36,7 +37,10 @@ export function TimeSeriesChart({
   breakPoints = [],
   cusumSqPoints = [],
 }: TimeSeriesChartProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const { ref, size } = useChartSize<HTMLDivElement>();
+  const width = size.width;
+  const height = size.height;
+  const ready = width > 0;
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [showBreaks, setShowBreaks] = useState<boolean>(true);
   const [showCusumCurve, setShowCusumCurve] = useState<boolean>(false);
@@ -59,12 +63,10 @@ export function TimeSeriesChart({
   const yMin = Math.max(0, minPrice - pricePadding);
   const yMax = maxPrice + pricePadding;
 
-  const width = 800;
-  const height = 340;
-  const padLeft = 60;
-  const padRight = 20;
-  const padTop = 24;
-  const padBottom = showVolume ? 70 : 30;
+  const padLeft = width < 480 ? 44 : 60;
+  const padRight = 16;
+  const padTop = 20;
+  const padBottom = showVolume ? 64 : 28;
 
   const chartW = width - padLeft - padRight;
   const chartH = height - padTop - padBottom;
@@ -161,11 +163,12 @@ export function TimeSeriesChart({
     return { val, yPos };
   });
 
-  // X-axis date labels (5 dates)
-  const xLabelsCount = 5;
+  // X-axis date labels: 3 on xs (avoid collisions), 5 otherwise
+  const xLabelsCount = width < 640 ? 3 : 5;
   const xLabels = Array.from({ length: xLabelsCount }, (_, idx) => {
     const i = Math.round((idx / (xLabelsCount - 1)) * (bars.length - 1));
-    return { date: bars[i].date, xPos: getX(i) };
+    const edge: 'start' | 'middle' | 'end' = idx === 0 ? 'start' : idx === xLabelsCount - 1 ? 'end' : 'middle';
+    return { date: bars[i].date, xPos: getX(i), edge };
   });
 
   return (
@@ -266,10 +269,12 @@ export function TimeSeriesChart({
       )}
 
       {/* Primary Price SVG Chart */}
-      <div ref={containerRef} className="relative w-full aspect-[8/3.4] min-h-[240px]">
+      <div ref={ref} className="chart-frame">
+        {ready && (
         <svg
-          viewBox={`0 0 ${width} ${height}`}
-          className="w-full h-full cursor-crosshair overflow-visible select-none"
+          width={width}
+          height={height}
+          className="block h-full w-full cursor-crosshair select-none"
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
         >
@@ -414,13 +419,13 @@ export function TimeSeriesChart({
           />
 
           {/* X Axis dates */}
-          {xLabels.map(({ date, xPos }) => (
+          {xLabels.map(({ date, xPos, edge }) => (
             <text
               key={date}
               x={xPos}
               y={height - 2}
-              textAnchor="middle"
-              className="text-[10px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
+              textAnchor={edge}
+              className="text-[9px] sm:text-[10px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
             >
               {date}
             </text>
@@ -449,6 +454,7 @@ export function TimeSeriesChart({
             </g>
           )}
         </svg>
+        )}
       </div>
 
       {/* Optional Interactive CUSUM S_k Trajectory Sub-Chart */}
@@ -478,7 +484,7 @@ export function TimeSeriesChart({
           </div>
 
           <div className="relative w-full h-[110px]">
-            <svg viewBox={`0 0 ${width} 110`} className="w-full h-full overflow-visible">
+            <svg width={width} height={110} className="block h-full w-full">
               {/* Background bounding box */}
               <rect
                 x={padLeft}

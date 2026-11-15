@@ -1,6 +1,11 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Never let the PAGE scroll horizontally; inner scrollers are unaffected */
+html, body {
+  overflow-x: clip;
+}
+
 @theme {
   /* Champagne gold accent scale */
   --color-gold-50: #fbf6ea;
@@ -117,6 +122,87 @@
     linear-gradient(var(--hairline) 1px, transparent 1px),
     linear-gradient(90deg, var(--hairline) 1px, transparent 1px);
   background-size: 44px 44px;
+}
+
+/* ---------- Chart frame: reserved heights (no CLS, no fixed pixel boxes) ---------- */
+/* Mirrored by CHART_FRAME_HEIGHTS in lib/use-chart-size.ts — keep in sync. */
+.chart-frame {
+  position: relative;
+  width: 100%;
+  height: 220px;
+  contain: layout paint;
+}
+@media (min-width: 640px) {
+  .chart-frame { height: 280px; }
+}
+@media (min-width: 1024px) {
+  .chart-frame { height: 340px; }
+}
+@media (min-width: 1600px) {
+  .chart-frame { height: 380px; }
+}
+.chart-frame-sm {
+  position: relative;
+  width: 100%;
+  height: 140px;
+  contain: layout paint;
+}
+@media (min-width: 640px) {
+  .chart-frame-sm { height: 160px; }
+}
+.chart-skeleton {
+  position: absolute;
+  inset: 0;
+  border-radius: 0.75rem;
+  background: var(--bg-inset);
+  animation: chart-pulse 1.6s ease-in-out infinite;
+}
+@keyframes chart-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 0.9; }
+}
+
+/* ---------- Fluid card grid: intrinsic, gap-driven, no fixed tracks ---------- */
+.grid-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(380px, 100%), 1fr));
+  gap: clamp(8px, 1vw, 20px);
+}
+/* Odd-count trailing card spans the remaining track(s) instead of leaving a void */
+.grid-cards-fill > :last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
+/* ---------- Chips / tab strips: horizontal scroll, hidden scrollbar, edge fade ---------- */
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.edge-fade-x {
+  mask-image: linear-gradient(to right, transparent, black 18px, black calc(100% - 18px), transparent);
+  -webkit-mask-image: linear-gradient(to right, transparent, black 18px, black calc(100% - 18px), transparent);
+}
+
+/* Tables inside cards: inner horizontal scroller keeps the PAGE free of overflow,
+   sticky first column keeps row identity visible */
+.table-sticky-first {
+  min-width: 680px;
+}
+.table-sticky-first th:first-child,
+.table-sticky-first td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  background: var(--bg-panel);
+  box-shadow: 1px 0 0 var(--hairline);
+}
+
+/* Safe-area padding for the <768px bottom tab bar */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 .mask-radial-fade {
@@ -236,7 +322,8 @@ math mo {
 @media (prefers-reduced-motion: reduce) {
   .animate-marquee,
   .animate-shimmer-sweep,
-  .animate-ping-dot {
+  .animate-ping-dot,
+  .chart-skeleton {
     animation: none !important;
   }
 }

@@ -6,6 +6,7 @@ import {
   GarchForecastPoint,
   EwmaSummary,
 } from '@/lib/quant-engine';
+import { useChartSize } from '@/lib/use-chart-size';
 
 interface VolatilityForecastChartProps {
   dates: string[];
@@ -30,6 +31,7 @@ export function VolatilityForecastChart({
   const [showGARCH, setShowGARCH] = useState(true);
   const [showHist, setShowHist] = useState(true);
   const [hoverIndex, setHoverIndex] = useState<{ type: 'hist' | 'fc'; idx: number } | null>(null);
+  const { ref, size } = useChartSize<HTMLDivElement>();
 
   const nHist = dates.length;
   const nFc = forecastPoints.length;
@@ -45,12 +47,13 @@ export function VolatilityForecastChart({
   forecastPoints.forEach((p) => { if (p.upper95 > maxV) maxV = p.upper95; });
   maxV = Math.max(0.2, maxV * 1.15);
 
-  const width = 850;
-  const height = 320;
-  const padLeft = 55;
-  const padRight = 30;
-  const padTop = 20;
-  const padBottom = 35;
+  const width = size.width;
+  const height = size.height;
+  const ready = width > 0;
+  const padLeft = 46;
+  const padRight = 16;
+  const padTop = 16;
+  const padBottom = 30;
 
   const chartW = width - padLeft - padRight;
   const chartH = height - padTop - padBottom;
@@ -165,10 +168,12 @@ export function VolatilityForecastChart({
         </div>
       </div>
 
-      <div className="relative w-full aspect-[8.5/3.2] min-h-[220px]">
+      <div ref={ref} className="chart-frame">
+        {ready && (
         <svg
-          viewBox={`0 0 ${width} ${height}`}
-          className="w-full h-full cursor-crosshair overflow-visible"
+          width={width}
+          height={height}
+          className="block h-full w-full cursor-crosshair"
           onMouseMove={handleMouseMove}
           onMouseLeave={() => setHoverIndex(null)}
         >
@@ -221,8 +226,9 @@ export function VolatilityForecastChart({
             strokeDasharray="4 4"
           />
           <text
-            x={width - padRight + 4}
+            x={width - padRight - 2}
             y={getY(garchSummary.longRunAnnualizedVol) + 3}
+            textAnchor="end"
             className="text-[9px] font-mono fill-gold-500 tabular-nums"
           >
             V_L: {(garchSummary.longRunAnnualizedVol * 100).toFixed(1)}%
@@ -247,12 +253,12 @@ export function VolatilityForecastChart({
             Historical
           </text>
           <text
-            x={splitX + 6}
+            x={splitX > width - 110 ? width - 4 : splitX + 6}
             y={padTop + 12}
-            textAnchor="start"
+            textAnchor={splitX > width - 110 ? 'end' : 'start'}
             className="text-[10px] font-medium fill-gold-500"
           >
-            Forecast Projection →
+            Forecast →
           </text>
 
           {/* Confidence Cones */}
@@ -349,6 +355,7 @@ export function VolatilityForecastChart({
             +{nFc}d ({forecastPoints[nFc - 1]?.date})
           </text>
         </svg>
+        )}
       </div>
 
       {/* Model Diagnostic Footnotes & Parameter Summary */}

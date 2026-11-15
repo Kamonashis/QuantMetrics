@@ -98,7 +98,7 @@ export function ReturnDistributionChart({
       </div>
 
       <div className="relative w-full aspect-[6/2.4] min-h-[180px]">
-        <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible">
+        <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full">
           {/* Grid lines */}
           {[0, 0.5, 1].map((pct) => {
             const count = Math.round(pct * maxCount);

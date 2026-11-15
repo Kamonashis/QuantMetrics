@@ -6,6 +6,7 @@ import {
   HarRvModelSummary,
   forecastHarRv,
 } from '@/lib/quant-engine';
+import { useChartSize } from '@/lib/use-chart-size';
 
 interface HarRvForecastChartProps {
   dailyRV: DailyRealizedVol[];
@@ -19,6 +20,7 @@ export function HarRvForecastChart({
   ticker,
 }: HarRvForecastChartProps) {
   const [horizon, setHorizon] = useState<number>(10);
+  const { ref, size } = useChartSize<HTMLDivElement>();
 
   const rvSeries = dailyRV.map((d) => d.realizedVariance);
   const forecastPoints = forecastHarRv(harSummary, rvSeries, horizon);
@@ -32,12 +34,13 @@ export function HarRvForecastChart({
   forecastPoints.forEach((p) => { if (p.upper95 > maxVol) maxVol = p.upper95; });
   maxVol = Math.max(0.2, maxVol * 1.15);
 
-  const width = 800;
-  const height = 280;
-  const padLeft = 55;
-  const padRight = 30;
-  const padTop = 20;
-  const padBottom = 35;
+  const width = size.width;
+  const height = size.height;
+  const ready = width > 0;
+  const padLeft = 46;
+  const padRight = 18;
+  const padTop = 16;
+  const padBottom = 30;
 
   const chartW = width - padLeft - padRight;
   const chartH = height - padTop - padBottom;
@@ -99,8 +102,9 @@ export function HarRvForecastChart({
         </div>
       </div>
 
-      <div className="relative w-full aspect-[8/2.8] min-h-[200px]">
-        <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible">
+      <div ref={ref} className="chart-frame">
+        {ready && (
+        <svg width={width} height={height} className="block h-full w-full">
           <defs>
             <linearGradient id="harGradient" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="#0ea5e9" stopOpacity="0.25" />
@@ -207,6 +211,7 @@ export function HarRvForecastChart({
             +{horizon}d Forecast
           </text>
         </svg>
+        )}
       </div>
 
       {/* Model Parameter Table & GARCH Comparison Scoreboard */}

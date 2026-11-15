@@ -44,6 +44,29 @@ export function VolatilityView({ ticker, bars, companyName, isLoading }: Volatil
   const [refreshKey, setRefreshKey] = useState(0);
   const [subTab, setSubTab] = useState<SubTab>('t1');
 
+  // Deep-link: ?vol=t3 restores the selection (replaceState keeps history clean).
+  // Deferred 0ms so the setState doesn't cascade synchronously inside the effect.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const timer = setTimeout(() => {
+      const t = new URLSearchParams(window.location.search).get('vol');
+      const valid: SubTab[] = ['t1', 't2', 't3', 't4', 't5', 't6', 't7'];
+      if (t && (valid as string[]).includes(t)) {
+        setSubTab(t as SubTab);
+      }
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const handleSubTabChange = (id: SubTab) => {
+    setSubTab(id);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('vol', id);
+      window.history.replaceState(null, '', url.toString());
+    }
+  };
+
   // Fetch chain + accrued IV history for the active ticker
   useEffect(() => {
     let cancelled = false;
@@ -105,7 +128,7 @@ export function VolatilityView({ ticker, bars, companyName, isLoading }: Volatil
   const changePct = chain?.quote?.changePct ?? null;
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-12">
+    <div className="space-y-6">
       {/* Header */}
       <div className="panel p-5">
         <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
@@ -182,11 +205,10 @@ export function VolatilityView({ ticker, bars, companyName, isLoading }: Volatil
         </div>
       </div>
 
-      {/* Sub-tab strip */}
-      <div className="overflow-x-auto pb-1">
+      {/* Sub-tab strip — scrollable chips, deep-linked via ?vol= */}
         <AnimatedTabs
           value={subTab}
-          onChange={(id) => setSubTab(id as SubTab)}
+          onChange={(id) => handleSubTabChange(id as SubTab)}
           tabs={[
             { id: 't1', label: 'State', icon: Gauge, meta: 'T1' },
             { id: 't2', label: 'Surface & Smile', icon: Waves, meta: 'T2' },
@@ -197,7 +219,6 @@ export function VolatilityView({ ticker, bars, companyName, isLoading }: Volatil
             { id: 't7', label: 'Dealer Positioning & Trap', icon: Magnet, meta: 'T7' },
           ]}
         />
-      </div>
 
       {/* Loading shimmer while the chain lands */}
       {chainLoading && !chain && (

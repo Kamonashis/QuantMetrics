@@ -40,6 +40,29 @@ export function FnoView({ ticker, onTickerChange, bars, companyName, isLoading }
   const [refreshKey, setRefreshKey] = useState(0);
   const [subTab, setSubTab] = useState<SubTab>('chain');
 
+  // Deep-link: ?fno=pcr restores the selection (replaceState keeps history clean).
+  // Deferred 0ms so the setState doesn't cascade synchronously inside the effect.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const timer = setTimeout(() => {
+      const t = new URLSearchParams(window.location.search).get('fno');
+      const valid: SubTab[] = ['chain', 'oi', 'pcr', 'maxpain', 'termstructure', 'expectedmove'];
+      if (t && (valid as string[]).includes(t)) {
+        setSubTab(t as SubTab);
+      }
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const handleSubTabChange = (id: SubTab) => {
+    setSubTab(id);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('fno', id);
+      window.history.replaceState(null, '', url.toString());
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
     fetch(`/api/fno?mode=panel&symbol=${encodeURIComponent(ticker.toUpperCase())}`)
@@ -66,7 +89,7 @@ export function FnoView({ ticker, onTickerChange, bars, companyName, isLoading }
   const changePct = panel?.quote?.changePct ?? null;
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-12">
+    <div className="space-y-6">
       {/* Header */}
       <div className="panel p-5">
         <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
@@ -146,11 +169,10 @@ export function FnoView({ ticker, onTickerChange, bars, companyName, isLoading }
         </div>
       </div>
 
-      {/* Sub-tab strip */}
-      <div className="overflow-x-auto pb-1">
+      {/* Sub-tab strip — scrollable chips, deep-linked via ?fno= */}
         <AnimatedTabs
           value={subTab}
-          onChange={(id) => setSubTab(id as SubTab)}
+          onChange={(id) => handleSubTabChange(id as SubTab)}
           tabs={[
             { id: 'chain', label: 'Option Chain', icon: LayoutList, meta: 'T1' },
             { id: 'oi', label: 'OI Positioning', icon: Waves, meta: 'T2' },
@@ -160,7 +182,6 @@ export function FnoView({ ticker, onTickerChange, bars, companyName, isLoading }
             { id: 'expectedmove', label: 'Expected vs Realized', icon: ArrowLeftRight, meta: 'T6' },
           ]}
         />
-      </div>
 
       {/* Loading shimmer */}
       {panelLoading && !panel && (

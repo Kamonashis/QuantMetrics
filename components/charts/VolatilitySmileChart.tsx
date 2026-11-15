@@ -4,6 +4,7 @@ import React, { useMemo } from 'react';
 import type { SliceOut } from '@/components/views/volatility/types';
 import { sviTotalVariance, fitLocalSmile, evalLocalSmileIv, type LocalSmileFit } from '@/lib/options';
 import { AlgoSelect } from '@/components/ui/AlgoSelect';
+import { useChartSize } from '@/lib/use-chart-size';
 
 export type SmileFitMethod = 'svi' | 'ssvi' | 'spline';
 
@@ -25,6 +26,7 @@ const FIT_LABELS: Record<SmileFitMethod, string> = {
  * 'svi' = server-side raw SVI fit; 'ssvi'/'spline' = refit client-side from raw quotes.
  */
 export function VolatilitySmileChart({ slice, fitMethod = 'svi', onFitMethodChange }: VolatilitySmileChartProps) {
+  const { ref, size } = useChartSize<HTMLDivElement>();
   // Local refit for ssvi/spline from the raw quotes in the slice
   const localFit = useMemo<LocalSmileFit | null>(() => {
     if (!slice || fitMethod === 'svi') return null;
@@ -75,8 +77,9 @@ export function VolatilitySmileChart({ slice, fitMethod = 'svi', onFitMethodChan
     );
   }
 
-  const width = 720;
-  const height = 260;
+  const width = size.width;
+  const height = size.height;
+  const ready = width > 0;
   const pad = { l: 36, r: 12, t: 12, b: 26 };
 
   const ks = slice.points.map((p) => p.k);
@@ -111,7 +114,7 @@ export function VolatilitySmileChart({ slice, fitMethod = 'svi', onFitMethodChan
   const methodLabel = activeMethod === 'svi-fallback' ? 'SVI (fallback)' : FIT_LABELS[activeMethod as SmileFitMethod];
 
   return (
-    <div className="w-full overflow-x-auto">
+    <div>
       <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
         <AlgoSelect
           ariaLabel="Smile fitting method"
@@ -131,7 +134,9 @@ export function VolatilitySmileChart({ slice, fitMethod = 'svi', onFitMethodChan
         )}
       </div>
 
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[560px]" role="img" aria-label="Volatility smile">
+      <div ref={ref} className="chart-frame">
+      {ready && (
+      <svg width={width} height={height} className="block h-full w-full" role="img" aria-label="Volatility smile">
         {/* gridlines */}
         {yTicks.map((iv, i) => (
           <g key={i}>
@@ -168,6 +173,8 @@ export function VolatilitySmileChart({ slice, fitMethod = 'svi', onFitMethodChan
         <text x={xOf(0)} y={height - 8} fontSize="9" fill="#8b8b93" fontFamily="var(--font-mono)" textAnchor="middle">0 (FWD)</text>
         <text x={xOf(kMax)} y={height - 8} fontSize="9" fill="#8b8b93" fontFamily="var(--font-mono)" textAnchor="end">k +{kMax.toFixed(2)}</text>
       </svg>
+      )}
+      </div>
 
       {/* Fit diagnostics strip */}
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-[var(--hairline)] pt-2 font-mono text-[10px] text-zinc-500 dark:text-zinc-400">

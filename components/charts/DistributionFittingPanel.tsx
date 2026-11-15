@@ -6,6 +6,7 @@ import {
   fitParametricDistributions,
   FittedDistribution,
 } from '@/lib/distribution-engine';
+import { useChartSize } from '@/lib/use-chart-size';
 import {
   StudentTEquation,
   HansenSkewTEquation,
@@ -62,9 +63,10 @@ export function DistributionFittingPanel({
     }));
   };
 
-  // SVG dimensions
-  const width = 640;
-  const height = 260;
+  const { ref: distRef, size: distSize } = useChartSize<HTMLDivElement>();
+  const width = distSize.width;
+  const height = distSize.height;
+  const distReady = width > 0;
   const padLeft = 45;
   const padRight = 20;
   const padTop = 24;
@@ -219,8 +221,9 @@ export function DistributionFittingPanel({
       </div>
 
       {/* SVG Canvas: Empirical Histogram & Multi-Distribution Curves */}
-      <div className="relative w-full aspect-21/9 min-h-[200px] max-h-[300px]">
-        <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible select-none">
+      <div ref={distRef} className="chart-frame">
+        {distReady && (
+        <svg width={width} height={height} className="block h-full w-full select-none">
           {/* Grid lines */}
           {[0, 0.5, 1].map((pct) => {
             const count = Math.round(pct * maxCount);
@@ -335,6 +338,7 @@ export function DistributionFittingPanel({
             );
           })}
         </svg>
+        )}
       </div>
 
       {/* Model Ranking and Goodness-of-Fit Table */}

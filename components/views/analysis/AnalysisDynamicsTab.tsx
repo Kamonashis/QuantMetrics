@@ -10,6 +10,7 @@ import { DailyRealizedVol, DiurnalPoint } from '@/lib/quant-engine';
 import { IntradayDiurnalChart } from '@/components/charts/IntradayDiurnalChart';
 import { JumpDecompositionChart } from '@/components/charts/JumpDecompositionChart';
 import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
+import { useChartSize } from '@/lib/use-chart-size';
 import {
   NewsImpactEquation,
   SignaturePlotEquation,
@@ -60,7 +61,8 @@ export function AnalysisDynamicsTab({
     };
   }, [dailyRealizedVol]);
 
-  // News Impact pure SVG scaling
+  // News Impact measured scaling
+  const { ref: newsRef, size: newsSize } = useChartSize<HTMLDivElement>();
   const nNews = newsImpactPoints.length;
   let maxNewsVar = 0.0001;
   for (const p of newsImpactPoints) {
@@ -68,15 +70,17 @@ export function AnalysisDynamicsTab({
     if (p.symmetricVariance > maxNewsVar) maxNewsVar = p.symmetricVariance;
   }
   maxNewsVar *= 1.1;
-
-  const newsW = 700;
-  const newsH = 240;
-  const nPadL = 50;
-  const nPadR = 25;
-  const nPadT = 20;
-  const nPadB = 35;
-  const ncW = newsW - nPadL - nPadR;
-  const ncH = newsH - nPadT - nPadB;
+  const newsW = newsSize.width;
+  const newsH = newsSize.height;
+  const newsReady = newsW > 0;
+  const nPadL = 46;
+  const nPadR = 18;
+  const nPadT = 14;
+  const nPadB = 28;
+  const ncW = Math.max(1, newsW - nPadL - nPadR);
+  const ncH = Math.max(1, newsH - nPadT - nPadB);
+  const yDecimals = maxNewsVar < 0.001 ? 5 : maxNewsVar < 0.01 ? 4 : maxNewsVar < 1 ? 3 : 2;
+  const shockTicks = newsW < 640 ? [-5, -2, 0, 2, 5] : [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5];
 
   const getNewsX = (i: number) => nPadL + (i / Math.max(1, nNews - 1)) * ncW;
   const getNewsY = (val: number) => nPadT + ncH - (val / maxNewsVar) * ncH;
@@ -84,7 +88,8 @@ export function AnalysisDynamicsTab({
   const activeNewsIdx = newsHoverIdx !== null ? newsHoverIdx : Math.floor(nNews / 2);
   const activeNewsPoint = newsImpactPoints[activeNewsIdx] || { shockStd: 0, symmetricVariance: 0, asymmetricVarianceGjr: 0 };
 
-  // Volatility Signature pure SVG scaling
+  // Volatility Signature measured scaling
+  const { ref: sigRef, size: sigSize } = useChartSize<HTMLDivElement>();
   const nSig = volSignaturePoints.length;
   let minSigRv = Infinity;
   let maxSigRv = -Infinity;
@@ -97,14 +102,17 @@ export function AnalysisDynamicsTab({
   const sigMax = maxSigRv + sigPad;
   const sigRange = sigMax - sigMin || 1;
 
-  const sigW = 550;
-  const sigH = 210;
-  const sPadL = 50;
-  const sPadR = 25;
-  const sPadT = 20;
-  const sPadB = 35;
-  const scW = sigW - sPadL - sPadR;
-  const scH = sigH - sPadT - sPadB;
+  const sigW = sigSize.width;
+  const sigH = sigSize.height;
+  const sigReady = sigW > 0;
+  const sPadL = 46;
+  const sPadR = 18;
+  const sPadT = 14;
+  const sPadB = 28;
+  const scW = Math.max(1, sigW - sPadL - sPadR);
+  const scH = Math.max(1, sigH - sPadT - sPadB);
+  // Density-adaptive x labels: all intervals on ≥640px, every other below
+  const sigTickIdx = sigW < 640 ? [0, 2, 4, 6] : [0, 1, 2, 3, 4, 5, 6];
 
   const getSigX = (i: number) => sPadL + (i / Math.max(1, nSig - 1)) * scW;
   const getSigY = (val: number) => sPadT + scH - ((val - sigMin) / sigRange) * scH;
@@ -112,7 +120,8 @@ export function AnalysisDynamicsTab({
   const activeSigIdx = sigHoverIdx !== null ? sigHoverIdx : 0;
   const activeSigPoint = volSignaturePoints[activeSigIdx] || { samplingMinutes: 1, annualizedRv: 0 };
 
-  // Overnight vs Intraday Split scaling
+  // Overnight vs Intraday Split measured scaling
+  const { ref: splitRef, size: splitSize } = useChartSize<HTMLDivElement>();
   const nSplit = overnightIntradaySplit.length;
   let maxSplitVar = 0.0001;
   for (const p of overnightIntradaySplit) {
@@ -121,14 +130,16 @@ export function AnalysisDynamicsTab({
   }
   maxSplitVar *= 1.15;
 
-  const spW = 550;
-  const spH = 210;
-  const spPadL = 45;
-  const spPadR = 20;
-  const spPadT = 20;
-  const spPadB = 30;
-  const spcW = spW - spPadL - spPadR;
-  const spcH = spH - spPadT - spPadB;
+  const spW = splitSize.width;
+  const spH = splitSize.height;
+  const splitReady = spW > 0;
+  const spPadL = 44;
+  const spPadR = 14;
+  const spPadT = 12;
+  const spPadB = 28;
+  const spcW = Math.max(1, spW - spPadL - spPadR);
+  const spcH = Math.max(1, spH - spPadT - spPadB);
+  const splitXTicks = [0, 0.25, 0.5, 0.75, 1].map((pct) => Math.round(pct * Math.max(0, nSplit - 1)));
 
   const getSpX = (i: number) => spPadL + (i / Math.max(1, nSplit - 1)) * spcW;
   const getSpY = (val: number) => spPadT + spcH - (val / maxSplitVar) * spcH;
@@ -165,11 +176,14 @@ export function AnalysisDynamicsTab({
           </div>
         </div>
 
-        <div className="mt-4">
+        <div className="mt-2">
           <ChartFullscreen title="News Impact Curve (Symmetric GARCH vs. Asymmetric GJR-GARCH)">
+          <div ref={newsRef} className="chart-frame">
+          {newsReady && (
           <svg
-            viewBox={`0 0 ${newsW} ${newsH}`}
-            className="w-full h-64 select-none"
+            width={newsW}
+            height={newsH}
+            className="block h-full w-full select-none"
             onMouseMove={(e) => {
               const rect = e.currentTarget.getBoundingClientRect();
               const mouseX = e.clientX - rect.left;
@@ -195,12 +209,43 @@ export function AnalysisDynamicsTab({
                     strokeWidth={0.5}
                     opacity={0.3}
                   />
-                  <text x={nPadL - 8} y={yPos + 3} textAnchor="end" fontSize="10" fill="#64748b" className="font-mono">
-                    {yVal.toFixed(1)}
+                  <text x={nPadL - 8} y={yPos + 3} textAnchor="end" fontSize="10" fill="#64748b" className="font-mono tabular-nums">
+                    {yVal.toFixed(yDecimals)}
                   </text>
                 </g>
               );
             })}
+
+            {/* X-axis baseline + σ shock ticks (density-adaptive) */}
+            <line
+              x1={nPadL}
+              y1={newsH - nPadB}
+              x2={newsW - nPadR}
+              y2={newsH - nPadB}
+              stroke="currentColor"
+              className="text-zinc-200 dark:text-zinc-800"
+              strokeWidth={1}
+            />
+            {shockTicks.map((s) => (
+              <text
+                key={s}
+                x={nPadL + ((s + 5) / 10) * ncW}
+                y={newsH - nPadB + 13}
+                textAnchor="middle"
+                className="text-[8px] sm:text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
+              >
+                {s > 0 ? `+${s}σ` : `${s}σ`}
+              </text>
+            ))}
+            <text
+              x={12}
+              y={nPadT + ncH / 2}
+              textAnchor="middle"
+              transform={`rotate(-90 12 ${nPadT + ncH / 2})`}
+              className="text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 uppercase"
+            >
+              Variance
+            </text>
 
             {/* Zero shock vertical line */}
             <line
@@ -245,11 +290,12 @@ export function AnalysisDynamicsTab({
               />
             )}
           </svg>
+          )}
+          </div>
           </ChartFullscreen>
         </div>
 
-        <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono mt-1">
-          <span>-5σ (Catastrophic Selloff)</span>
+        <div className="flex items-center justify-center text-[11px] text-zinc-400 font-mono mt-1">
           <div className="flex items-center gap-4">
             <span className="inline-flex items-center gap-1.5">
               <span className="w-3 h-0.5 bg-zinc-400 border-b border-dashed inline-block" /> Symmetric GARCH(1,1)
@@ -258,7 +304,6 @@ export function AnalysisDynamicsTab({
               <span className="w-3 h-0.5 bg-gold-500 inline-block" /> GJR-GARCH (Leverage γ &gt; 0)
             </span>
           </div>
-          <span>+5σ (Extreme Rally)</span>
         </div>
 
         <div className="mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-800/60 text-xs text-zinc-500 dark:text-zinc-400 flex items-center justify-between">
@@ -273,10 +318,10 @@ export function AnalysisDynamicsTab({
       </div>
 
       {/* Volatility Signature Plot & Overnight vs Intraday Split */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid-cards">
         {/* Volatility Signature Plot */}
         <div className="panel p-5">
-          <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800/60">
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-zinc-100 dark:border-zinc-800/60">
             <div>
               <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
                 Volatility Signature Plot (Andersen et al., 2000)
@@ -290,11 +335,14 @@ export function AnalysisDynamicsTab({
             </div>
           </div>
 
-          <div className="mt-4">
+          <div className="mt-2">
             <ChartFullscreen title="Volatility Signature Plot — Realized Vol vs. Sampling Interval">
+            <div ref={sigRef} className="chart-frame">
+            {sigReady && (
             <svg
-              viewBox={`0 0 ${sigW} ${sigH}`}
-              className="w-full h-52 select-none"
+              width={sigW}
+              height={sigH}
+              className="block h-full w-full select-none"
               onMouseMove={(e) => {
                 const rect = e.currentTarget.getBoundingClientRect();
                 const mouseX = e.clientX - rect.left;
@@ -318,6 +366,41 @@ export function AnalysisDynamicsTab({
                 );
               })}
 
+              {/* Y-axis title */}
+              <text
+                x={12}
+                y={sPadT + scH / 2}
+                textAnchor="middle"
+                transform={`rotate(-90 12 ${sPadT + scH / 2})`}
+                className="text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 uppercase"
+              >
+                Ann. RV
+              </text>
+
+              {/* X-axis baseline + sampling-interval ticks (density-adaptive) */}
+              <line
+                x1={sPadL}
+                y1={sigH - sPadB}
+                x2={sigW - sPadR}
+                y2={sigH - sPadB}
+                stroke="currentColor"
+                className="text-zinc-200 dark:text-zinc-800"
+                strokeWidth={1}
+              />
+              {volSignaturePoints.map((p, i) =>
+                sigTickIdx.includes(i) ? (
+                  <text
+                    key={`xtick-${p.samplingMinutes}`}
+                    x={getSigX(i)}
+                    y={sigH - sPadB + 13}
+                    textAnchor="middle"
+                    className="text-[8px] sm:text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
+                  >
+                    {p.samplingMinutes}m
+                  </text>
+                ) : null
+              )}
+
               {/* Signature Curve */}
               {nSig > 1 && (
                 <path
@@ -339,13 +422,9 @@ export function AnalysisDynamicsTab({
                 />
               ))}
             </svg>
+            )}
+            </div>
             </ChartFullscreen>
-          </div>
-
-          <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono mt-1">
-            <span>1m (High Noise)</span>
-            <span>Sampling Horizon</span>
-            <span>60m (Diffusion Plateau)</span>
           </div>
 
           <div className="mt-3 text-[11px] text-zinc-400">
@@ -356,7 +435,7 @@ export function AnalysisDynamicsTab({
 
         {/* Overnight vs Intraday Split */}
         <div className="panel p-5">
-          <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800/60">
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-zinc-100 dark:border-zinc-800/60">
             <div>
               <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
                 Overnight vs. Intraday Variance Decomposition
@@ -370,11 +449,14 @@ export function AnalysisDynamicsTab({
             </div>
           </div>
 
-          <div className="mt-4">
+          <div className="mt-2">
             <ChartFullscreen title="Overnight vs. Intraday Variance Split">
+            <div ref={splitRef} className="chart-frame">
+            {splitReady && (
             <svg
-              viewBox={`0 0 ${spW} ${spH}`}
-              className="w-full h-52 select-none"
+              width={spW}
+              height={spH}
+              className="block h-full w-full select-none"
               onMouseMove={(e) => {
                 const rect = e.currentTarget.getBoundingClientRect();
                 const mouseX = e.clientX - rect.left;
@@ -384,6 +466,41 @@ export function AnalysisDynamicsTab({
               }}
               onMouseLeave={() => setSplitHoverIdx(null)}
             >
+              {/* Y-axis title */}
+              <text
+                x={10}
+                y={spPadT + spcH / 2}
+                textAnchor="middle"
+                transform={`rotate(-90 10 ${spPadT + spcH / 2})`}
+                className="text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 uppercase"
+              >
+                RV
+              </text>
+
+              {/* X-axis baseline + date ticks */}
+              <line
+                x1={spPadL}
+                y1={spH - spPadB}
+                x2={spW - spPadR}
+                y2={spH - spPadB}
+                stroke="currentColor"
+                className="text-zinc-200 dark:text-zinc-800"
+                strokeWidth={1}
+              />
+              {splitXTicks.map((idx, i) =>
+                overnightIntradaySplit[idx] ? (
+                  <text
+                    key={`xtick-${i}`}
+                    x={getSpX(idx)}
+                    y={spH - spPadB + 13}
+                    textAnchor={i === 0 ? 'start' : i === splitXTicks.length - 1 ? 'end' : 'middle'}
+                    className="text-[8px] sm:text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
+                  >
+                    {overnightIntradaySplit[idx].date}
+                  </text>
+                ) : null
+              )}
+
               {/* Stacked Bars / Areas */}
               {overnightIntradaySplit.map((d, i) => {
                 const x = getSpX(i);
@@ -419,20 +536,20 @@ export function AnalysisDynamicsTab({
                 );
               })}
             </svg>
+            )}
+            </div>
             </ChartFullscreen>
           </div>
 
-          <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono mt-1">
-            <span>{overnightIntradaySplit[0]?.date}</span>
+          <div className="flex items-center justify-center text-[11px] text-zinc-400 font-mono mt-1">
             <div className="flex items-center gap-3">
               <span className="inline-flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 bg-gold-500 rounded-xs inline-block" /> Intraday RV
+                <span className="w-2.5 h-2.5 bg-[#10b981] rounded-xs inline-block" /> Intraday RV
               </span>
               <span className="inline-flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 bg-gold-500 rounded-xs inline-block" /> Overnight Gap Var
+                <span className="w-2.5 h-2.5 bg-[#DEC084] rounded-xs inline-block" /> Overnight Gap Var
               </span>
             </div>
-            <span>{overnightIntradaySplit[nSplit - 1]?.date}</span>
           </div>
 
           <div className="mt-3 text-[11px] text-zinc-400">
@@ -443,10 +560,10 @@ export function AnalysisDynamicsTab({
       </div>
 
       {/* Intraday 390-min Diurnal Profile & Jump Decomposition */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid-cards">
         {/* Diurnal U-Shape Profile */}
         <div className="panel p-5">
-          <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800/60">
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-zinc-100 dark:border-zinc-800/60">
             <div>
               <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
                 390-Minute Intraday Diurnal Volatility Profile
@@ -467,7 +584,7 @@ export function AnalysisDynamicsTab({
 
         {/* Jump Decomposition */}
         <div className="panel p-5">
-          <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800/60">
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-zinc-100 dark:border-zinc-800/60">
             <div>
               <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
                 Bipower Variation &amp; Jump Shock Decomposition

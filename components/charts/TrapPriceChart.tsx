@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { useChartSize } from '@/lib/use-chart-size';
 
 /**
  * Daily close line with the three dealer levels etched in:
@@ -20,6 +21,7 @@ export function TrapPriceChart({
   putWall: number | null;
   flip: number | null;
 }) {
+  const { ref, size } = useChartSize<HTMLDivElement>();
   if (closes.length < 10) {
     return (
       <div className="flex h-44 items-center justify-center rounded-xl border border-[var(--hairline)] bg-[var(--bg-inset)] text-xs text-zinc-400">
@@ -29,8 +31,9 @@ export function TrapPriceChart({
   }
 
   const data = closes.slice(-120);
-  const width = 640;
-  const height = 190;
+  const width = size.width;
+  const height = size.height;
+  const ready = width > 0;
   const pad = { l: 38, r: 26, t: 12, b: 20 };
 
   const levels = [callWall, putWall, flip, spot].filter((v): v is number => v !== null && isFinite(v));
@@ -59,8 +62,9 @@ export function TrapPriceChart({
   };
 
   return (
-    <div className="w-full overflow-x-auto">
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[480px]" role="img" aria-label="Price with dealer levels">
+    <div ref={ref} className="h-[170px] sm:h-[190px] 2xl:h-[220px] w-full contain-[layout_paint]">
+      {ready && (
+      <svg width={width} height={height} className="block h-full w-full" role="img" aria-label="Price with dealer levels">
         <path d={areaPath} fill="rgba(222,192,132,0.07)" stroke="none" />
         {levelLine(callWall, '#DEC084', 'CW')}
         {levelLine(putWall, '#e0655f', 'PW')}
@@ -77,6 +81,7 @@ export function TrapPriceChart({
         <text x={pad.l} y={height - 4} fontSize="8.5" fill="#8b8b93" fontFamily="var(--font-mono)">{data[0].date.slice(0, 7)}</text>
         <text x={width - pad.r} y={height - 4} fontSize="8.5" fill="#8b8b93" fontFamily="var(--font-mono)" textAnchor="end">{data[data.length - 1].date.slice(0, 7)}</text>
       </svg>
+      )}
     </div>
   );
 }

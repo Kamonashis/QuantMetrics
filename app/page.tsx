@@ -64,6 +64,29 @@ export default function App() {
   const todayStr = '2026-11-08';
   const oneYearAgoStr = '2025-11-08';
 
+  // Deep-link: ?view=analysis (plus tab params like ?tab=risk) restores the
+  // top-level view on mount. Deferred 0ms so the setState doesn't cascade in the effect.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const timer = setTimeout(() => {
+      const v = new URLSearchParams(window.location.search).get('view');
+      const valid: Array<typeof activeView> = ['home', 'analysis', 'modeling', 'correlation', 'regression', 'volatility', 'fno'];
+      if (v && (valid as string[]).includes(v)) {
+        setActiveView(v as typeof activeView);
+      }
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const navigateView = useCallback((view: typeof activeView) => {
+    setActiveView(view);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('view', view);
+      window.history.replaceState(null, '', url.toString());
+    }
+  }, []);
+
   // Shared Analysis Parameters
   const [activeTicker, setActiveTicker] = useState<string>('AAPL');
   const [resolution, setResolution] = useState<'daily' | 'intraday'>('daily');
@@ -270,21 +293,21 @@ export default function App() {
     `${activeTicker} Equity`;
 
   return (
-    <div className="min-h-screen bg-[#F5F4F1] dark:bg-[#08080A] text-zinc-900 dark:text-[#ECECF1] flex flex-col font-sans transition-colors">
+    <div className="min-h-dvh bg-[#F5F4F1] dark:bg-[#08080A] text-zinc-900 dark:text-[#ECECF1] flex flex-col font-sans transition-colors pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))] md:pb-0">
       {/* Top Navigation */}
       <Navbar
         activeView={activeView}
-        onViewChange={setActiveView}
+        onViewChange={navigateView}
         isDark={isDark}
         onToggleTheme={handleToggleTheme}
         activeTicker={activeTicker}
       />
 
-      {/* Main Content Area */}
-      <main className="flex-1 px-4 sm:px-6 py-6 max-w-7xl w-full mx-auto">
+      {/* Main Content Area — fluid shell: 2.2vw gutters, capped only ≥1920px */}
+      <main className="flex-1 w-full mx-auto px-[clamp(16px,2.2vw,48px)] pt-4 sm:pt-6 [@media(min-width:1920px)]:max-w-[2400px]">
         {activeView === 'home' && (
           <HomeView
-            onNavigate={setActiveView}
+            onNavigate={navigateView}
             tapeItems={tapeItems}
             onSelectPreset={(ticker) => {
               setActiveTicker(ticker);
@@ -357,7 +380,7 @@ export default function App() {
             resolution={resolution}
             onResolutionChange={setResolution}
             companyName={currentCompanyName}
-            onNavigateToAnalysis={() => setActiveView('analysis')}
+            onNavigateToAnalysis={() => navigateView('analysis')}
           />
         )}
 

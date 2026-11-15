@@ -78,7 +78,7 @@ export function ChartFullscreen({ title, subtitle, className, children }: ChartF
           onClick={() => changeOpen(true)}
           aria-label={expandLabel}
           title={expandLabel}
-          className="absolute right-1.5 top-1/2 z-20 inline-flex h-7 w-7 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md border border-zinc-200/80 dark:border-zinc-700/80 bg-white/85 dark:bg-zinc-900/85 text-zinc-500 dark:text-zinc-400 opacity-0 shadow-sm backdrop-blur-sm transition-opacity hover:border-gold-500/60 hover:text-gold-600 dark:hover:text-gold-400 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-gold-500 group-hover/chartfs:opacity-100 max-sm:opacity-100"
+          className="absolute right-1.5 top-1/2 z-20 inline-flex h-7 w-7 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md border border-zinc-200/80 dark:border-zinc-700/80 bg-white/85 dark:bg-zinc-900/85 text-zinc-500 dark:text-zinc-400 opacity-0 pointer-events-none shadow-sm backdrop-blur-sm transition-opacity hover:border-gold-500/60 hover:text-gold-600 dark:hover:text-gold-400 focus-visible:opacity-100 focus-visible:pointer-events-auto focus-visible:outline-2 focus-visible:outline-gold-500 group-hover/chartfs:opacity-100 group-hover/chartfs:pointer-events-auto max-sm:top-1.5 max-sm:translate-y-0 max-sm:opacity-100 max-sm:pointer-events-auto"
         >
           <Maximize2 className="h-3.5 w-3.5" />
         </button>

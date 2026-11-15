@@ -51,7 +51,7 @@ export const viewport: Viewport = {
 export default function RootLayout({children}: {children: React.ReactNode}) {
   return (
     <html lang="en" className={`dark ${spaceGrotesk.variable} ${inter.variable} ${plexMono.variable}`}>
-      <body suppressHydrationWarning className="bg-[#F5F4F1] dark:bg-[#08080A] text-zinc-900 dark:text-[#ECECF1] font-sans min-h-screen antialiased">
+      <body suppressHydrationWarning className="bg-[#F5F4F1] dark:bg-[#08080A] text-zinc-900 dark:text-[#ECECF1] font-sans min-h-dvh antialiased">
         {children}
       </body>
     </html>

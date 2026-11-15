@@ -29,11 +29,20 @@ export function AnimatedTabs({
   size?: 'sm' | 'md';
 }) {
   const uid = React.useId();
+  const listRef = React.useRef<HTMLDivElement>(null);
+
+  // Keep the active tab in view when it changes (esp. after deep-link restore)
+  React.useEffect(() => {
+    const el = listRef.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+    el?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+  }, [value]);
+
   return (
     <div
+      ref={listRef}
       role="tablist"
       aria-label="Section tabs"
-      className={`inline-flex items-center gap-1 rounded-xl border border-zinc-200 dark:border-white/[0.06] bg-zinc-100/70 dark:bg-white/[0.03] p-1 ${className}`}
+      className={`scrollbar-none edge-fade-x inline-flex max-w-full items-center gap-1 snap-x snap-mandatory overflow-x-auto rounded-xl border border-zinc-200 dark:border-white/[0.06] bg-zinc-100/70 dark:bg-white/[0.03] p-1 ${className}`}
     >
       {tabs.map((tab) => {
         const active = tab.id === value;
@@ -44,7 +53,7 @@ export function AnimatedTabs({
             role="tab"
             aria-selected={active}
             onClick={() => onChange(tab.id)}
-            className={`relative cursor-pointer whitespace-nowrap rounded-lg font-medium transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-400/60 ${
+            className={`relative shrink-0 snap-start cursor-pointer whitespace-nowrap rounded-lg font-medium transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-400/60 ${
               size === 'sm' ? 'px-2.5 py-1.5 text-[11px]' : 'px-3.5 py-2 text-xs'
             } ${
               active

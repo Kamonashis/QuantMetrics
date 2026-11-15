@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { useChartSize } from '@/lib/use-chart-size';
 
 export interface IvRvPoint {
   date: string;
@@ -13,6 +14,7 @@ export interface IvRvPoint {
  * Both series must be aligned by date by the caller.
  */
 export function IvRvChart({ points, ivLabel }: { points: IvRvPoint[]; ivLabel: string }) {
+  const { ref, size } = useChartSize<HTMLDivElement>();
   const data = points.filter((p) => (p.iv !== null && isFinite(p.iv)) || (p.rv !== null && isFinite(p.rv)));
   if (data.length < 30) {
     return (
@@ -22,11 +24,13 @@ export function IvRvChart({ points, ivLabel }: { points: IvRvPoint[]; ivLabel: s
     );
   }
 
-  const width = 640;
-  const height = 210;
-  const pad = { l: 38, r: 12, t: 10, b: 22 };
-  const gap = 14;
-  const topH = 140;
+  const width = size.width;
+  const height = size.height;
+  const ready = width > 0;
+  const s = height / 210;
+  const pad = { l: 38, r: 12, t: 10 * s, b: 22 * s };
+  const gap = 14 * s;
+  const topH = 140 * s;
   const botH = height - topH - gap - pad.b;
 
   const ivMax = Math.max(...data.map((p) => p.iv ?? 0));
@@ -67,8 +71,10 @@ export function IvRvChart({ points, ivLabel }: { points: IvRvPoint[]; ivLabel: s
   const top = pad.t + topH + gap;
 
   return (
-    <div className="w-full overflow-x-auto">
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[520px]" role="img" aria-label="Implied versus realized volatility">
+    <div>
+      <div ref={ref} className="h-[190px] sm:h-[210px] 2xl:h-[240px] w-full contain-[layout_paint]">
+      {ready && (
+      <svg width={width} height={height} className="block h-full w-full" role="img" aria-label="Implied versus realized volatility">
         {/* top panel gridlines */}
         {[0.5, 1].map((f, i) => (
           <g key={i}>
@@ -95,6 +101,8 @@ export function IvRvChart({ points, ivLabel }: { points: IvRvPoint[]; ivLabel: s
         <text x={pad.l} y={height - 4} fontSize="8.5" fill="#8b8b93" fontFamily="var(--font-mono)">{data[0].date.slice(0, 7)}</text>
         <text x={width - pad.r} y={height - 4} fontSize="8.5" fill="#8b8b93" fontFamily="var(--font-mono)" textAnchor="end">{data[data.length - 1].date.slice(0, 7)}</text>
       </svg>
+      )}
+      </div>
       <div className="mt-1.5 flex flex-wrap items-center gap-4 font-mono text-[9px] text-zinc-400">
         <span className="flex items-center gap-1.5"><span className="inline-block h-0.5 w-4 rounded bg-[#DEC084]" /> {ivLabel}</span>
         <span className="flex items-center gap-1.5"><span className="inline-block h-0 w-4 border-t border-dashed border-[#7dd3fc]" /> RV 20d (ticker)</span>

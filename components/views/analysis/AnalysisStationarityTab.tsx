@@ -67,7 +67,7 @@ export function AnalysisStationarityTab({
         </div>
 
         <div className="mt-4 overflow-x-auto">
-          <table className="w-full text-xs text-left">
+          <table className="table-sticky-first w-full text-xs text-left">
             <thead>
               <tr className="border-b border-zinc-200 dark:border-zinc-800 text-zinc-400 font-mono">
                 <th className="py-2.5 px-3">Variable Tested</th>
@@ -184,7 +184,7 @@ export function AnalysisStationarityTab({
         </div>
 
         <div className="mt-4 overflow-x-auto">
-          <table className="w-full text-xs text-left">
+          <table className="table-sticky-first w-full text-xs text-left">
             <thead>
               <tr className="border-b border-zinc-200 dark:border-zinc-800 text-zinc-400 font-mono">
                 <th className="py-2 px-3">Lag Horizon (k)</th>

@@ -288,7 +288,7 @@ export function ModelingView({
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-12">
+    <div className="space-y-6">
       {/* Parameter Configuration Header Card */}
       <div className="panel p-5">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-zinc-100 dark:border-zinc-800/80">
@@ -747,7 +747,7 @@ export function ModelingView({
 
         {/* 4-Column Component Breakdown Grid for RV_t, RV_{t-1}, RV_{w,t}, RV_{m,t} */}
         <div className="mt-4">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
             <h4 className="text-xs font-mono font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300 flex items-center gap-2">
               <span>HAR-RV Component Decompositions</span>
               <span className="text-zinc-400 font-normal">
@@ -948,7 +948,7 @@ export function ModelingView({
       </div>
 
       {/* Model Summaries & Mathematical Comparison Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid-cards">
         {/* Card 1: GARCH Model Summary Table */}
         <div className="panel p-5">
           <div className="flex items-center justify-between mb-3 pb-2 border-b border-zinc-100 dark:border-zinc-800">

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
+import { useChartSize } from '@/lib/use-chart-size';
 
 export const REGIME_PALETTES: Record<number, string[]> = {
   2: ['rgba(63,178,127,0.9)', 'rgba(224,101,95,0.9)'],
@@ -60,26 +61,29 @@ export function RegimeTimeline({ posteriors, labels, className, height = 44, max
     return out;
   }, [posteriors, K, stride, names, palette]);
 
-  const width = 1000;
+  const { ref, size } = useChartSize<HTMLDivElement>();
+  const width = Math.max(1, size.width);
+  const ready = size.width > 0;
   const barW = Math.max(1, Math.floor(width / bars.length));
 
   const onMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * width;
-    const idx = clamp(Math.floor(x / (width / posteriors.length)), 0, posteriors.length - 1);
-    setHover({ idx, x: e.clientX - rect.left, maxX: Math.max(90, rect.width - 90) });
+    const x = e.clientX - rect.left;
+    const idx = clamp(Math.floor((x / Math.max(1, rect.width)) * posteriors.length), 0, posteriors.length - 1);
+    setHover({ idx, x, maxX: Math.max(90, rect.width - 90) });
   };
 
   return (
-    <div className={`relative w-full ${className ?? ''}`}>
+    <div ref={ref} className={`relative w-full ${className ?? ''}`} style={{ height }}>
+      {ready && (
       <svg
-        viewBox={`0 0 ${width} ${height}`}
-        className="w-full select-none"
-        style={{ height }}
-        role="img"
-        aria-label="Volatility regime timeline"
+        width={width}
+        height={height}
+        className="block w-full select-none"
         onMouseMove={onMouseMove}
         onMouseLeave={() => setHover(null)}
+        role="img"
+        aria-label="Volatility regime timeline"
       >
         {bars.map((b, i) => (
           <rect
@@ -92,6 +96,7 @@ export function RegimeTimeline({ posteriors, labels, className, height = 44, max
           />
         ))}
       </svg>
+      )}
 
       {hover && (
         <div

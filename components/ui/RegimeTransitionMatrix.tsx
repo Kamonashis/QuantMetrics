@@ -37,11 +37,16 @@ export function RegimeTransitionMatrix({ fit, labels, className, showStats = tru
   const K = fit.k;
   const names = labels ?? regimeNames(K);
   const cellBg = (p: number) => {
-    const a = 0.08 + 0.62 * Math.max(0, Math.min(1, p));
+    // Bulged curve: dim stay-ish probabilities recede, high probabilities go
+    // near-solid gold — better stay-vs-switch separation and text contrast.
+    const a = Math.min(1, 0.08 + 0.92 * Math.pow(Math.max(0, Math.min(1, p)), 0.8));
     return `rgba(222,192,132,${a.toFixed(3)})`;
   };
+  // Text must contrast with the *blended* cell (gold over the panel base),
+  // which differs by theme: gold-over-white stays light (dark text always OK),
+  // gold-over-near-black only becomes dark-text-friendly at high alpha.
   const textTone = (p: number) =>
-    p >= 0.5 ? 'text-[#3b2f10]' : p >= 0.2 ? 'text-[#5a4a1c]' : 'text-zinc-500 dark:text-zinc-400';
+    p >= 0.25 ? 'text-[#33270e] dark:text-[#241c08]' : 'text-zinc-700 dark:text-zinc-100';
 
   return (
     <div className={`${className ?? ''}`}>
@@ -53,7 +58,7 @@ export function RegimeTransitionMatrix({ fit, labels, className, showStats = tru
           stay vs switch
         </span>
       </div>
-      <table className="mt-1.5 w-full border-separate border-spacing-0.5 font-mono text-[9px]">
+      <table className="mt-1.5 w-full border-separate border-spacing-0.5 font-mono text-[10px]">
         <thead>
           <tr>
             <th aria-label="from \ to" className="px-1.5 py-1 text-left font-normal text-zinc-500">
@@ -75,7 +80,7 @@ export function RegimeTransitionMatrix({ fit, labels, className, showStats = tru
               {row.map((p, j) => (
                 <td
                   key={j}
-                  className={`px-1.5 py-1 text-center tabular-nums ${textTone(p)} ${
+                  className={`px-2 py-1.5 text-center font-medium tabular-nums ${textTone(p)} ${
                     i === j ? 'font-bold' : ''
                   }`}
                   style={{ backgroundColor: cellBg(p) }}
