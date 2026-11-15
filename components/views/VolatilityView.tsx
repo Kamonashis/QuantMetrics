@@ -12,6 +12,7 @@ import {
   RefreshCw,
   AlertTriangle,
   Info,
+  Scale,
 } from 'lucide-react';
 import type { PriceBar, IntradayBar } from '@/lib/quant-engine';
 import { calculateReturns } from '@/lib/quant-engine';
@@ -23,6 +24,7 @@ import { T4ForecastTab } from './volatility/T4ForecastTab';
 import { T5DensityTab } from './volatility/T5DensityTab';
 import { T6CrossAssetTab } from './volatility/T6CrossAssetTab';
 import { T7DealerTab } from './volatility/T7DealerTab';
+import { T8DecisionTab } from './volatility/T8DecisionTab';
 import type { ChainPayload, IndicesPayload, IvHistoryEntry, PanelRowOut } from './volatility/types';
 
 interface VolatilityViewProps {
@@ -33,9 +35,9 @@ interface VolatilityViewProps {
   isLoading: boolean;
 }
 
-type SubTab = 't1' | 't2' | 't3' | 't4' | 't5' | 't6' | 't7';
+type SubTab = 't1' | 't2' | 't3' | 't4' | 't5' | 't6' | 't7' | 't8';
 
-export function VolatilityView({ ticker, bars, companyName, isLoading }: VolatilityViewProps) {
+export function VolatilityView({ ticker, bars, intradayBars, companyName, isLoading }: VolatilityViewProps) {
   const [chain, setChain] = useState<ChainPayload | null>(null);
   const [indices, setIndices] = useState<IndicesPayload | null>(null);
   const [ivHistory, setIvHistory] = useState<IvHistoryEntry[]>([]);
@@ -50,7 +52,7 @@ export function VolatilityView({ ticker, bars, companyName, isLoading }: Volatil
     if (typeof window === 'undefined') return;
     const timer = setTimeout(() => {
       const t = new URLSearchParams(window.location.search).get('vol');
-      const valid: SubTab[] = ['t1', 't2', 't3', 't4', 't5', 't6', 't7'];
+      const valid: SubTab[] = ['t1', 't2', 't3', 't4', 't5', 't6', 't7', 't8'];
       if (t && (valid as string[]).includes(t)) {
         setSubTab(t as SubTab);
       }
@@ -217,6 +219,7 @@ export function VolatilityView({ ticker, bars, companyName, isLoading }: Volatil
             { id: 't5', label: 'Risk-Neutral Density', icon: PieChart, meta: 'T5' },
             { id: 't6', label: 'Cross-Asset & Regime', icon: Network, meta: 'T6' },
             { id: 't7', label: 'Dealer Positioning & Trap', icon: Magnet, meta: 'T7' },
+            { id: 't8', label: 'Decision', icon: Scale, meta: 'T8' },
           ]}
         />
 
@@ -237,6 +240,9 @@ export function VolatilityView({ ticker, bars, companyName, isLoading }: Volatil
       {subTab === 't5' && <T5DensityTab chain={chain} bars={bars} ticker={ticker} />}
       {subTab === 't6' && <T6CrossAssetTab chain={chain} indices={indices} bars={bars} ticker={ticker} />}
       {subTab === 't7' && <T7DealerTab chain={chain} panel={panel} bars={bars} ticker={ticker} />}
+      {subTab === 't8' && (
+        <T8DecisionTab chain={chain} bars={bars} ticker={ticker} ivHistory={ivHistory} intradayBars={intradayBars} />
+      )}
     </div>
   );
 }

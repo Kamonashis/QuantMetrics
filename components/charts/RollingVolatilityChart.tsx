@@ -4,9 +4,18 @@ import React, { useState } from 'react';
 import { RollingVolSeries } from '@/lib/quant-engine';
 import { useChartSize } from '@/lib/use-chart-size';
 
+export interface ReferenceLine {
+  /** Horizontal level in the same units as the series (annualized decimal). */
+  value: number;
+  /** Right-edge + legend label, e.g. '1.25×IV30 35.8%'. */
+  label: string;
+}
+
 interface RollingVolatilityChartProps {
   series: RollingVolSeries[];
   title?: string;
+  /** Optional horizontal reference levels (e.g. IV30, breakeven). Absent by default — call sites opt in. */
+  referenceLines?: ReferenceLine[];
 }
 
 const COLORS = ['#06b6d4', '#DEC084', '#a855f7', '#10b981', '#f43f5e'];
@@ -14,6 +23,7 @@ const COLORS = ['#06b6d4', '#DEC084', '#a855f7', '#10b981', '#f43f5e'];
 export function RollingVolatilityChart({
   series,
   title = 'Rolling Annualized Volatility (σ × √252)',
+  referenceLines = [],
 }: RollingVolatilityChartProps) {
   const { ref, size } = useChartSize<HTMLDivElement>();
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
@@ -33,12 +43,15 @@ export function RollingVolatilityChart({
   const n = series[0].values.length;
   const dates = series[0].values.map((v) => v.date);
 
-  // Find global min and max vol
+  // Find global min and max vol (reference lines expand the scale so they are never clipped)
   let maxVol = 0;
   for (const s of series) {
     for (const v of s.values) {
       if (v.vol !== null && v.vol > maxVol) maxVol = v.vol;
     }
+  }
+  for (const rl of referenceLines) {
+    if (rl.value > maxVol) maxVol = rl.value;
   }
   maxVol = Math.max(0.2, maxVol * 1.15);
 
@@ -101,6 +114,12 @@ export function RollingVolatilityChart({
               </div>
             );
           })}
+          {referenceLines.map((rl) => (
+            <div key={rl.label} className="flex items-center gap-1.5">
+              <span className="inline-block h-0 w-4 border-t-2 border-dashed border-gold-500" />
+              <span className="text-zinc-500 dark:text-zinc-400 font-medium">{rl.label}</span>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -163,6 +182,33 @@ export function RollingVolatilityChart({
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
+            );
+          })}
+
+          {/* Reference levels (e.g. IV30, breakeven) */}
+          {referenceLines.map((rl, i) => {
+            const y = getY(rl.value);
+            return (
+              <g key={i}>
+                <line
+                  x1={padLeft}
+                  y1={y}
+                  x2={width - padRight}
+                  y2={y}
+                  stroke="#DEC084"
+                  strokeWidth="1.2"
+                  strokeDasharray="6 4"
+                  opacity="0.9"
+                />
+                <text
+                  x={width - padRight - 2}
+                  y={y - 3}
+                  textAnchor="end"
+                  className="text-[8px] sm:text-[9px] font-mono fill-gold-700 dark:fill-gold-300 tabular-nums"
+                >
+                  {rl.label}
+                </text>
+              </g>
             );
           })}
 

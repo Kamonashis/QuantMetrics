@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 export const CHART_FRAME_HEIGHTS = { base: 220, sm: 280, lg: 340, xl: 380 } as const;
 
@@ -28,13 +28,17 @@ export interface ChartSize {
  * - Height comes from the `.chart-frame` CSS map; width from the layout.
  * - Updates are trailing-debounced (~100ms) so drags don't remount charts;
  *   the first measurement is synchronous on mount.
+ * - Callback-ref based: charts that mount their frame late (e.g. after an
+ *   empty-state branch flips) still get measured — a bare mount-time
+ *   useEffect would silently keep size at 0×0 forever in that case.
  */
 export function useChartSize<T extends HTMLElement = HTMLDivElement>() {
-  const ref = useRef<T | null>(null);
+  const [node, setNode] = useState<T | null>(null);
+  const ref = useCallback((el: T | null) => setNode(el), []);
   const [size, setSize] = useState<ChartSize>({ width: 0, height: 0 });
 
   useEffect(() => {
-    const el = ref.current;
+    const el = node;
     if (!el) return;
 
     const apply = (width: number, height: number) => {
@@ -65,7 +69,7 @@ export function useChartSize<T extends HTMLElement = HTMLDivElement>() {
       ro.disconnect();
       if (timer) clearTimeout(timer);
     };
-  }, []);
+  }, [node]);
 
   return { ref, size };
 }
