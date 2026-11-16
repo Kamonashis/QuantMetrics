@@ -1,7 +1,81 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import katex from 'katex';
+
+/**
+ * Scale-to-fit wrapper for KaTeX HTML. KaTeX renders unbreakable lines, so a formula
+ * wider than its container used to force `overflow: auto` (scrollbar). Instead we
+ * measure the natural width once (and on every resize) and shrink the line with a
+ * transform — always without a scrollbar, honoring the "fit or shrink, never scroll" rule.
+ * Height of the outer box is pre-set to naturalH × scale so the block layout reflows correctly.
+ */
+function FitMath({ html, mode, className }: { html: string; mode: 'block' | 'inline'; className?: string }) {
+  const outerRef = useRef<HTMLDivElement | HTMLSpanElement | null>(null);
+  const innerRef = useRef<HTMLDivElement | HTMLSpanElement | null>(null);
+  const [box, setBox] = useState<{ width: number | null; height: number | null }>({ width: null, height: null });
+
+  const refit = useCallback(() => {
+    const outer = outerRef.current;
+    const inner = innerRef.current;
+    if (!outer || !inner) return;
+    const outerW = outer.clientWidth;
+    if (outerW <= 0) return;
+    // Measure natural geometry with the transform reset, then re-apply the scaled one.
+    inner.style.transform = 'none';
+    const naturalW = inner.scrollWidth;
+    const naturalH = inner.scrollHeight;
+    const scale = naturalW > outerW ? outerW / naturalW : 1;
+    inner.style.transform = scale === 1 ? 'none' : `scale(${scale})`;
+    setBox({ width: Math.ceil(naturalW * scale), height: Math.ceil(naturalH * scale) });
+  }, []);
+
+  useEffect(() => {
+    refit();
+    const ro = new ResizeObserver(() => refit());
+    if (outerRef.current) ro.observe(outerRef.current);
+    // KaTeX glyph metrics shift after fonts finish loading — re-fit once they do.
+    document.fonts?.ready?.then(() => refit()).catch(() => undefined);
+    return () => ro.disconnect();
+  }, [html, refit]);
+
+  if (mode === 'block') {
+    return (
+      <div
+        ref={outerRef as React.RefObject<HTMLDivElement>}
+        className={`overflow-hidden ${className ?? ''}`}
+        style={{ height: box.height ?? undefined }}
+      >
+        <div
+          ref={innerRef as React.RefObject<HTMLDivElement>}
+          className="w-max origin-top-left"
+          style={{ width: 'max-content' }}
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <span
+      ref={outerRef as React.RefObject<HTMLSpanElement>}
+      className={className}
+      style={{
+        display: 'inline-block',
+        width: box.width ?? undefined,
+        height: box.height ?? undefined,
+        overflow: 'hidden',
+        verticalAlign: 'baseline',
+      }}
+    >
+      <span
+        ref={innerRef as React.RefObject<HTMLSpanElement>}
+        style={{ display: 'inline-block', width: 'max-content', transformOrigin: '0 0' }}
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    </span>
+  );
+}
 
 export type FinancialFormulaPreset =
   | 'garch'
@@ -619,14 +693,15 @@ export function MathDisplay({
 
   if (display === 'block') {
     return (
-      <div className={`my-2 overflow-x-auto py-1 ${className}`}>
+      <div className={`my-2 py-1 ${className}`}>
         <div className="flex items-center justify-between gap-2">
-          <div
-            className="text-zinc-800 dark:text-zinc-200 text-sm leading-relaxed"
-            dangerouslySetInnerHTML={{ __html: htmlContent }}
+          <FitMath
+            html={htmlContent}
+            mode="block"
+            className="min-w-0 flex-1 text-zinc-800 dark:text-zinc-200 text-sm leading-relaxed"
           />
           {showBadge && (
-            <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-400 dark:text-zinc-500 select-none">
+            <span className="select-none whitespace-nowrap font-mono text-[10px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
               MathML
             </span>
           )}
@@ -636,9 +711,10 @@ export function MathDisplay({
   }
 
   return (
-    <span
-      className={`inline-flex max-w-full items-center overflow-x-auto align-baseline text-zinc-800 dark:text-zinc-200 ${className}`}
-      dangerouslySetInnerHTML={{ __html: htmlContent }}
+    <FitMath
+      html={htmlContent}
+      mode="inline"
+      className={`align-baseline text-zinc-800 dark:text-zinc-200 ${className}`}
     />
   );
 }
