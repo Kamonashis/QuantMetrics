@@ -255,6 +255,9 @@ export function T1StateTab({ chain, indices, rv20 }: T1Props) {
                 VRP = {(vrp * 1e4).toFixed(0)} variance points/yr² · the compensation for writing variance — positive, small, and negatively skewed.
               </span>
             )}
+            <span className="block mt-1 text-[10px] text-zinc-400 dark:text-zinc-500">
+              basis note — RV is √252, IV is √365: annualizations of the same total variance, compared directly, never rescaled.
+            </span>
           </div>
           <div className="flex shrink-0 items-center gap-3 rounded-xl border border-[var(--hairline)] bg-[var(--bg-inset)] px-4 py-3 font-mono text-[11px]">
             <div>

@@ -10,6 +10,7 @@ import {
   type ChainProviderOptions,
   type ChainProvider,
 } from './types';
+import { parseQuoteSummaryEarnings } from '../../earnings';
 
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
@@ -169,6 +170,49 @@ export async function fetchRiskFreeRate(): Promise<number> {
     /* fall through to default */
   }
   return 0.04; // conservative default — labelled in UI as fallback when used
+}
+
+// ---------------------------------------------------------------------------
+// Earnings calendar — same crumb session, quoteSummary v10
+// ---------------------------------------------------------------------------
+
+export interface EarningsDates {
+  /** Earliest earnings date on/after today (UTC), YYYY-MM-DD; null if none parsed. */
+  nextEarningsDate: string | null;
+  allDates: string[];
+  isEstimate: boolean;
+  asOf: string;
+}
+
+const earningsCache = new Map<string, { fetchedAt: number; data: EarningsDates | null }>();
+const EARNINGS_TTL_MS = 15 * 60 * 1000; // match the ~15-min chain cache idiom
+
+/** quoteSummary v10 → calendarEvents. 6s timeout, one forced crumb refresh + retry, 15-min in-memory cache. Never throws — null on any failure. */
+export async function fetchEarningsDates(symbol: string): Promise<EarningsDates | null> {
+  const sym = resolveSymbol(symbol).symbol; // reuse the ETF-proxy map for index tickers
+  const cached = earningsCache.get(sym);
+  if (cached && Date.now() - cached.fetchedAt < EARNINGS_TTL_MS) return cached.data;
+
+  const todayYmd = new Date().toISOString().slice(0, 10);
+  const url = (crumb: string) =>
+    `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(sym)}?modules=calendarEvents&crumb=${encodeURIComponent(crumb)}`;
+
+  let result: EarningsDates | null = null;
+  for (const force of [false, true]) {
+    try {
+      const s = await getSession(force);
+      const json = await fetchJson(url(s.crumb), 6000, s.cookie);
+      const parsed = parseQuoteSummaryEarnings(json, todayYmd);
+      if (parsed) {
+        result = { ...parsed, asOf: new Date().toISOString() };
+        break;
+      }
+    } catch {
+      /* fall through to the retry / null */
+    }
+  }
+  earningsCache.set(sym, { fetchedAt: Date.now(), data: result });
+  return result;
 }
 
 export function toRows(

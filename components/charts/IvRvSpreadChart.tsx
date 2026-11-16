@@ -129,7 +129,7 @@ export function IvRvSpreadChart({ points, ivLabel = 'IV30 (accrued)', rvLabel = 
         <span className="flex items-center gap-1.5"><span className="inline-block h-0 w-4 border-t border-dashed border-[#7dd3fc]" /> {rvLabel}</span>
         <span className="flex items-center gap-1.5"><span className="inline-block h-2 w-3 bg-gold-500/20" /> IV &lt; RV (realized outrunning implied)</span>
         <span className="ml-auto text-zinc-500">
-          spread {lastSpread >= 0 ? '+' : ''}{(lastSpread * 100).toFixed(1)} pts · z {lastZ !== null && lastZ !== undefined ? `${lastZ >= 0 ? '+' : ''}${lastZ.toFixed(2)}` : 'n/a (<20 sessions)'}
+          spread {lastSpread >= 0 ? '+' : ''}{(lastSpread * 100).toFixed(1)} pts · z {lastZ !== null && lastZ !== undefined ? `${lastZ >= 0 ? '+' : ''}${lastZ.toFixed(2)}` : 'n/a (<20 sessions)'} · direct convention (RV √252 · IV √365, same total variance)
         </span>
       </div>
     </div>

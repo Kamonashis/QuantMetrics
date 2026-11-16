@@ -12,6 +12,7 @@ import {
   RollingMomentsResult,
   StructuralBreakResult,
   HurstVarianceRatioResult,
+  InnovationDiagnostics,
 } from '@/lib/analysis-engine';
 import { TimeSeriesChart } from '@/components/charts/TimeSeriesChart';
 import { ReturnsChart } from '@/components/charts/ReturnsChart';
@@ -55,6 +56,8 @@ interface AnalysisOverviewTabProps {
   rollingMoments: RollingMomentsResult;
   structuralBreaks: StructuralBreakResult;
   hurstAndVr: HurstVarianceRatioResult;
+  /** σ̂-standardized battery (GARCH conditional variance filter) — optional */
+  innovation?: InnovationDiagnostics | null;
   decompResult: DecompositionResult;
   adfResult: AdfTestResult;
   decompPeriod: number;
@@ -81,6 +84,7 @@ export function AnalysisOverviewTab({
   rollingMoments,
   structuralBreaks,
   hurstAndVr,
+  innovation = null,
   decompResult,
   adfResult,
   decompPeriod,
@@ -93,6 +97,12 @@ export function AnalysisOverviewTab({
   onHmmKChange,
 }: AnalysisOverviewTabProps) {
   const [skewHoverIdx, setSkewHoverIdx] = useState<number | null>(null);
+  // Memory battery: raw returns vs σ̂-standardized innovation diagnostic (GARCH filter)
+  const [memMode, setMemMode] = useState<'raw' | 'std'>('raw');
+  const memStdActive = memMode === 'std' && innovation !== null && innovation !== undefined;
+  const mem = memStdActive
+    ? { h: innovation.hurstExponent, regime: innovation.hurstRegime, vrs: innovation.varianceRatios, caption: 'σ̂-standardized (r / √(GARCH σ̂²ₜ)) — genuine memory vs vol-clustering artifact' }
+    : { h: hurstAndVr.hurstExponent, regime: hurstAndVr.hurstRegime, vrs: hurstAndVr.varianceRatios, caption: 'raw returns — vol clustering contaminates H' };
 
   // Format price bars for TimeSeriesChart
   const priceChartBars = React.useMemo(() => {
@@ -577,19 +587,40 @@ export function AnalysisOverviewTab({
             </p>
           </div>
 
-          <div className="flex items-center gap-3 font-mono text-xs">
+          <div className="flex flex-wrap items-center gap-3 font-mono text-xs">
+            <div className="inline-flex items-center rounded-lg border border-[var(--hairline)] bg-[var(--bg-inset)] p-0.5 text-[9px] font-bold uppercase tracking-[0.16em]">
+              {(['raw', 'std'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setMemMode(m)}
+                  aria-pressed={memMode === m}
+                  className={`cursor-pointer rounded-md px-2.5 py-1 transition-colors ${
+                    memMode === m
+                      ? 'bg-gold-500/15 text-gold-800 dark:text-gold-200'
+                      : 'text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100'
+                  }`}
+                >
+                  {m === 'raw' ? 'Raw returns' : 'σ̂-std'}
+                </button>
+              ))}
+            </div>
             <span>
               Hurst H:{' '}
               <strong className="text-gold-600 dark:text-gold-400 text-sm">
-                {hurstAndVr.hurstExponent.toFixed(3)}
+                {mem.h.toFixed(3)}
               </strong>
             </span>
             <span className="text-zinc-300 dark:text-zinc-700">·</span>
             <span className="text-zinc-600 dark:text-zinc-300 font-medium">
-              {hurstAndVr.hurstRegime}
+              {mem.regime}
             </span>
           </div>
         </div>
+        <p className="mt-1 font-mono text-[9px] uppercase tracking-[0.16em] text-zinc-400 dark:text-zinc-500">
+          {mem.caption}
+          {memStdActive && innovation ? ` · ADF p ${innovation.adfPValue < 0.001 ? '< 0.001' : innovation.adfPValue.toFixed(4)} (residuals) · min VR z ${innovation.vrMinZ.toFixed(2)}` : ''}
+        </p>
 
         <div className="mt-4 overflow-x-auto">
           <table className="table-sticky-first w-full text-xs text-left">
@@ -603,7 +634,7 @@ export function AnalysisOverviewTab({
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/60 font-mono">
-              {hurstAndVr.varianceRatios.map((vr) => (
+              {mem.vrs.map((vr) => (
                 <tr key={vr.q} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30">
                   <td className="py-2.5 px-3 font-semibold text-zinc-900 dark:text-zinc-100">
                     q = {vr.q} days
@@ -638,10 +669,14 @@ export function AnalysisOverviewTab({
           </table>
         </div>
 
-        <div className="mt-4 pt-3 border-t border-zinc-100 dark:border-zinc-800/60 text-xs text-zinc-500 dark:text-zinc-400 flex items-center justify-between">
+        <div className="mt-4 pt-3 border-t border-zinc-100 dark:border-zinc-800/60 text-xs text-zinc-500 dark:text-zinc-400 flex items-center justify-between gap-3">
           <div className="flex items-center gap-1.5">
             <Info className="w-3.5 h-3.5 text-zinc-400" />
-            <span>{hurstAndVr.randomWalkVerdict}</span>
+            <span>
+              {memMode === 'raw'
+                ? hurstAndVr.randomWalkVerdict
+                : 'Innovation view — Ĥ ≈ 0.5 ⇒ raw H was a vol-clustering artifact (no momentum tilt); Ĥ ≳ 0.6 ⇒ serial dependence survives vol normalization.'}
+            </span>
           </div>
           <VarianceRatioEquation className="hidden md:inline" />
         </div>

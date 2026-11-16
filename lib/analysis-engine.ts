@@ -6,7 +6,7 @@
 // Underwater Drawdowns, Downside Risk & Beta to SPY, Probabilistic Sharpe (PSR/DSR),
 // and Microstructure Diagnostics (Roll & Corwin-Schultz spreads, Amihud, Realized Semivariance & Quarticity).
 
-import { PriceBar, calculateReturns, IntradayBar } from './quant-engine';
+import { PriceBar, calculateReturns, IntradayBar, computeRealizedVolatilityAndJumps } from './quant-engine';
 
 // =============================================================
 // INTERFACES FOR ANALYSIS WORKSTATION
@@ -1030,6 +1030,71 @@ export function computeHurstAndVarianceRatio(
 }
 
 // =============================================================
+// 6.5 INNOVATION (σ̂-STANDARDIZED) DIAGNOSTICS
+// =============================================================
+
+export interface InnovationDiagnostics {
+  /** Hurst on z_t = r_t/σ̂_t — separates genuine memory from vol-clustering artifact. */
+  hurstExponent: number;
+  hurstRegime: HurstVarianceRatioResult['hurstRegime'];
+  /** Lo–MacKinlay VR battery on standardized residuals. */
+  varianceRatios: HurstVarianceRatioResult['varianceRatios'];
+  /** Min z across horizons (most-negative = strongest mean-reversion case). */
+  vrMinZ: number;
+  /** ADF on the standardized series — residuals of a mean-zero variance-stabilized process are unforecastable. */
+  adfPValue: number;
+  adfTestStatistic: number;
+  skewness: number;
+  excessKurtosis: number;
+}
+
+/**
+ * Refits nothing — takes the fitted conditional variance path (e.g. GARCH(1,1) σ̂_t²) and runs the
+ * memory battery on standardized residuals. If raw H ≈ 0.65 but innovation H ≈ 0.5, the "trend" was
+ * a vol-clustering artifact and no momentum tilt is warranted.
+ * Null when fewer than 40 aligned observations.
+ */
+export function computeInnovationDiagnostics(
+  returns: number[],
+  condVariance: number[]
+): InnovationDiagnostics | null {
+  const n = Math.min(returns.length, condVariance.length);
+  if (n < 40) return null;
+  const z: number[] = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const sd = Math.sqrt(Math.max(condVariance[i] ?? 0, 1e-12));
+    z[i] = returns[i] / sd;
+  }
+  const vr = computeHurstAndVarianceRatio(z);
+  const ad = computeAdfTestOnSeries(z, 2);
+
+  let s = 0;
+  for (const v of z) s += v;
+  const m = s / n;
+  let s2 = 0, s3 = 0, s4 = 0;
+  for (const v of z) {
+    const d = v - m;
+    s2 += d * d;
+    s3 += d * d * d;
+    s4 += d * d * d * d;
+  }
+  const variance = s2 / (n - 1);
+  const skewness = variance > 0 ? (s3 / n) / Math.pow(variance, 1.5) : 0;
+  const excessKurtosis = variance > 0 ? (s4 / n) / (variance * variance) - 3 : 0;
+
+  return {
+    hurstExponent: vr.hurstExponent,
+    hurstRegime: vr.hurstRegime,
+    varianceRatios: vr.varianceRatios,
+    vrMinZ: vr.varianceRatios.reduce((acc, v) => Math.min(acc, v.zStat), Infinity),
+    adfPValue: ad.pValue,
+    adfTestStatistic: ad.testStatistic,
+    skewness,
+    excessKurtosis,
+  };
+}
+
+// =============================================================
 // 7. TIER 2: VOL DYNAMICS (NEWS IMPACT & INTRADAY SIGNATURE)
 // =============================================================
 
@@ -1153,6 +1218,149 @@ export function computeOvernightIntradaySplit(
   });
 
   return result;
+}
+
+// =============================================================
+// 7.5 VARIANCE BUDGET — what a hedge can actually capture
+// =============================================================
+
+export interface VarianceBudget {
+  /** Bipower / RV — diffusion variance (noise-robust). This is the harvestable part intraday. */
+  continuousShare: number | null;
+  /** RV − BV — jump variance + residual contamination. */
+  jumpResidualShare: number | null;
+  /** Signature-plateau vs 1-minute RV — microstructure noise, LOWER BOUND (plateau is not noise-free). */
+  noiseShareLowerBound: number | null;
+  /** Mean close→open share of total variance across the window (overnight, unhedgeable intraday). */
+  overnightShare: number | null;
+  /** continuousShare × (1 − overnightShare) — the slice an intraday delta-hedge can harvest. */
+  harvestableShare: number | null;
+  windowDays: number;
+  intradayDaysAvailable: number;
+  notes: string[];
+}
+
+/**
+ * Variance budget of the recent window: continuous diffusion vs jumps vs microstructure noise vs overnight.
+ * Components come from DIFFERENT estimators on OVERLAPPING windows — they are estimates, not a partition,
+ * and are not obliged to sum to 1. All nulls when intraday history is < 60 bars (never fabricated).
+ */
+export function computeVarianceBudget(
+  intradayBars: IntradayBar[],
+  dailyBars: PriceBar[],
+  windowDays: number = 10
+): VarianceBudget {
+  const notes: string[] = [];
+  if (!intradayBars || intradayBars.length < 60) {
+    return {
+      continuousShare: null,
+      jumpResidualShare: null,
+      noiseShareLowerBound: null,
+      overnightShare: null,
+      harvestableShare: null,
+      windowDays,
+      intradayDaysAvailable: 0,
+      notes: ['insufficient intraday bars (<60) — no budget drawn'],
+    };
+  }
+
+  const daily = computeRealizedVolatilityAndJumps(intradayBars);
+  let rvSum = 0;
+  let bvSum = 0;
+  for (const d of daily) {
+    rvSum += d.realizedVariance;
+    bvSum += d.bipowerVariation;
+  }
+  const continuousShare = rvSum > 0 ? bvSum / rvSum : null;
+  const jumpResidualShare = continuousShare !== null ? Math.max(0, 1 - continuousShare) : null;
+
+  // Noise lower bound from the signature plateau (mean of the 5–15m bracket)
+  let noiseShareLowerBound: number | null = null;
+  const sig = computeVolatilitySignaturePlot(intradayBars);
+  const rv1m = sig.find((p) => p.samplingMinutes === 1)?.annualizedRv ?? null;
+  const plateauPts = sig.filter((p) => p.isPlateau);
+  const plateauRv = plateauPts.length
+    ? plateauPts.reduce((a, p) => a + p.annualizedRv, 0) / plateauPts.length
+    : null;
+  if (rv1m !== null && rv1m > 0 && plateauRv !== null) {
+    noiseShareLowerBound = Math.max(0, 1 - (plateauRv / rv1m) * (plateauRv / rv1m));
+    notes.push('noise share is a lower bound — the plateau itself still contains noise');
+  } else {
+    notes.push('signature plateau unavailable — noise share not estimable');
+  }
+
+  // Overnight share — close→open vs intraday, averaged over the trailing window
+  let overnightShare: number | null = null;
+  if (dailyBars && dailyBars.length >= 3) {
+    const split = computeOvernightIntradaySplit(dailyBars, intradayBars);
+    if (split.length > 0) {
+      overnightShare = split.reduce((a, d) => a + d.overnightRatioPct, 0) / split.length / 100;
+    }
+  } else {
+    notes.push('daily history unavailable — overnight share not estimable');
+  }
+
+  const harvestableShare =
+    continuousShare !== null && overnightShare !== null
+      ? Math.max(0, continuousShare * (1 - overnightShare))
+      : continuousShare;
+
+  notes.push('estimators measure different things on overlapping windows — not a partition; need not sum to 100%');
+  return {
+    continuousShare,
+    jumpResidualShare,
+    noiseShareLowerBound,
+    overnightShare,
+    harvestableShare,
+    windowDays,
+    intradayDaysAvailable: daily.length,
+    notes,
+  };
+}
+
+// =============================================================
+// 7.6 DIURNAL vs INTRADAY RV — sanity reconciliation
+// =============================================================
+
+export interface DiurnalRvReconciliation {
+  /** Mean annualized 1-minute vol across all real minutes (same estimator as the diurnal panel). */
+  diurnalMean: number | null;
+  /** Mean annualized realized vol across the same intraday sessions (1-min RV). */
+  intradayRvMean: number | null;
+  /** diurnalMean / intradayRvMean — expect ~0.8 (estimator bias) for sane data; >1.5 or <0.5 suspect. */
+  ratio: number | null;
+}
+
+/** Cross-check between the diurnal U-shape panel and the 1-minute RV. Ratio ≫ 1 ⇒ open-auction noise, synthetic bars, or a scale error — do not size off the diurnal panel until it reconciles. */
+export function computeDiurnalRvReconciliation(intradayBars: IntradayBar[]): DiurnalRvReconciliation {
+  if (!intradayBars || intradayBars.length < 60) {
+    return { diurnalMean: null, intradayRvMean: null, ratio: null };
+  }
+  const byDate: { [date: string]: IntradayBar[] } = {};
+  for (const b of intradayBars) (byDate[b.date] ??= []).push(b);
+
+  let sumAnn = 0;
+  let n = 0;
+  for (const dayBars of Object.values(byDate)) {
+    dayBars.sort((a, b) => a.timestamp - b.timestamp);
+    for (let i = 1; i < dayBars.length; i++) {
+      const p = dayBars[i - 1].close;
+      const c = dayBars[i].close;
+      if (p > 0 && c > 0) {
+        sumAnn += Math.abs(Math.log(c / p)) * Math.sqrt(390 * 252);
+        n += 1;
+      }
+    }
+  }
+  const daily = computeRealizedVolatilityAndJumps(intradayBars);
+  const intradayRvMean =
+    daily.length > 0 ? daily.reduce((a, d) => a + d.annualizedRealizedVol, 0) / daily.length : null;
+  const diurnalMean = n > 0 ? sumAnn / n : null;
+  const ratio =
+    diurnalMean !== null && intradayRvMean !== null && intradayRvMean > 0
+      ? diurnalMean / intradayRvMean
+      : null;
+  return { diurnalMean, intradayRvMean, ratio };
 }
 
 // =============================================================

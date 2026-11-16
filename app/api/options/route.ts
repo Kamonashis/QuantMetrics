@@ -20,6 +20,7 @@ import {
 import { fetchVolIndexFamily } from '@/lib/vol-indices';
 import {
   fetchYahooChain,
+  fetchEarningsDates,
   resolveSymbol,
   type ProviderExpiry,
   type ProviderChainResult,
@@ -324,6 +325,32 @@ export async function GET(req: NextRequest) {
         { status: 200 }
       );
     }
+  }
+
+  // ------------------------------------------------------------------ earnings
+  if (mode === 'earnings') {
+    const symbol = (searchParams.get('symbol') || '').trim().toUpperCase();
+    if (!symbol) {
+      return NextResponse.json(
+        { available: false, mode, reason: 'symbol is required' },
+        { status: 200 }
+      );
+    }
+    const { nextEarningsDate, allDates, isEstimate, asOf } =
+      (await fetchEarningsDates(symbol)) ?? {
+        nextEarningsDate: null,
+        allDates: [] as string[],
+        isEstimate: true,
+        asOf: new Date().toISOString(),
+      };
+    // Null-degrading: Yahoo's earnings surface fails often; "no data" is the designed answer.
+    const available = nextEarningsDate !== null;
+    return NextResponse.json(
+      available
+        ? { available: true, mode, symbol, nextEarningsDate, allDates, isEstimate, source: 'yahoo_quotesum_v10', asOf }
+        : { available: false, mode, symbol, reason: 'Yahoo quoteSummary calendarEvents unavailable (crumb/rate-limit/coverage)' },
+      { headers: { 'Cache-Control': 'public, s-maxage=900, stale-while-revalidate=3600' } }
+    );
   }
 
   // ------------------------------------------------------------------ history

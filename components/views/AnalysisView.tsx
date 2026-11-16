@@ -13,6 +13,7 @@ import {
   computeRealizedVolatilityAndJumps,
   computeDiurnalVolatilityProfile,
   fitGjrGarch,
+  fitGarch11,
 } from '@/lib/quant-engine';
 import {
   computeStationarityBattery,
@@ -24,6 +25,8 @@ import {
   computeNewsImpactCurve,
   computeVolatilitySignaturePlot,
   computeOvernightIntradaySplit,
+  computeDiurnalRvReconciliation,
+  computeInnovationDiagnostics,
   computeVaRBacktestSuite,
   computeDrawdownAnalytics,
   computeDownsideAndBenchmark,
@@ -72,6 +75,8 @@ interface AnalysisViewProps {
   onDecompModelChange: (m: 'additive' | 'multiplicative') => void;
   bars: PriceBar[];
   intradayBars: IntradayBar[];
+  /** 'live_market' | 'synthetic_gbm' — provenance of the intraday cache (defaults to synthetic) */
+  intradaySource?: string | null;
   resolution: 'daily' | 'intraday';
   onResolutionChange: (res: 'daily' | 'intraday') => void;
   isLoading: boolean;
@@ -87,6 +92,7 @@ export type AnalysisSubTabId =
   | 'microstructure';
 
 export function AnalysisView({
+  intradaySource = null,
   ticker,
   onTickerChange,
   startDate,
@@ -197,6 +203,11 @@ export function AnalysisView({
     return computeDiurnalVolatilityProfile(intradayBars);
   }, [intradayBars]);
 
+  // Diurnal vs intraday-RV reconciliation — the panel's own sanity gate
+  const diurnalReconciliation = useMemo(() => {
+    return computeDiurnalRvReconciliation(intradayBars);
+  }, [intradayBars]);
+
   // =============================================================
   // ADVANCED ANALYSIS SUITE ENGINES (TIERS 1-5)
   // =============================================================
@@ -231,11 +242,38 @@ export function AnalysisView({
     return computeHurstAndVarianceRatio(returns);
   }, [returns]);
 
-  // Tier 3: News Impact Curve (Symmetric vs GJR-GARCH) — from fitted GJR-GARCH params
-  const newsImpactPoints = useMemo(() => {
-    const gjr = fitGjrGarch(returns);
-    return computeNewsImpactCurve(returns, gjr.summary.omega, gjr.summary.alpha, gjr.summary.gamma, gjr.summary.beta);
+  // σ̂-standardized innovation diagnostics — GARCH(1,1) conditional variance as the filter
+  const garchForInnovations = useMemo(() => {
+    return fitGarch11(returns);
   }, [returns]);
+  const innovationDiagnostics = useMemo(() => {
+    return computeInnovationDiagnostics(returns, garchForInnovations.conditionalVariance);
+  }, [returns, garchForInnovations]);
+
+  // Tier 3: News Impact Curve (Symmetric vs GJR-GARCH) — from fitted GJR-GARCH params
+  const gjrCloseClose = useMemo(() => fitGjrGarch(returns), [returns]);
+  const newsImpactPoints = useMemo(() => {
+    return computeNewsImpactCurve(returns, gjrCloseClose.summary.omega, gjrCloseClose.summary.alpha, gjrCloseClose.summary.gamma, gjrCloseClose.summary.beta);
+  }, [returns, gjrCloseClose]);
+
+  // News Impact on open→close returns — does the leverage effect survive removal of the gap?
+  const openCloseReturns = useMemo(() => {
+    const r: number[] = [];
+    for (const b of filteredBars) {
+      if (b.open > 0 && b.close > 0) r.push(Math.log(b.close / b.open));
+    }
+    return r;
+  }, [filteredBars]);
+  const gjrOpenClose = useMemo(
+    () => (openCloseReturns.length >= 60 ? fitGjrGarch(openCloseReturns) : null),
+    [openCloseReturns],
+  );
+  const newsImpactOcPoints = useMemo(
+    () => gjrOpenClose
+      ? computeNewsImpactCurve(openCloseReturns, gjrOpenClose.summary.omega, gjrOpenClose.summary.alpha, gjrOpenClose.summary.gamma, gjrOpenClose.summary.beta)
+      : null,
+    [openCloseReturns, gjrOpenClose],
+  );
 
   // Tier 3: Volatility Signature Plot
   const volSignaturePoints = useMemo(() => {
@@ -633,6 +671,7 @@ export function AnalysisView({
           rollingMoments={rollingMoments}
           structuralBreaks={structuralBreaks}
           hurstAndVr={hurstAndVr}
+          innovation={innovationDiagnostics}
           decompResult={decompResult}
           adfResult={adfResult}
           decompPeriod={decompPeriod}
@@ -660,10 +699,15 @@ export function AnalysisView({
       {activeSubTab === 'dynamics' && (
         <AnalysisDynamicsTab
           newsImpactPoints={newsImpactPoints}
+          newsImpactOcPoints={newsImpactOcPoints}
+          gjrGammaCloseClose={gjrCloseClose.summary.gamma}
+          gjrGammaOpenClose={gjrOpenClose?.summary.gamma ?? null}
           volSignaturePoints={volSignaturePoints}
           overnightIntradaySplit={overnightIntradaySplit}
           dailyRealizedVol={dailyRealizedVol}
           diurnalProfile={diurnalProfile}
+          diurnalReconciliation={diurnalReconciliation}
+          intradaySource={intradaySource}
           ticker={ticker}
         />
       )}

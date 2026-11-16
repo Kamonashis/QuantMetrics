@@ -124,6 +124,14 @@ export default function App() {
     });
     return initialCache;
   });
+  // Source per ticker for the intraday cache — the seeded default is synthetic, always labelled as such.
+  const [intradaySourceCache, setIntradaySourceCache] = useState<{ [ticker: string]: string }>(() => {
+    const init: { [ticker: string]: string } = {};
+    ['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'TSLA', 'SPY', 'QQQ', 'AMZN', 'META', 'JPM'].forEach((s) => {
+      init[s] = 'synthetic_gbm';
+    });
+    return init;
+  });
 
   const [companyNames, setCompanyNames] = useState<{ [ticker: string]: string }>(() => {
     const initialNames: { [ticker: string]: string } = {};
@@ -209,9 +217,15 @@ export default function App() {
           if (intraRes.ok) {
             const intraJson = await intraRes.json();
             if (intraJson.success && intraJson.data?.[primarySym]?.intradayBars) {
+              const intraPayload = intraJson.data[primarySym];
+              const intraSource = typeof intraPayload.source === 'string' ? intraPayload.source : null;
               setIntradayBarsCache((prev) => ({
                 ...prev,
-                [primarySym]: intraJson.data[primarySym].intradayBars,
+                [primarySym]: intraPayload.intradayBars,
+              }));
+              setIntradaySourceCache((prev) => ({
+                ...prev,
+                [primarySym]: intraSource ?? 'synthetic_gbm',
               }));
             }
           }
@@ -233,6 +247,13 @@ export default function App() {
             if (!updated[sym]) {
               updated[sym] = generateRealisticIntradayHistory(sym, 7);
             }
+          });
+          return updated;
+        });
+        setIntradaySourceCache((prev) => {
+          const updated = { ...prev };
+          syms.forEach((sym) => {
+            if (!updated[sym]) updated[sym] = 'synthetic_gbm';
           });
           return updated;
         });
@@ -287,6 +308,7 @@ export default function App() {
     generateRealisticStockHistory(activeTicker, 2600, undefined, startDate);
   const currentIntradayBars =
     intradayBarsCache[activeTicker] || generateRealisticIntradayHistory(activeTicker, 7);
+  const currentIntradaySource = intradaySourceCache[activeTicker] ?? 'synthetic_gbm';
   const currentCompanyName =
     companyNames[activeTicker] ||
     KNOWN_TICKERS[activeTicker]?.name ||
@@ -337,6 +359,7 @@ export default function App() {
             onDecompModelChange={setDecompModel}
             bars={currentBars}
             intradayBars={currentIntradayBars}
+            intradaySource={currentIntradaySource}
             resolution={resolution}
             onResolutionChange={setResolution}
             isLoading={isLoading}
@@ -350,6 +373,7 @@ export default function App() {
             ticker={activeTicker}
             bars={currentBars}
             intradayBars={currentIntradayBars}
+            intradaySource={currentIntradaySource}
             companyName={currentCompanyName}
             isLoading={isLoading}
           />

@@ -85,6 +85,17 @@ export function varianceBaseline(rvRecent: number, rvLong: number, tRecent: numb
   return forwardRealizedVol(rvRecent, rvLong, tRecent, tLong);
 }
 
+/**
+ * RV² / IV² — variance ratio under the market's direct convention.
+ * √252 (RV) and √365 (IV) are annualizations of the SAME total variance; no rescaling is ever applied.
+ * > 1 ⇒ realized richer than implied; < 1 ⇒ implied richer than realized.
+ */
+export function varianceRatio(rv: number | null, iv: number | null): number | null {
+  if (rv === null || iv === null || !isFinite(rv) || !isFinite(iv) || iv <= 0 || rv < 0) return null;
+  const r = rv / iv;
+  return r * r;
+}
+
 // -------------------------------------------------------------
 // IMPLIED FORWARD VOL — calendar decomposition of the term structure
 // -------------------------------------------------------------

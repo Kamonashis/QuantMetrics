@@ -228,7 +228,7 @@ export async function fetchLiveStockData(
     name: companyName,
     currency: 'USD',
     bars,
-    source: 'cached_institutional',
+    source: 'synthetic_gbm',
     lastUpdated: new Date().toISOString(),
   };
 }
@@ -416,7 +416,7 @@ export async function fetchLiveIntradayData(
     name: companyName,
     currency: 'USD',
     intradayBars,
-    source: 'cached_institutional',
+    source: 'synthetic_gbm',
     lastUpdated: new Date().toISOString(),
   };
 }

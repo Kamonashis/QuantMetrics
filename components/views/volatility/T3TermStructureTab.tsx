@@ -218,7 +218,7 @@ export function T3TermStructureTab({
             ))}
           </div>
           <p className="mt-2 font-mono text-[9px] leading-relaxed text-zinc-400">
-            variance points (×10⁴), annualized · humped and positive is the normal state · collapsing to zero at the front end = market underpricing immediate risk
+            variance points (×10⁴), annualized · humped and positive is the normal state · collapsing to zero at the front end = market underpricing immediate risk · IV is √365 and RV20 is √252 — same total variance, compared directly
           </p>
         </div>
       </div>

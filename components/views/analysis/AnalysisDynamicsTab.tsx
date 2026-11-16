@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   NewsImpactPoint,
   VolatilitySignaturePoint,
   OvernightIntradaySplitDay,
+  DiurnalRvReconciliation,
 } from '@/lib/analysis-engine';
 import { DailyRealizedVol, DiurnalPoint } from '@/lib/quant-engine';
 import { IntradayDiurnalChart } from '@/components/charts/IntradayDiurnalChart';
@@ -19,6 +20,7 @@ import {
   Zap,
   Clock,
   Info,
+  TriangleAlert,
 } from 'lucide-react';
 
 interface AnalysisDynamicsTabProps {
@@ -27,6 +29,15 @@ interface AnalysisDynamicsTabProps {
   overnightIntradaySplit: OvernightIntradaySplitDay[];
   dailyRealizedVol: DailyRealizedVol[];
   diurnalProfile: DiurnalPoint[];
+  /** diurnal mean ÷ intraday 1-min RV — the sanity gate for the diurnal panel */
+  diurnalReconciliation: DiurnalRvReconciliation | null;
+  /** 'live_market' | 'synthetic_gbm' — provenance of the intraday bars */
+  intradaySource?: string | null;
+  /** GJR fit on open→close returns — does γ survive removing the gap? */
+  newsImpactOcPoints?: NewsImpactPoint[] | null;
+  /** fitted γ close→close and open→close, for the Δγ readout */
+  gjrGammaCloseClose?: number | null;
+  gjrGammaOpenClose?: number | null;
   ticker: string;
 }
 
@@ -36,11 +47,39 @@ export function AnalysisDynamicsTab({
   overnightIntradaySplit,
   dailyRealizedVol,
   diurnalProfile,
+  diurnalReconciliation,
+  intradaySource = null,
+  newsImpactOcPoints = null,
+  gjrGammaCloseClose = null,
+  gjrGammaOpenClose = null,
   ticker,
 }: AnalysisDynamicsTabProps) {
   const [newsHoverIdx, setNewsHoverIdx] = useState<number | null>(null);
   const [sigHoverIdx, setSigHoverIdx] = useState<number | null>(null);
   const [splitHoverIdx, setSplitHoverIdx] = useState<number | null>(null);
+
+  // Next earnings — fetched lazily, server-cached 15 min. "No data" is the designed answer when Yahoo's calendar is unreachable.
+  const [earnings, setEarnings] = useState<{ ticker: string; date: string; isEstimate: boolean } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/options?mode=earnings&symbol=${encodeURIComponent(ticker)}`)
+      .then((r) => (r.ok ? (r.json() as Promise<{ available: boolean; nextEarningsDate?: string | null; isEstimate?: boolean }>) : null))
+      .then((d) => {
+        if (cancelled) return;
+        if (d?.available && d.nextEarningsDate) {
+          setEarnings({ ticker, date: d.nextEarningsDate, isEstimate: d.isEstimate !== false });
+        } else {
+          setEarnings(null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setEarnings(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ticker]);
+  const earningsCurrent = earnings && earnings.ticker === ticker ? earnings : null;
 
   // Aggregate overnight share
   const avgOvernightPct = React.useMemo(() => {
@@ -68,6 +107,11 @@ export function AnalysisDynamicsTab({
   for (const p of newsImpactPoints) {
     if (p.asymmetricVarianceGjr > maxNewsVar) maxNewsVar = p.asymmetricVarianceGjr;
     if (p.symmetricVariance > maxNewsVar) maxNewsVar = p.symmetricVariance;
+  }
+  if (newsImpactOcPoints) {
+    for (const p of newsImpactOcPoints) {
+      if (p.asymmetricVarianceGjr > maxNewsVar) maxNewsVar = p.asymmetricVarianceGjr;
+    }
   }
   maxNewsVar *= 1.1;
   const newsW = newsSize.width;
@@ -270,13 +314,24 @@ export function AnalysisDynamicsTab({
               />
             )}
 
-            {/* Asymmetric GJR-GARCH Curve */}
+            {/* Asymmetric GJR-GARCH Curve — close→close */}
             {nNews > 1 && (
               <path
                 d={newsImpactPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${getNewsX(i)} ${getNewsY(p.asymmetricVarianceGjr)}`).join(' ')}
                 fill="none"
                 stroke="#10b981"
                 strokeWidth={1.6}
+              />
+            )}
+
+            {/* Asymmetric GJR-GARCH Curve — open→close (gap removed) */}
+            {newsImpactOcPoints && newsImpactOcPoints.length > 1 && (
+              <path
+                d={newsImpactOcPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${getNewsX(i)} ${getNewsY(p.asymmetricVarianceGjr)}`).join(' ')}
+                fill="none"
+                stroke="#DEC084"
+                strokeWidth={1.5}
+                strokeDasharray="5 3"
               />
             )}
 
@@ -295,13 +350,16 @@ export function AnalysisDynamicsTab({
           </ChartFullscreen>
         </div>
 
-        <div className="flex items-center justify-center text-[11px] text-zinc-400 font-mono mt-1">
-          <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[11px] text-zinc-400 font-mono mt-1">
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
             <span className="inline-flex items-center gap-1.5">
               <span className="w-3 h-0.5 bg-zinc-400 border-b border-dashed inline-block" /> Symmetric GARCH(1,1)
             </span>
             <span className="inline-flex items-center gap-1.5">
-              <span className="w-3 h-0.5 bg-gold-500 inline-block" /> GJR-GARCH (Leverage γ &gt; 0)
+              <span className="w-3 h-0.5 bg-emerald-500 inline-block" /> GJR close→close (γ {gjrGammaCloseClose !== null && gjrGammaCloseClose !== undefined ? gjrGammaCloseClose.toFixed(3) : '—'})
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="w-3 h-0 border-t-2 border-dashed border-gold-400 inline-block" /> GJR open→close (γ {gjrGammaOpenClose !== null && gjrGammaOpenClose !== undefined ? gjrGammaOpenClose.toFixed(3) : 'n/a'})
             </span>
           </div>
         </div>
@@ -310,8 +368,12 @@ export function AnalysisDynamicsTab({
           <div className="flex items-center gap-1.5">
             <Info className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
             <span>
-              The asymmetric tilt confirms the Black (1976) financial leverage hypothesis: bad news lowers firm equity,
-              increasing debt-to-equity ratio and magnifying downstream asset risk.
+              Two curves, two mechanisms — the Black (1976) leverage hypothesis, tested honestly.
+              γ survives removal of the overnight gap ⇒ asymmetry is <em>continuous intraday flow</em> — positioning/liquidity, persistent only while the imbalance lasts.
+              γ collapses when the gap is removed ⇒ the leverage effect is an <em>event/gap phenomenon</em> — news between sessions.
+              {gjrGammaCloseClose !== null && gjrGammaCloseClose !== undefined && gjrGammaOpenClose !== null && gjrGammaOpenClose !== undefined
+                ? ` Δγ = ${(gjrGammaOpenClose - gjrGammaCloseClose) >= 0 ? '+' : ''}${(gjrGammaOpenClose - gjrGammaCloseClose).toFixed(3)}.`
+                : ' Open→close fit needs ≥ 60 sessions — currently unavailable.'}
             </span>
           </div>
         </div>
@@ -444,8 +506,18 @@ export function AnalysisDynamicsTab({
                 Earnings releases &amp; macro news break outside market hours
               </p>
             </div>
-            <div className="font-mono text-xs text-gold-600 dark:text-gold-400">
-              Avg Overnight Share: <strong>{avgOvernightPct.toFixed(1)}%</strong>
+            <div className="flex items-center gap-3 font-mono text-xs">
+              {earningsCurrent && (
+                <span
+                  title="Per Yahoo quoteSummary (estimated) — drifts; not investment advice"
+                  className="rounded border border-gold-500/40 bg-gold-500/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-gold-800 dark:text-gold-200"
+                >
+                  Next earnings {earningsCurrent.date}{earningsCurrent.isEstimate ? ' (est.)' : ''}
+                </span>
+              )}
+              <div className="text-gold-600 dark:text-gold-400">
+                Avg Overnight Share: <strong>{avgOvernightPct.toFixed(1)}%</strong>
+              </div>
             </div>
           </div>
 
@@ -498,6 +570,16 @@ export function AnalysisDynamicsTab({
                   >
                     {overnightIntradaySplit[idx].date}
                   </text>
+                ) : null
+              )}
+
+              {/* Earnings marker — lands on the earnings session's bar when it's in the window */}
+              {earningsCurrent && overnightIntradaySplit.map((d, i) =>
+                d.date === earningsCurrent.date ? (
+                  <g key="earnings">
+                    <line x1={getSpX(i)} x2={getSpX(i)} y1={spPadT} y2={spH - spPadB} stroke="#DEC084" strokeWidth={1.1} strokeDasharray="5 4" />
+                    <text x={getSpX(i)} y={spPadT + 10} textAnchor="middle" className="fill-gold-700 dark:fill-gold-300 font-mono" fontSize="9">EARNINGS</text>
+                  </g>
                 ) : null
               )}
 
@@ -574,7 +656,21 @@ export function AnalysisDynamicsTab({
             </div>
             <Clock className="w-4 h-4 text-gold-500" />
           </div>
-
+          {(() => {
+            const ratio = diurnalReconciliation?.ratio ?? null;
+            const badRatio = ratio !== null && (ratio > 1.5 || ratio < 0.5);
+            const synthetic = intradaySource !== 'live_market';
+            if (!badRatio && !synthetic) return null;
+            return (
+              <div className="mt-2 flex flex-wrap items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 font-mono text-[9px] uppercase tracking-[0.14em] text-amber-700 dark:text-amber-300">
+                <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                {synthetic && <span>Intraday bars: {intradaySource ?? 'not live'} — panel is illustrative.</span>}
+                {badRatio && (
+                  <span>Diurnal mean ÷ intraday RV = {ratio !== null ? `${ratio.toFixed(2)}×` : 'n/a'} — outside the 0.5–1.5 sane band. Do not size off this panel until it reconciles.</span>
+                )}
+              </div>
+            );
+          })()}
           <div className="mt-4">
             <ChartFullscreen title="390-Minute Intraday Diurnal Volatility Profile" subtitle={ticker}>
               <IntradayDiurnalChart points={diurnalProfile} ticker={ticker} />

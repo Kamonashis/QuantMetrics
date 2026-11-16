@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -18,11 +18,15 @@ import {
   computeAdfTest,
   computeRealizedVolatilityAndJumps,
   fitHarRvModel,
+  fitGarch11,
 } from '@/lib/quant-engine';
 import {
   computeStructuralBreaks,
   computeHurstAndVarianceRatio,
   computeRollingMomentsWithBands,
+  computeVarianceBudget,
+  computeDiurnalRvReconciliation,
+  computeInnovationDiagnostics,
 } from '@/lib/analysis-engine';
 import { fitGaussianHmm, type HmmFit } from '@/lib/hmm';
 import {
@@ -30,6 +34,7 @@ import {
   forwardImpliedVol,
   forwardRealizedVol,
   varianceBaseline,
+  varianceRatio,
   rvTriangle,
   breakevenVol,
   BREAKEVEN_MULT,
@@ -39,8 +44,10 @@ import {
 import { RollingVolatilityChart } from '@/components/charts/RollingVolatilityChart';
 import { IvRvSpreadChart, type IvRvSpreadPoint } from '@/components/charts/IvRvSpreadChart';
 import { ExpectedMoveConeChart } from '@/components/charts/ExpectedMoveConeChart';
+import { ReconciliationLog } from './ReconciliationLog';
 import { RegimeTimeline, regimeNames } from '@/components/charts/RegimeTimeline';
 import type { ChainPayload, IvHistoryEntry } from './types';
+import { sessionsUntil } from '@/lib/earnings';
 
 interface T8DecisionTabProps {
   chain: ChainPayload | null;
@@ -48,6 +55,8 @@ interface T8DecisionTabProps {
   ticker: string;
   ivHistory: IvHistoryEntry[];
   intradayBars: IntradayBar[];
+  /** 'live_market' | 'synthetic_gbm' | null — provenance of the intraday cache */
+  intradaySource?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -80,6 +89,25 @@ function Tile({ label, value, sub, tone = 'default' }: { label: string; value: s
   );
 }
 
+function MeterRow({ label, value, hint, tone = 'gold' }: { label: string; value: number | null; hint?: string; tone?: 'gold' | 'warn' | 'zinc' }) {
+  const pctValue = value === null ? null : Math.min(100, Math.max(0, value * 100));
+  const bar = tone === 'warn' ? 'bg-amber-500/70' : tone === 'zinc' ? 'bg-zinc-500/60' : 'bg-gold-500/80';
+  return (
+    <div className="flex items-center gap-3">
+      <div className="w-44 shrink-0">
+        <div className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">{label}</div>
+        {hint && <div className="font-mono text-[8px] text-zinc-400 dark:text-zinc-500">{hint}</div>}
+      </div>
+      <div className="h-3.5 flex-1 overflow-hidden rounded-sm bg-[var(--bg-inset)]">
+        {pctValue !== null && <div className={`h-full rounded-sm ${bar}`} style={{ width: `${pctValue.toFixed(1)}%` }} />}
+      </div>
+      <span className="w-12 shrink-0 text-right font-mono text-[11px] font-bold tabular-nums text-zinc-800 dark:text-zinc-100">
+        {pctValue !== null ? `${pctValue.toFixed(0)}%` : '—'}
+      </span>
+    </div>
+  );
+}
+
 function StatePill({ state }: { state: SignalState }) {
   if (state === 'met')
     return (
@@ -104,7 +132,7 @@ function StatePill({ state }: { state: SignalState }) {
 // T8 — Decision tab
 // ---------------------------------------------------------------------------
 
-export function T8DecisionTab({ chain, bars, ticker, ivHistory, intradayBars }: T8DecisionTabProps) {
+export function T8DecisionTab({ chain, bars, ticker, ivHistory, intradayBars, intradaySource = null }: T8DecisionTabProps) {
   const dates = useMemo(() => bars.map((b) => b.date), [bars]);
   const prices = useMemo(() => bars.map((b) => b.close), [bars]);
   const returns = useMemo(() => calculateReturns(prices, 'log'), [prices]);
@@ -129,6 +157,7 @@ export function T8DecisionTab({ chain, bars, ticker, ivHistory, intradayBars }: 
   const iv30 = chain?.iv30 ?? null;
   const chainAvailable = chain?.available === true;
   const breakeven = iv30 !== null ? breakevenVol(iv30) : null;
+  const varRatio30 = varianceRatio(rv30, iv30);
 
   // Forward vol: realized (variance decomposition) and implied (w-difference)
   const fwdReal10_30 = rv10 !== null && rv30 !== null ? forwardRealizedVol(rv10, rv30, 10, 30) : null;
@@ -149,6 +178,13 @@ export function T8DecisionTab({ chain, bars, ticker, ivHistory, intradayBars }: 
       return null;
     }
   }, [intradayBars]);
+
+  // Variance budget — what of the measured variance can a hedge even harvest
+  const budget = useMemo(() => computeVarianceBudget(intradayBars, bars, 10), [intradayBars, bars]);
+  const recon = useMemo(() => computeDiurnalRvReconciliation(intradayBars), [intradayBars]);
+  const intradaySynthetic = intradaySource !== 'live_market';
+  const reconRatio = recon.ratio;
+  const reconSane = reconRatio !== null && reconRatio >= 0.5 && reconRatio <= 1.5;
 
   // RV triangle
   const triangle = rvTriangle(rv5, rv10, rv20, rv30);
@@ -237,6 +273,46 @@ export function T8DecisionTab({ chain, bars, ticker, ivHistory, intradayBars }: 
     return front?.rr25 ?? slices.find((s) => s.rr25 !== null)?.rr25 ?? null;
   }, [chain]);
 
+  // σ̂-standardized innovation diagnostics — kills the vol-clustering artifact before it becomes a "trend"
+  const innovation = useMemo(() => {
+    if (returns.length < 60) return null;
+    try {
+      const g = fitGarch11(returns);
+      return computeInnovationDiagnostics(returns, g.conditionalVariance);
+    } catch {
+      return null;
+    }
+  }, [returns]);
+
+  // Next earnings — fetched client-side (server-cached 15 min). "No data" when Yahoo's calendar is down.
+  const [earnings, setEarnings] = useState<{ ticker: string; date: string; isEstimate: boolean; sessions: number } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/options?mode=earnings&symbol=${encodeURIComponent(ticker)}`)
+      .then((r) => (r.ok ? (r.json() as Promise<{ available: boolean; nextEarningsDate?: string | null; isEstimate?: boolean }>) : null))
+      .then((d) => {
+        if (cancelled) return;
+        if (d?.available && d.nextEarningsDate) {
+          const today = new Date().toISOString().slice(0, 10);
+          setEarnings({
+            ticker,
+            date: d.nextEarningsDate,
+            isEstimate: d.isEstimate !== false,
+            sessions: sessionsUntil(d.nextEarningsDate, today),
+          });
+        } else {
+          setEarnings(null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setEarnings(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ticker]);
+  const earningsCurrent = earnings && earnings.ticker === ticker ? earnings : null;
+
   // The pre-registered signal table, evaluated
   const signals = useMemo(
     () =>
@@ -302,17 +378,68 @@ export function T8DecisionTab({ chain, bars, ticker, ivHistory, intradayBars }: 
             ticker {ticker}
           </span>
         </div>
-        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
           <Tile label="RV 10d" value={pct(rv10)} sub="burst window" />
           <Tile label="RV 20d" value={pct(rv20)} sub="month" />
           <Tile label="RV 30d" value={pct(rv30)} sub="≈ term" />
-          <Tile label="IV-30" value={pct(iv30)} sub={iv30 !== null ? 'European BSM' : 'chain down'} tone={iv30 !== null ? 'gold' : 'warn'} />
+          <Tile label="IV-30" value={pct(iv30)} sub={iv30 !== null ? 'BSM · √365 convention' : 'chain down'} tone={iv30 !== null ? 'gold' : 'warn'} />
+          <Tile
+            label="RV² / IV²"
+            value={varRatio30 !== null ? `${varRatio30.toFixed(2)}×` : '—'}
+            sub={varRatio30 !== null ? (varRatio30 >= 1 ? 'realized richer (30d)' : 'implied richer (30d)') : 'needs chain + history'}
+          />
           <Tile label="Vol of spike vs rest" value={pct(baseline)} sub="RV30² minus RV10², t=10→30" />
           <Tile label="HAR 1d fwd" value={pct(harNextDay)} sub={harNextDay !== null ? 'intraday RV fit' : 'needs intraday bars'} />
         </div>
         <p className="mt-2 font-mono text-[9px] uppercase tracking-[0.16em] text-zinc-500 dark:text-zinc-500">
-          note — RV &gt; IV ⇒ the gap is in the front; the back already realized {pct(baseline)}. ANN VOL (250d) is shown nowhere on this tab on purpose.
+          note — RV &gt; IV ⇒ the gap is in the front; the back already realized {pct(baseline)}. RV is √252, IV is √365 — annualizations of the same total variance, so they are compared directly and never rescaled; ANN VOL (250d) is shown nowhere on this tab on purpose.
         </p>
+      </div>
+
+      {/* ── 1b ── The variance budget: what of this is harvestable ─────────── */}
+      <div className="panel p-5">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+              The Variance Budget — what a hedge can actually capture
+            </h3>
+            <p className="mt-0.5 max-w-2xl text-[11px] leading-snug text-zinc-500 dark:text-zinc-400">
+              RV charts display all of it; delta-hedging harvests only part of it. Bipower variation splits diffusion from jumps, the signature plateau bounds microstructure noise, and the close→open split measures gap variance — estimators on overlapping windows, not a partition.
+            </p>
+          </div>
+          {intradaySynthetic && (
+            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-amber-500/50 bg-amber-500/10 px-2.5 py-1.5 font-mono text-[9px] font-bold uppercase tracking-[0.16em] text-amber-700 dark:text-amber-300">
+              <AlertTriangle className="h-3.5 w-3.5" /> {intradaySource ?? 'not live'} · illustrative
+            </span>
+          )}
+        </div>
+
+        <div className="mt-3 space-y-2">
+          <MeterRow label="Continuous diffusion" hint="bipower variation · the hedgeable part" value={budget.continuousShare} tone="gold" />
+          <MeterRow label="Jump + residual" hint="RV − BV · incl. contamination" value={budget.jumpResidualShare} tone="zinc" />
+          <MeterRow label="Microstructure noise" hint="signature plateau vs 1-min RV · LOWER BOUND" value={budget.noiseShareLowerBound} tone="warn" />
+          <MeterRow label="Overnight gap" hint="close→open vs intraday · options-only or untradeable" value={budget.overnightShare} tone="warn" />
+          <div className="border-t border-[var(--hairline)] pt-2">
+            <MeterRow label="Harvestable intraday" hint="continuous × (1 − overnight)" value={budget.harvestableShare} tone="gold" />
+          </div>
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--hairline)] pt-2 font-mono text-[9px] uppercase tracking-[0.16em] text-zinc-500">
+          <span>
+            diurnal ÷ intraday RV:{' '}
+            <span className={reconSane ? 'text-[var(--positive)]' : 'font-bold text-amber-600 dark:text-amber-300'}>
+              {reconRatio !== null ? `${reconRatio.toFixed(2)}× — ${reconSane ? 'sane' : 'outside 0.5–1.5, do not size off the diurnal panel'}` : 'n/a'}
+            </span>
+          </span>
+          <span>{budget.intradayDaysAvailable} intraday sessions · window 10 td</span>
+        </div>
+        {budget.notes.length > 0 && (
+          <ul className="mt-2 list-disc space-y-0.5 pl-4 font-mono text-[9px] leading-snug text-zinc-400 dark:text-zinc-500">
+            {budget.notes.map((n) => (
+              <li key={n}>{n}</li>
+            ))}
+          </ul>
+        )}
       </div>
 
       {/* ── 2 ── Breakeven chart: RV windows vs IV30 and 1.25× IV30 ─────────── */}
@@ -562,6 +689,29 @@ export function T8DecisionTab({ chain, bars, ticker, ivHistory, intradayBars }: 
           </div>
         </div>
 
+        {innovation && (
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-[var(--hairline)] pt-2 font-mono text-[9px] uppercase tracking-[0.16em] text-zinc-500">
+            <span className="text-gold-700 dark:text-gold-300">σ̂-standardized</span>
+            <span>H {innovation.hurstExponent.toFixed(2)}</span>
+            <span>min VR z {innovation.vrMinZ >= 0 ? '+' : ''}{innovation.vrMinZ.toFixed(2)}</span>
+            <span>ADF p {innovation.adfPValue < 0.001 ? '<0.001' : innovation.adfPValue.toFixed(3)}</span>
+            <span>→ trend overlay: <span className={innovation.hurstExponent >= 0.6 ? 'text-gold-700 dark:text-gold-300 font-bold' : 'text-zinc-400'}>{innovation.hurstExponent >= 0.6 ? 'defensible' : 'none — artifact'}</span></span>
+          </div>
+        )}
+
+        {earningsCurrent && (
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-[var(--hairline)] pt-2 font-mono text-[9px] uppercase tracking-[0.16em] text-zinc-500">
+            <span className="text-gold-700 dark:text-gold-300">next earnings</span>
+            <span>{earningsCurrent.date}{earningsCurrent.isEstimate ? ' (est.)' : ''}</span>
+            <span>≈{earningsCurrent.sessions} sessions</span>
+            {earningsCurrent.sessions <= 14 ? (
+              <span className="font-bold text-amber-600 dark:text-amber-300">— do not hold short premium through it</span>
+            ) : (
+              <span>beyond the 14-session warning zone</span>
+            )}
+          </div>
+        )}
+
         <div className="mt-3 overflow-x-auto">
           <table className="w-full min-w-[880px] border-collapse text-left font-mono text-[10.5px]">
             <thead>
@@ -591,12 +741,16 @@ export function T8DecisionTab({ chain, bars, ticker, ivHistory, intradayBars }: 
           <p className="font-mono font-semibold uppercase tracking-[0.18em]">Honesty chrome</p>
           <ul className="mt-1 list-disc space-y-0.5 pl-4">
             <li>IV is a European BSM approximation on ~15-min-delayed Yahoo quotes. Greeks here are analytic, never executable.</li>
+            <li>RV (√252) and IV (√365) are annualizations of the same total variance — the terminal compares them directly and never applies the cosmetic √(252/365) or √(365/252) rescale. If RV and IV disagree, that is information, not a basis error.</li>
             <li>The {BREAKEVEN_MULT}× breakeven is an uncalibrated heuristic — it has not been backtested (no IV history yet; revisit after ~60 accrued sessions).</li>
             <li>The IV store accrues one snapshot per day <em>you</em> open the chain. Panels with missing history say so instead of interpolating.</li>
             <li>These are one operator&rsquo;s pre-registered rules — signals, not orders. No broker connectivity exists in this app. Not investment advice.</li>
           </ul>
         </div>
       </div>
+
+      {/* ── 8 ── Reconciliation log — which conclusion rests on which test ──── */}
+      <ReconciliationLog n={returns.length} />
     </div>
   );
 }
