@@ -4,31 +4,32 @@ import React, { useState } from 'react';
 import {
   GarchModelSummary,
   GarchForecastPoint,
-  EwmaSummary,
 } from '@/lib/quant-engine';
 import { useChartSize } from '@/lib/use-chart-size';
 
 interface VolatilityForecastChartProps {
   dates: string[];
   historicalVol: (number | null)[];
-  ewmaVol: number[];
-  garchVol: number[];
+  /** The selected model's conditional vol series (EWMA / GJR-GARCH / HMM regime-mixture) */
+  modelVol: number[];
+  modelLabel: string;
   forecastPoints: GarchForecastPoint[];
-  garchSummary: GarchModelSummary;
-  ewmaSummary: EwmaSummary;
+  modelSummary: GarchModelSummary;
 }
 
+/**
+ * Forward projection chart: 30d historical vol, the selected model's conditional vol line,
+ * and the forward variance cone (68% / 95%). One model line only — no dual-model comparison.
+ */
 export function VolatilityForecastChart({
   dates,
   historicalVol,
-  ewmaVol,
-  garchVol,
+  modelVol,
+  modelLabel,
   forecastPoints,
-  garchSummary,
-  ewmaSummary,
+  modelSummary,
 }: VolatilityForecastChartProps) {
-  const [showEWMA, setShowEWMA] = useState(true);
-  const [showGARCH, setShowGARCH] = useState(true);
+  const [showModel, setShowModel] = useState(true);
   const [showHist, setShowHist] = useState(true);
   const [hoverIndex, setHoverIndex] = useState<{ type: 'hist' | 'fc'; idx: number } | null>(null);
   const { ref, size } = useChartSize<HTMLDivElement>();
@@ -40,10 +41,9 @@ export function VolatilityForecastChart({
   if (totalPoints === 0) return null;
 
   // Max volatility across all series
-  let maxV = garchSummary.longRunAnnualizedVol * 1.2;
+  let maxV = modelSummary.longRunAnnualizedVol * 1.2;
   historicalVol.forEach((v) => { if (v !== null && v > maxV) maxV = v; });
-  ewmaVol.forEach((v) => { if (v > maxV) maxV = v; });
-  garchVol.forEach((v) => { if (v > maxV) maxV = v; });
+  modelVol.forEach((v) => { if (v > maxV) maxV = v; });
   forecastPoints.forEach((p) => { if (p.upper95 > maxV) maxV = p.upper95; });
   maxV = Math.max(0.2, maxV * 1.15);
 
@@ -72,13 +72,13 @@ export function VolatilityForecastChart({
   const lower68Points: string[] = [];
   const fcLinePoints: string[] = [];
 
-  // Start forecast path from last GARCH point
-  const lastGarchVol = garchVol[nHist - 1] || forecastPoints[0]?.annualizedVol || 0.2;
-  fcLinePoints.push(`${splitX},${getY(lastGarchVol)}`);
-  upper95Points.push(`${splitX},${getY(lastGarchVol)}`);
-  lower95Points.push(`${splitX},${getY(lastGarchVol)}`);
-  upper68Points.push(`${splitX},${getY(lastGarchVol)}`);
-  lower68Points.push(`${splitX},${getY(lastGarchVol)}`);
+  // Start forecast path from the last model-vol point
+  const lastModelVol = modelVol[nHist - 1] || forecastPoints[0]?.annualizedVol || 0.2;
+  fcLinePoints.push(`${splitX},${getY(lastModelVol)}`);
+  upper95Points.push(`${splitX},${getY(lastModelVol)}`);
+  lower95Points.push(`${splitX},${getY(lastModelVol)}`);
+  upper68Points.push(`${splitX},${getY(lastModelVol)}`);
+  lower68Points.push(`${splitX},${getY(lastModelVol)}`);
 
   forecastPoints.forEach((p, i) => {
     const x = getX(nHist + i);
@@ -98,8 +98,7 @@ export function VolatilityForecastChart({
     if (v !== null) histPoints.push(`${getX(i)},${getY(v)}`);
   });
 
-  const ewmaPoints = ewmaVol.map((v, i) => `${getX(i)},${getY(v)}`).join(' L ');
-  const garchPoints = garchVol.map((v, i) => `${getX(i)},${getY(v)}`).join(' L ');
+  const modelPoints = modelVol.map((v, i) => `${getX(i)},${getY(v)}`).join(' L ');
 
   const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -116,44 +115,36 @@ export function VolatilityForecastChart({
     }
   };
 
+  const flatProjection = modelSummary.persistence >= 1;
+
   return (
     <div className="panel p-5">
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-4">
         <div>
           <div className="flex items-center gap-2">
             <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm tracking-tight">
-              Volatility Modeling: GARCH(1,1), EWMA & Forecast Projection
+              Volatility Forecast Projection
             </h3>
             <span className="text-xs text-zinc-500 dark:text-zinc-400">
-              · Term Structure Projection
+              · forward variance projection
             </span>
           </div>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-            Model comparison alongside {nFc}-day GARCH variance forecast with 68% and 95% confidence cones
+            {nFc}-day {modelLabel} projection with 68% and 95% confidence cones
           </p>
         </div>
 
         {/* Series Visibility Toggles */}
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <button
-            onClick={() => setShowGARCH(!showGARCH)}
+            onClick={() => setShowModel(!showModel)}
             className={`px-2.5 py-1 rounded-md font-medium transition-colors border ${
-              showGARCH
-                ? 'bg-gold-500/10 border-gold-500/30 text-gold-600 dark:text-gold-300 dark:text-gold-600 dark:text-gold-300'
-                : 'border-zinc-200 dark:border-zinc-800 text-zinc-400'
-            }`}
-          >
-            GARCH(1,1)
-          </button>
-          <button
-            onClick={() => setShowEWMA(!showEWMA)}
-            className={`px-2.5 py-1 rounded-md font-medium transition-colors border ${
-              showEWMA
+              showModel
                 ? 'bg-gold-500/10 border-gold-500/30 text-gold-600 dark:text-gold-400'
                 : 'border-zinc-200 dark:border-zinc-800 text-zinc-400'
             }`}
           >
-            EWMA (λ={ewmaSummary.lambda})
+            {modelLabel}
           </button>
           <button
             onClick={() => setShowHist(!showHist)}
@@ -179,12 +170,12 @@ export function VolatilityForecastChart({
         >
           <defs>
             <linearGradient id="fcGradient95" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.18" />
-              <stop offset="100%" stopColor="#38bdf8" stopOpacity="0.04" />
+              <stop offset="0%" stopColor="#DEC084" stopOpacity="0.18" />
+              <stop offset="100%" stopColor="#DEC084" stopOpacity="0.04" />
             </linearGradient>
             <linearGradient id="fcGradient68" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.28" />
-              <stop offset="100%" stopColor="#38bdf8" stopOpacity="0.10" />
+              <stop offset="0%" stopColor="#DEC084" stopOpacity="0.26" />
+              <stop offset="100%" stopColor="#DEC084" stopOpacity="0.10" />
             </linearGradient>
           </defs>
 
@@ -215,24 +206,28 @@ export function VolatilityForecastChart({
             );
           })}
 
-          {/* Long run unconditional volatility reference line */}
-          <line
-            x1={padLeft}
-            y1={getY(garchSummary.longRunAnnualizedVol)}
-            x2={width - padRight}
-            y2={getY(garchSummary.longRunAnnualizedVol)}
-            stroke="#10b981"
-            strokeWidth="0.8"
-            strokeDasharray="4 4"
-          />
-          <text
-            x={width - padRight - 2}
-            y={getY(garchSummary.longRunAnnualizedVol) + 3}
-            textAnchor="end"
-            className="text-[9px] font-mono fill-gold-500 tabular-nums"
-          >
-            V_L: {(garchSummary.longRunAnnualizedVol * 100).toFixed(1)}%
-          </text>
+          {/* Long-run unconditional vol reference — only when the model mean-reverts (not EWMA) */}
+          {!flatProjection && (
+            <>
+              <line
+                x1={padLeft}
+                y1={getY(modelSummary.longRunAnnualizedVol)}
+                x2={width - padRight}
+                y2={getY(modelSummary.longRunAnnualizedVol)}
+                stroke="#10b981"
+                strokeWidth="0.8"
+                strokeDasharray="4 4"
+              />
+              <text
+                x={width - padRight - 2}
+                y={getY(modelSummary.longRunAnnualizedVol) + 3}
+                textAnchor="end"
+                className="text-[9px] font-mono fill-gold-500 tabular-nums"
+              >
+                V_L: {(modelSummary.longRunAnnualizedVol * 100).toFixed(1)}%
+              </text>
+            </>
+          )}
 
           {/* Vertical boundary separating historical and forecast */}
           <line
@@ -261,11 +256,11 @@ export function VolatilityForecastChart({
             Forecast →
           </text>
 
-          {/* Confidence Cones */}
+          {/* Confidence cones */}
           <path d={area95Path} fill="url(#fcGradient95)" />
           <path d={area68Path} fill="url(#fcGradient68)" />
 
-          {/* Historical line: 30d Historical */}
+          {/* Historical 30d line */}
           {showHist && histPoints.length > 0 && (
             <path
               d={`M ${histPoints.join(' L ')}`}
@@ -276,25 +271,15 @@ export function VolatilityForecastChart({
             />
           )}
 
-          {/* Historical line: EWMA */}
-          {showEWMA && (
+          {/* Model conditional vol line */}
+          {showModel && (
             <path
-              d={`M ${ewmaPoints}`}
+              d={`M ${modelPoints}`}
               fill="none"
               stroke="#DEC084"
-              strokeWidth="1.3"
-              strokeLinecap="round"
-            />
-          )}
-
-          {/* Historical line: GARCH */}
-          {showGARCH && (
-            <path
-              d={`M ${garchPoints}`}
-              fill="none"
-              stroke="#0ea5e9"
               strokeWidth="1.4"
               strokeLinecap="round"
+              strokeLinejoin="round"
             />
           )}
 
@@ -302,8 +287,8 @@ export function VolatilityForecastChart({
           <path
             d={`M ${fcLinePoints.join(' L ')}`}
             fill="none"
-            stroke="#0ea5e9"
-            strokeWidth="1.4"
+            stroke="#DEC084"
+            strokeWidth="1.3"
             strokeDasharray="4 2"
           />
 
@@ -323,9 +308,10 @@ export function VolatilityForecastChart({
                     : getX(nHist + hoverIndex.idx)
                 }
                 y2={padTop + chartH}
-                stroke="#38bdf8"
+                stroke="#DEC084"
                 strokeWidth="0.65"
                 strokeDasharray="2 2"
+                opacity="0.7"
               />
             </g>
           )}
@@ -361,42 +347,42 @@ export function VolatilityForecastChart({
       {/* Model Diagnostic Footnotes & Parameter Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4 pt-3 border-t border-zinc-100 dark:border-zinc-800/80 text-xs">
         <div className="bg-zinc-50 dark:bg-zinc-900/60 p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800/60">
-          <span className="text-zinc-500 dark:text-zinc-400 block">GARCH Parameters</span>
+          <span className="text-zinc-500 dark:text-zinc-400 block">Model Weights (α, β)</span>
           <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100 tabular-nums text-xs">
-            α: {garchSummary.alpha.toFixed(3)} · β: {garchSummary.beta.toFixed(3)}
+            {modelSummary.alpha.toFixed(3)} · {modelSummary.beta.toFixed(3)}
           </span>
           <span className="text-[11px] text-zinc-500 dark:text-zinc-400 block mt-0.5">
-            ω: {garchSummary.omega.toExponential(2)}
+            ω: {modelSummary.omega.toExponential(2)}
           </span>
         </div>
 
         <div className="bg-zinc-50 dark:bg-zinc-900/60 p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800/60">
           <span className="text-zinc-500 dark:text-zinc-400 block">Shock Persistence (α+β)</span>
           <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100 tabular-nums text-xs">
-            {garchSummary.persistence.toFixed(4)}
+            {flatProjection ? '1.0000' : modelSummary.persistence.toFixed(4)}
           </span>
           <span className="text-[11px] text-zinc-500 dark:text-zinc-400 block mt-0.5">
-            Half-life: {garchSummary.halfLife ? `${garchSummary.halfLife.toFixed(1)} days` : 'Infinite'}
+            {flatProjection ? 'No mean reversion' : `Half-life: ${modelSummary.halfLife ? `${modelSummary.halfLife.toFixed(1)} days` : 'Infinite'}`}
           </span>
         </div>
 
         <div className="bg-zinc-50 dark:bg-zinc-900/60 p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800/60">
-          <span className="text-zinc-500 dark:text-zinc-400 block">Unconditional Long-Run Vol</span>
+          <span className="text-zinc-500 dark:text-zinc-400 block">Projection Level (start)</span>
           <span className="font-mono font-bold text-gold-600 dark:text-gold-400 tabular-nums text-xs">
-            {(garchSummary.longRunAnnualizedVol * 100).toFixed(2)}%
+            {(lastModelVol * 100).toFixed(2)}%
           </span>
           <span className="text-[11px] text-zinc-500 dark:text-zinc-400 block mt-0.5">
-            Log-Likelihood: {garchSummary.logLikelihood.toFixed(1)}
+            {flatProjection ? 'flat-forward from latest EWMA vol' : `reverts toward V_L ${(modelSummary.longRunAnnualizedVol * 100).toFixed(1)}%`}
           </span>
         </div>
 
         <div className="bg-zinc-50 dark:bg-zinc-900/60 p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800/60">
-          <span className="text-zinc-500 dark:text-zinc-400 block">EWMA Latest vs Mean</span>
-          <span className="font-mono font-bold text-gold-600 dark:text-gold-400 tabular-nums text-xs">
-            {(ewmaSummary.latestAnnualizedVol * 100).toFixed(1)}% / {(ewmaSummary.meanAnnualizedVol * 100).toFixed(1)}%
+          <span className="text-zinc-500 dark:text-zinc-400 block">Projection Horizon</span>
+          <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100 tabular-nums text-xs">
+            {nFc} trading days
           </span>
           <span className="text-[11px] text-zinc-500 dark:text-zinc-400 block mt-0.5">
-            Range: {(ewmaSummary.minAnnualizedVol * 100).toFixed(1)}% - {(ewmaSummary.maxAnnualizedVol * 100).toFixed(1)}%
+            68% / 95% cones widen as √h
           </span>
         </div>
       </div>

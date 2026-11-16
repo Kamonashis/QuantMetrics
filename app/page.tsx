@@ -60,7 +60,9 @@ export default function App() {
     });
   };
 
-  // Deterministic 1-year date range for SSR/client parity
+  // Deterministic 1-year date range for SSR/client parity. The initial end-date renders as this
+  // constant on both server and client; a mount effect brings it forward to the real current day
+  // (hydration-safe — same pattern as the theme sync).
   const todayStr = '2026-11-08';
   const oneYearAgoStr = '2025-11-08';
 
@@ -96,6 +98,18 @@ export default function App() {
   const [rollingWindows, setRollingWindows] = useState<string>('10,20,30');
   const [decompPeriod, setDecompPeriod] = useState<number>(30);
   const [decompModel, setDecompModel] = useState<'additive' | 'multiplicative'>('additive');
+
+  // Sync the default end date to the actual current day on mount (SSR/client parity preserved —
+  // first paint uses the deterministic constant, the effect moves it to "today").
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const timer = setTimeout(() => {
+      const now = new Date();
+      const local = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      setEndDate((prev) => (prev === todayStr ? local : prev));
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [todayStr]);
 
   // Multi-stock parameters
   const [correlationTickers, setCorrelationTickers] = useState<string>(

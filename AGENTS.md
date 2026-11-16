@@ -29,7 +29,7 @@ QuantMetrics: a quantitative stock-analysis / volatility-modeling terminal. Next
 
 ## Gotchas (hard-won)
 
-- **Hydration/determinism**: `DETERMINISTIC_BASE_DATE` in `lib/market-service.ts` (`2026-11-08`) and hardcoded `todayStr = '2026-11-08'` / `oneYearAgoStr` in `app/page.tsx` exist for SSR/client parity. Do not replace with `new Date()` — it will cause hydration mismatches.
+- **Hydration/determinism**: `DETERMINISTIC_BASE_DATE` in `lib/market-service.ts` (`2026-11-08`) and hardcoded `todayStr = '2026-11-08'` / `oneYearAgoStr` in `app/page.tsx` exist for SSR/client parity. Do not replace the *initial* state with `new Date()` — the initial render must stay deterministic. The **default End Date is synced to the real current day on mount** via a 0ms-timeout `useEffect` (same pattern as the theme sync); user edits are never overwritten.
 - **Theme**: server and client both default to dark; `layout.tsx` sets `<html className="dark">` + `suppressHydrationWarning`, and client syncs `localStorage['qt_theme']` in a `useEffect`. Keep this pattern when touching theme code.
 - **`next build` does NOT lint**: `next.config.ts` sets `eslint.ignoreDuringBuilds: true` (but `typescript.ignoreBuildErrors: false`, so the build does typecheck). Run `npm run lint` separately.
 - `eslint.config.mjs` (flat) is the config ESLint 9 actually uses; `.eslintrc.json` is legacy and ignored. `eslint-config-next` is v16 while `next` is v15 — works, but don't "fix" the mismatch casually.

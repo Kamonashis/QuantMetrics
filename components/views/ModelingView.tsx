@@ -12,7 +12,6 @@ import {
   computeEwmaVolatility,
   fitGarch11,
   fitGjrGarch,
-  forecastGarch,
   forecastGjr,
   computeRealizedVolatilityAndJumps,
   fitHarRvModel,
@@ -67,12 +66,10 @@ export function ModelingView({
   companyName,
   onNavigateToAnalysis,
 }: ModelingViewProps) {
-  const [activeModelTab, setActiveModelTab] = useState<'garch' | 'gjr' | 'ewma' | 'har' | 'hmm'>('garch');
+  const [activeModelTab, setActiveModelTab] = useState<'gjr' | 'ewma' | 'har' | 'hmm'>('ewma');
   const [harEquationView, setHarEquationView] = useState<'regression' | 'forecast'>('regression');
   const [lambda, setLambda] = useState<number>(0.94);
   const [forecastDays, setForecastDays] = useState<number>(30);
-  const [garchP, setGarchP] = useState<number>(1);
-  const [garchQ, setGarchQ] = useState<number>(1);
   const [isCalibrating, setIsCalibrating] = useState<boolean>(false);
 
   // Filter daily bars
@@ -260,14 +257,9 @@ export function ModelingView({
 
   const forecastPoints = useMemo(() => {
     if (activeModelTab === 'gjr') return gjrForecastPoints;
-    if (activeModelTab === 'ewma') return ewmaForecastPoints;
     if (activeModelTab === 'hmm') return hmmForecastPoints;
-    const lastVar =
-      garchResult.conditionalVariance[garchResult.conditionalVariance.length - 1] ||
-      0.0002;
-    const lastDate = dates[dates.length - 1];
-    return forecastGarch(garchResult.summary, lastVar, forecastDays, lastDate);
-  }, [activeModelTab, garchResult, gjrForecastPoints, ewmaForecastPoints, hmmForecastPoints, forecastDays, dates]);
+    return ewmaForecastPoints;
+  }, [activeModelTab, gjrForecastPoints, ewmaForecastPoints, hmmForecastPoints]);
 
   // Compute 1-minute Realized Volatility and Jumps
   const dailyRealizedVol = useMemo(() => {
@@ -316,11 +308,10 @@ export function ModelingView({
             <AlgoSelect
               ariaLabel="Volatility model"
               value={activeModelTab}
-              onChange={(v) => setActiveModelTab(v as 'garch' | 'gjr' | 'ewma' | 'hmm' | 'har')}
+              onChange={(v) => setActiveModelTab(v as 'gjr' | 'ewma' | 'hmm' | 'har')}
               options={[
-                { value: 'garch', label: 'GARCH(1,1)', hint: 'MLE · symmetric' },
-                { value: 'gjr', label: 'GJR-GARCH', hint: 'leverage · MLE' },
                 { value: 'ewma', label: 'EWMA λ = 0.94', hint: 'RiskMetrics' },
+                { value: 'gjr', label: 'GJR-GARCH', hint: 'leverage · MLE' },
                 { value: 'hmm', label: 'HMM', hint: 'Gaussian · latent regimes' },
                 { value: 'har', label: 'HAR-RV', hint: 'Corsi · OLS' },
               ]}
@@ -348,42 +339,6 @@ export function ModelingView({
         {activeModelTab !== 'har' ? (
           /* Calibration Sliders for Daily GARCH / GJR / EWMA */
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-4 text-xs">
-            {/* GARCH Terms — symmetric GARCH(1,1) only; GJR fixes asymmetry at (1,1,1) */}
-            {activeModelTab === 'garch' && (
-            <div className="p-3 bg-zinc-50 dark:bg-zinc-900/60 rounded-lg border border-zinc-200 dark:border-zinc-800/60">
-              <label className="block text-zinc-700 dark:text-zinc-300 font-semibold mb-1">
-                GARCH Order (p, q)
-              </label>
-              <div className="flex items-center gap-2 mt-2">
-                <div className="flex items-center gap-1.5 flex-1">
-                  <span className="text-zinc-500 font-mono">p (ARCH):</span>
-                  <input
-                    type="number"
-                    min="1"
-                    max="2"
-                    value={garchP}
-                    onChange={(e) => setGarchP(parseInt(e.target.value, 10) || 1)}
-                    className="w-12 px-2 py-1 rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-center font-mono font-bold"
-                  />
-                </div>
-                <div className="flex items-center gap-1.5 flex-1">
-                  <span className="text-zinc-500 font-mono">q (GARCH):</span>
-                  <input
-                    type="number"
-                    min="1"
-                    max="2"
-                    value={garchQ}
-                    onChange={(e) => setGarchQ(parseInt(e.target.value, 10) || 1)}
-                    className="w-12 px-2 py-1 rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-center font-mono font-bold"
-                  />
-                </div>
-              </div>
-              <span className="text-[11px] text-zinc-400 block mt-1.5">
-                Standard GARCH(1,1) specification
-              </span>
-            </div>
-            )}
-
             {/* HMM diagnostics — only when HMM is the selected model */}
             {activeModelTab === 'hmm' && hmmResult && (
             <div className="p-3 bg-zinc-50 dark:bg-zinc-900/60 rounded-lg border border-zinc-200 dark:border-zinc-800/60">
@@ -479,20 +434,20 @@ export function ModelingView({
             {activeModelTab !== 'ewma' && activeModelTab !== 'hmm' ? (
             <div className="p-3 bg-zinc-50 dark:bg-zinc-900/60 rounded-lg border border-zinc-200 dark:border-zinc-800/60">
               <span className="text-zinc-500 dark:text-zinc-400 block font-medium">
-                {activeModelTab === 'gjr' ? 'Shock Persistence (asym-weighted)' : 'Shock Persistence (α + β)'}
+                Shock Persistence (asym-weighted)
               </span>
               <div className="flex items-baseline gap-2 mt-1">
                 <span className="font-mono text-xl font-bold text-zinc-900 dark:text-zinc-100 tabular-nums">
-                  {(activeModelTab === 'gjr' ? gjrResult.summary.persistence : garchResult.summary.persistence).toFixed(4)}
+                  {gjrResult.summary.persistence.toFixed(4)}
                 </span>
                 <span className="text-xs text-gold-600 dark:text-gold-400 font-medium">
-                  {(activeModelTab === 'gjr' ? gjrResult.summary.persistence : garchResult.summary.persistence) < 1 ? 'Stationary' : 'Explosive'}
+                  {gjrResult.summary.persistence < 1 ? 'Stationary' : 'Explosive'}
                 </span>
               </div>
               <span className="text-[11px] text-zinc-400 block mt-1">
                 Shock Half-Life:{' '}
-                {(activeModelTab === 'gjr' ? gjrResult.summary.halfLife : garchResult.summary.halfLife)
-                  ? `${(activeModelTab === 'gjr' ? gjrResult.summary.halfLife : garchResult.summary.halfLife)!.toFixed(1)} trading days`
+                {gjrResult.summary.halfLife
+                  ? `${gjrResult.summary.halfLife.toFixed(1)} trading days`
                   : 'Permanent'}
               </span>
             </div>
@@ -612,39 +567,38 @@ export function ModelingView({
         <ChartFullscreen
           title={
             activeModelTab === 'gjr'
-              ? 'EWMA vs. GJR-GARCH Volatility Cone & Forecast'
-              : activeModelTab === 'ewma'
-                ? 'EWMA Volatility Cone & Forecast (λ = 0.94)'
-                : activeModelTab === 'hmm'
-                  ? 'EWMA vs. HMM Regime-Mixture Volatility Cone & Forecast'
-                  : 'EWMA vs. GARCH(1,1) Volatility Cone & Forecast'
+              ? 'GJR-GARCH Volatility Cone & Forecast'
+              : activeModelTab === 'hmm'
+                ? 'HMM Regime-Mixture Volatility Cone & Forecast'
+                : `EWMA Volatility Cone & Forecast (λ = ${lambda.toFixed(2)})`
           }
           subtitle={ticker}
         >
           <VolatilityForecastChart
             dates={dates}
             historicalVol={historicalVol}
-            ewmaVol={ewmaResult.ewmaAnnualizedVol}
-            garchVol={
+            modelVol={
               activeModelTab === 'gjr'
                 ? gjrResult.conditionalAnnualizedVol
-                : activeModelTab === 'ewma'
-                  ? ewmaResult.ewmaAnnualizedVol
-                  : activeModelTab === 'hmm'
-                    ? hmmVol
-                    : garchResult.conditionalAnnualizedVol
+                : activeModelTab === 'hmm'
+                  ? hmmVol
+                  : ewmaResult.ewmaAnnualizedVol
+            }
+            modelLabel={
+              activeModelTab === 'gjr'
+                ? 'GJR-GARCH'
+                : activeModelTab === 'hmm'
+                  ? 'HMM regime-mixture'
+                  : `EWMA λ = ${lambda.toFixed(2)}`
             }
             forecastPoints={forecastPoints}
-            garchSummary={
+            modelSummary={
               activeModelTab === 'gjr'
                 ? gjrResult.summary
-                : activeModelTab === 'ewma'
-                  ? ewmaSummaryShim
-                  : activeModelTab === 'hmm'
-                    ? hmmSummaryShim
-                    : garchResult.summary
+                : activeModelTab === 'hmm'
+                  ? hmmSummaryShim
+                  : ewmaSummaryShim
             }
-            ewmaSummary={ewmaResult.summary}
           />
         </ChartFullscreen>
       )}
