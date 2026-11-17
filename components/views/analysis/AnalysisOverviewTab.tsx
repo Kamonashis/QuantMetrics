@@ -68,6 +68,8 @@ interface AnalysisOverviewTabProps {
   hmmFit?: HmmFit | null;
   hmmK?: 2 | 3 | 4;
   onHmmKChange?: (k: 2 | 3 | 4) => void;
+  /** session date per posterior — dates[i] aligns with hmmFit.posteriors[i] */
+  hmmDates?: string[];
 }
 
 export function AnalysisOverviewTab({
@@ -95,6 +97,7 @@ export function AnalysisOverviewTab({
   hmmFit,
   hmmK,
   onHmmKChange,
+  hmmDates,
 }: AnalysisOverviewTabProps) {
   const [skewHoverIdx, setSkewHoverIdx] = useState<number | null>(null);
   // Memory battery: raw returns vs σ̂-standardized innovation diagnostic (GARCH filter)
@@ -240,7 +243,7 @@ export function AnalysisOverviewTab({
           </div>
           {hmmFit ? (
             <>
-              <RegimeTimeline posteriors={hmmFit.posteriors} labels={regimeNames(hmmFit.k)} height={44} />
+              <RegimeTimeline posteriors={hmmFit.posteriors} labels={regimeNames(hmmFit.k)} height={44} dates={hmmDates} />
               <RegimeTransitionMatrix fit={hmmFit} className="mt-2 border-t border-zinc-100 dark:border-zinc-800/60 pt-2" labels={regimeNames(hmmFit.k)} />
             </>
           ) : (

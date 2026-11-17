@@ -291,9 +291,12 @@ export function AnalysisView({
   }, [returns]);
 
   // HMM volatility-regime fit — shared by Overview & Risk tabs. Features: [r, |r|, log GK-RV].
+  // hmmModel.dates[i] is the session date for posterior i (features start at
+  // bars[1] and skip invalid bars), so it must be collected in the same loop.
   const [hmmK, setHmmK] = useState<2 | 3 | 4>(3);
-  const hmmFit = useMemo<HmmFit | null>(() => {
-    if (!filteredBars || filteredBars.length < 60) return null;
+  const hmmModel = useMemo<{ fit: HmmFit | null; dates: string[] }>(() => {
+    const hmmDates: string[] = [];
+    if (!filteredBars || filteredBars.length < 60) return { fit: null, dates: hmmDates };
     const feats: number[][] = [];
     for (let i = 1; i < filteredBars.length; i++) {
       const b = filteredBars[i];
@@ -307,9 +310,11 @@ export function AnalysisView({
           : (c - po) / po;
       const gk = 0.5 * Math.log(h / l) ** 2 - (2 * Math.LN2 - 1) * Math.log(c / o) ** 2;
       feats.push([r, Math.abs(r), Math.log(Math.max(gk, 1e-8))]);
+      hmmDates.push(b.date);
     }
-    return fitGaussianHmm(feats, { k: hmmK, rankFeature: 2 });
+    return { fit: fitGaussianHmm(feats, { k: hmmK, rankFeature: 2 }), dates: hmmDates };
   }, [filteredBars, returnType, hmmK]);
+  const hmmFit = hmmModel.fit;
 
   // Tier 4: Drawdown Analytics & Underwater Curve
   const drawdownResult = useMemo(() => {
@@ -682,6 +687,7 @@ export function AnalysisView({
           hmmFit={hmmFit}
           hmmK={hmmK}
           onHmmKChange={setHmmK}
+          hmmDates={hmmModel.dates}
         />
       )}
 

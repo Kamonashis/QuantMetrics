@@ -198,8 +198,11 @@ export function T8DecisionTab({ chain, bars, ticker, ivHistory, intradayBars, in
   }, [rolling, ivHistory]);
 
   // HMM regime fit — same feature set/rank as ModelingView ([r, |r|, log GK-RV], rankFeature=2)
-  const hmm = useMemo<HmmFit | null>(() => {
-    if (!bars || bars.length < 60) return null;
+  // hmmModel.dates[i] is the session date for posterior i (features start at
+  // bars[1] and skip invalid bars), so it must be collected in the same loop.
+  const hmmModel = useMemo<{ fit: HmmFit | null; dates: string[] }>(() => {
+    const hmmDates: string[] = [];
+    if (!bars || bars.length < 60) return { fit: null, dates: hmmDates };
     const feats: number[][] = [];
     for (let i = 1; i < bars.length; i++) {
       const b = bars[i];
@@ -209,9 +212,11 @@ export function T8DecisionTab({ chain, bars, ticker, ivHistory, intradayBars, in
       const r = Math.log(c / prev.close);
       const gk = 0.5 * Math.log(h / l) ** 2 - (2 * Math.LN2 - 1) * Math.log(c / o) ** 2;
       feats.push([r, Math.abs(r), Math.log(Math.max(gk, 1e-8))]);
+      hmmDates.push(b.date);
     }
-    return fitGaussianHmm(feats, { k: 3, rankFeature: 2 });
+    return { fit: fitGaussianHmm(feats, { k: 3, rankFeature: 2 }), dates: hmmDates };
   }, [bars]);
+  const hmm = hmmModel.fit;
 
   const hmmMeta = useMemo(() => {
     if (!hmm || hmm.posteriors.length === 0) return null;
@@ -659,7 +664,7 @@ export function T8DecisionTab({ chain, bars, ticker, ivHistory, intradayBars, in
         </div>
         <div className="mt-3">
           {hmm ? (
-            <RegimeTimeline posteriors={hmm.posteriors} labels={regimeNames(3)} height={54} maxBars={400} />
+            <RegimeTimeline posteriors={hmm.posteriors} labels={regimeNames(3)} height={54} maxBars={400} dates={hmmModel.dates} />
           ) : (
             <div className="flex h-14 items-center justify-center rounded-xl border border-[var(--hairline)] bg-[var(--bg-inset)] font-mono text-[10px] uppercase tracking-[0.18em] text-zinc-500">
               needs ≥ 60 sessions of bars

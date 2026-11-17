@@ -32,11 +32,15 @@ interface RegimeTimelineProps {
   height?: number;
   /** Max bars to render (decimates uniformly) */
   maxBars?: number;
+  /** session date per posterior — dates[i] is the date for posteriors[i].
+   *  Note: posterior index ≠ bar index (features start at bars[1] and skip
+   *  invalid bars), so callers must collect dates alongside the features. */
+  dates?: string[];
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
-export function RegimeTimeline({ posteriors, labels, className, height = 44, maxBars = 500 }: RegimeTimelineProps) {
+export function RegimeTimeline({ posteriors, labels, className, height = 44, maxBars = 500, dates }: RegimeTimelineProps) {
   const [hover, setHover] = useState<{ idx: number; x: number; maxX: number } | null>(null);
 
   const K = posteriors[0]?.length ?? 0;
@@ -64,7 +68,9 @@ export function RegimeTimeline({ posteriors, labels, className, height = 44, max
   const { ref, size } = useChartSize<HTMLDivElement>();
   const width = Math.max(1, size.width);
   const ready = size.width > 0;
-  const barW = Math.max(1, Math.floor(width / bars.length));
+  // Fractional geometry — flooring the bar width left an unpainted black
+  // tail on the right whenever width % bars.length !== 0.
+  const step = width / Math.max(1, bars.length);
 
   const onMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -88,9 +94,9 @@ export function RegimeTimeline({ posteriors, labels, className, height = 44, max
         {bars.map((b, i) => (
           <rect
             key={i}
-            x={i * barW - 0.5}
+            x={i * step}
             y={0}
-            width={barW + 1}
+            width={step + 0.5}
             height={height}
             fill={b.color}
           />
@@ -103,7 +109,9 @@ export function RegimeTimeline({ posteriors, labels, className, height = 44, max
           className="pointer-events-none absolute z-10 -translate-x-1/2 rounded-md border border-gold-500/40 bg-zinc-950/95 px-2 py-1.5 font-mono text-[9px] leading-snug text-zinc-200 shadow-lg"
           style={{ left: clamp(hover.x, 90, hover.maxX), bottom: '110%' }}
         >
-          <div className="mb-0.5 text-zinc-400">t = {hover.idx}</div>
+          <div className="mb-0.5 text-zinc-400">
+            {dates?.[hover.idx] ?? `t = ${hover.idx}`}
+          </div>
           {names.map((n, k) => (
             <div key={k} className="flex items-center justify-between gap-3">
               <span className="flex items-center gap-1.5">
