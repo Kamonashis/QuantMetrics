@@ -1,7 +1,12 @@
 'use client';
 
 import React, { useMemo } from 'react';
-import type { RndOut } from '@/components/views/volatility/types';
+
+/** Structural subset of an RND payload — SVI-fitted (`RndOut`) or market-price (`MarketRnd`). */
+export interface DensityCurve {
+  strikes: number[];
+  density: number[];
+}
 
 /**
  * Risk-neutral density (gold, Breeden–Litzenberger) vs realized 21d return
@@ -10,12 +15,17 @@ import type { RndOut } from '@/components/views/volatility/types';
  */
 export function RndChart({
   rnd,
+  fittedRnd,
   spot,
   realizedReturns,
+  primaryLabel = 'RND (Breeden–Litzenberger)',
 }: {
-  rnd: RndOut;
+  rnd: DensityCurve;
+  /** optional second curve, drawn dashed — e.g. the SVI-fitted density for comparison */
+  fittedRnd?: DensityCurve | null;
   spot: number;
   realizedReturns: number[]; // horizon log returns, decimals
+  primaryLabel?: string;
 }) {
   const width = 680;
   const height = 240;
@@ -28,6 +38,14 @@ export function RndChart({
       q: rnd.density[i] * K,
     }));
   }, [rnd, spot]);
+
+  const fittedKbd = useMemo(() => {
+    if (!fittedRnd || fittedRnd.strikes.length < 2) return null;
+    return fittedRnd.strikes.map((K, i) => ({
+      k: Math.log(K / spot),
+      q: fittedRnd.density[i] * K,
+    }));
+  }, [fittedRnd, spot]);
 
   // Histogram of realized horizon log returns
   const hist = useMemo(() => {
@@ -46,27 +64,33 @@ export function RndChart({
     return { bins, maxCount, binWidth };
   }, [realizedReturns]);
 
-  const allK = kbd.map((p) => p.k);
-  const kbdMaxQ = Math.max(...kbd.map((p) => p.q));
+  // y scale: common density scale (histogram density = count/(n*binWidth); each RND curve normalized by its own area ≈ 1)
+  const rndArea = kbd.reduce((s, p, i) => {
+    if (i === 0) return s;
+    return s + ((kbd[i - 1].q + p.q) / 2) * (kbd[i].k - kbd[i - 1].k);
+  }, 0);
+  const fittedArea = fittedKbd?.reduce((s, p, i) => (i === 0 ? s : s + ((fittedKbd[i - 1].q + p.q) / 2) * (fittedKbd[i].k - fittedKbd[i - 1].k)), 0) ?? 0;
+  const allK = fittedKbd ? [...kbd.map((p) => p.k), ...fittedKbd.map((p) => p.k)] : kbd.map((p) => p.k);
+  const primaryMaxN = Math.max(...kbd.map((p) => p.q / Math.max(rndArea, 1e-9)));
+  const fittedMaxN = fittedKbd ? Math.max(...fittedKbd.map((p) => p.q / Math.max(fittedArea, 1e-9))) : 0;
+  const scaledMaxQ = Math.max(primaryMaxN, fittedMaxN);
   const kMinHist = hist.bins.length > 0 ? hist.bins[0].x0 : -0.3;
   const kMaxHist = hist.bins.length > 0 ? hist.bins[hist.bins.length - 1].x1 : 0.3;
   const kMin = Math.min(Math.min(...allK), kMinHist);
   const kMax = Math.max(Math.max(...allK), kMaxHist);
   const spanK = Math.max(1e-6, kMax - kMin);
 
-  // y scale: common density scale (histogram density = count/(n*binWidth); RND area ≈ 1 over full range, but we clip to visible x-range, so normalize RND over the window)
-  const rndArea = kbd.reduce((s, p, i) => {
-    if (i === 0) return s;
-    return s + ((kbd[i - 1].q + p.q) / 2) * (kbd[i].k - kbd[i - 1].k);
-  }, 0);
   const histDensityMax = hist.bins.length > 0 ? hist.maxCount / (realizedReturns.length * hist.binWidth) : 0;
-  const yMax = Math.max(kbdMaxQ / Math.max(rndArea, 1e-9), histDensityMax, 1e-6) * 1.15;
+  const yMax = Math.max(scaledMaxQ, histDensityMax, 1e-6) * 1.15;
 
   const xPix = (k: number) => pad.l + ((k - kMin) / spanK) * (width - pad.l - pad.r);
   const yPix = (q: number) => pad.t + (1 - q / yMax) * (height - pad.t - pad.b);
 
-  // RND path normalized so its area within the visible window ≈ 1
+  // RND paths normalized so their area within the visible window ≈ 1
   const rndPath = kbd.map((p, i) => `${i === 0 ? 'M' : 'L'}${xPix(p.k).toFixed(2)},${yPix(p.q / Math.max(rndArea, 1e-9)).toFixed(2)}`).join(' ');
+  const fittedPath = fittedKbd
+    ? fittedKbd.map((p, i) => `${i === 0 ? 'M' : 'L'}${xPix(p.k).toFixed(2)},${yPix(p.q / Math.max(fittedArea, 1e-9)).toFixed(2)}`).join(' ')
+    : null;
 
   const barW = hist.binWidth > 0 ? (hist.binWidth / spanK) * (width - pad.l - pad.r) : 0;
 
@@ -104,6 +128,9 @@ export function RndChart({
           stroke="none"
         />
         <path d={rndPath} fill="none" stroke="#DEC084" strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round" />
+        {fittedPath && (
+          <path d={fittedPath} fill="none" stroke="rgba(228,228,231,0.75)" strokeWidth="1.2" strokeDasharray="4 3" strokeLinejoin="round" strokeLinecap="round" />
+        )}
 
         {/* axis labels */}
         {[kMin, 0, kMax].map((k, i) => (
@@ -122,7 +149,10 @@ export function RndChart({
         <text x={4} y={pad.t + 8} fontSize="8.5" fill="#8b8b93" fontFamily="var(--font-mono)">density</text>
       </svg>
       <div className="mt-1.5 flex flex-wrap items-center gap-4 font-mono text-[9px] text-zinc-400">
-        <span className="flex items-center gap-1.5"><span className="inline-block h-0.5 w-4 rounded bg-[#DEC084]" /> RND (Breeden–Litzenberger, fitted smile)</span>
+        <span className="flex items-center gap-1.5"><span className="inline-block h-0.5 w-4 rounded bg-[#DEC084]" /> {primaryLabel}</span>
+        {fittedPath && (
+          <span className="flex items-center gap-1.5"><span className="inline-block h-0 w-4 border-t border-dashed border-zinc-300" /> RND (SVI fit)</span>
+        )}
         <span className="flex items-center gap-1.5"><span className="inline-block h-2 w-3 bg-zinc-400/40" /> Realized 21d log-return distribution</span>
       </div>
     </div>
