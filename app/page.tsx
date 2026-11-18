@@ -147,6 +147,15 @@ export default function App() {
     return init;
   });
 
+  // Source per ticker for the daily-bar cache — seeded as synthetic until a live fetch lands.
+  const [stockSourceCache, setStockSourceCache] = useState<{ [ticker: string]: string }>(() => {
+    const init: { [ticker: string]: string } = {};
+    ['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'TSLA', 'SPY', 'QQQ', 'AMZN', 'META', 'JPM'].forEach((s) => {
+      init[s] = 'synthetic_gbm';
+    });
+    return init;
+  });
+
   const [companyNames, setCompanyNames] = useState<{ [ticker: string]: string }>(() => {
     const initialNames: { [ticker: string]: string } = {};
     const defaultSymbols = ['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'TSLA', 'SPY', 'QQQ', 'AMZN', 'META', 'JPM'];
@@ -200,7 +209,7 @@ export default function App() {
             setStockBarsCache((prev) => {
               const updated = { ...prev };
               for (const [sym, payload] of Object.entries(
-                json.data as Record<string, { bars: PriceBar[]; name: string }>
+                json.data as Record<string, { bars: PriceBar[]; name: string; source?: string }>
               )) {
                 if (payload.bars && payload.bars.length > 0) {
                   updated[sym] = payload.bars;
@@ -208,10 +217,21 @@ export default function App() {
               }
               return updated;
             });
+            setStockSourceCache((prev) => {
+              const updated = { ...prev };
+              for (const [sym, payload] of Object.entries(
+                json.data as Record<string, { bars: PriceBar[]; name: string; source?: string }>
+              )) {
+                if (payload.source && payload.bars && payload.bars.length > 0) {
+                  updated[sym] = payload.source;
+                }
+              }
+              return updated;
+            });
             setCompanyNames((prev) => {
               const updated = { ...prev };
               for (const [sym, payload] of Object.entries(
-                json.data as Record<string, { bars: PriceBar[]; name: string }>
+                json.data as Record<string, { bars: PriceBar[]; name: string; source?: string }>
               )) {
                 if (payload.name) {
                   updated[sym] = payload.name;
@@ -253,6 +273,11 @@ export default function App() {
               updated[sym] = generateRealisticStockHistory(sym, 2600, undefined, startDate);
             }
           });
+          return updated;
+        });
+        setStockSourceCache((prev) => {
+          const updated = { ...prev };
+          syms.forEach((sym) => { updated[sym] = 'synthetic_gbm'; });
           return updated;
         });
         setIntradayBarsCache((prev) => {
@@ -323,6 +348,7 @@ export default function App() {
   const currentIntradayBars =
     intradayBarsCache[activeTicker] || generateRealisticIntradayHistory(activeTicker, 7);
   const currentIntradaySource = intradaySourceCache[activeTicker] ?? 'synthetic_gbm';
+  const currentBarsSource = stockSourceCache[activeTicker] ?? 'synthetic_gbm';
   const currentCompanyName =
     companyNames[activeTicker] ||
     KNOWN_TICKERS[activeTicker]?.name ||
@@ -388,6 +414,7 @@ export default function App() {
             bars={currentBars}
             intradayBars={currentIntradayBars}
             intradaySource={currentIntradaySource}
+            barsSource={currentBarsSource}
             companyName={currentCompanyName}
             isLoading={isLoading}
           />

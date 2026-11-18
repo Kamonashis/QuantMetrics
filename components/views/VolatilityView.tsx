@@ -33,13 +33,15 @@ interface VolatilityViewProps {
   intradayBars: IntradayBar[];
   /** 'live_market' | 'synthetic_gbm' | null (unknown) — intraday cache provenance */
   intradaySource?: string | null;
+  /** 'live_market' | 'synthetic_gbm' | null (unknown) — daily-bar cache provenance */
+  barsSource?: string | null;
   companyName: string;
   isLoading: boolean;
 }
 
 type SubTab = 't1' | 't2' | 't3' | 't4' | 't5' | 't6' | 't7' | 't8';
 
-export function VolatilityView({ ticker, bars, intradayBars, intradaySource = null, companyName, isLoading }: VolatilityViewProps) {
+export function VolatilityView({ ticker, bars, intradayBars, intradaySource = null, barsSource = null, companyName, isLoading }: VolatilityViewProps) {
   const [chain, setChain] = useState<ChainPayload | null>(null);
   const [indices, setIndices] = useState<IndicesPayload | null>(null);
   const [ivHistory, setIvHistory] = useState<IvHistoryEntry[]>([]);
@@ -235,7 +237,7 @@ export function VolatilityView({ ticker, bars, intradayBars, intradaySource = nu
       {/* Sub-tab bodies */}
       {subTab === 't1' && <T1StateTab chain={chain} indices={indices} rv20={rv20} />}
       {subTab === 't2' && <T2SurfaceTab chain={chain} indices={indices} />}
-      {subTab === 't3' && <T3TermStructureTab chain={chain} indices={indices} bars={bars} ticker={ticker} />}
+      {subTab === 't3' && <T3TermStructureTab chain={chain} indices={indices} bars={bars} ticker={ticker} barsSource={barsSource} />}
       {subTab === 't4' && (
         <T4ForecastTab chain={chain} indices={indices} bars={bars} ticker={ticker} ivHistory={ivHistory} />
       )}

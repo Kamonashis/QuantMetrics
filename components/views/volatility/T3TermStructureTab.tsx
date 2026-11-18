@@ -8,7 +8,14 @@ import {
   forecastGarch,
 } from '@/lib/quant-engine';
 import type { PriceBar } from '@/lib/quant-engine';
-import { percentileRank, quantileSorted } from '@/lib/vol-analytics';
+import {
+  percentileRank,
+  quantileSorted,
+  computeRealizedVolCone,
+  ivAtConeTenor,
+  coneVerdict,
+  type ConeVerdict,
+} from '@/lib/vol-analytics';
 import { VolTermStructureChart } from '@/components/charts/VolTermStructureChart';
 import { IvRvChart } from '@/components/charts/IvRvChart';
 import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
@@ -17,18 +24,28 @@ import type { ChainPayload, IndicesPayload } from './types';
 const pct = (v: number | null | undefined, d = 1) =>
   v === null || v === undefined || !isFinite(v) ? '—' : `${(v * 100).toFixed(d)}%`;
 
+const verdictClass = (v: ConeVerdict) =>
+  v === 'RICH' || v === 'rich'
+    ? 'text-rose-500 dark:text-rose-400'
+    : v === 'CHEAP' || v === 'cheap'
+      ? 'text-emerald-600 dark:text-emerald-400'
+      : 'text-zinc-500 dark:text-zinc-400';
+
 export function T3TermStructureTab({
   chain,
   indices,
   bars,
   ticker,
+  barsSource,
 }: {
   chain: ChainPayload | null;
   indices: IndicesPayload | null;
   bars: PriceBar[];
   ticker: string;
+  barsSource?: string | null;
 }) {
   const [axisMode, setAxisMode] = useState<'vol' | 'totalVariance'>('vol');
+  const [showCone, setShowCone] = useState(false);
 
   const slices = useMemo(() => chain?.slices ?? [], [chain]);
   const tsPoints = useMemo(() => chain?.termStructure ?? [], [chain]);
@@ -52,6 +69,16 @@ export function T3TermStructureTab({
   }, [bars]);
 
   const rv20 = rvSeries.length > 0 ? rvSeries[rvSeries.length - 1].vol : null;
+
+  // --- Realized-vol cone: historical trailing-RV distribution by tenor ------
+  const cone = useMemo(() => computeRealizedVolCone(returns), [returns]);
+  const coneRows = useMemo(
+    () => cone.map((band) => {
+      const iv = ivAtConeTenor(tsPoints, band.dte);
+      return { band, iv, ...coneVerdict(iv, band) };
+    }),
+    [cone, tsPoints]
+  );
 
   // --- IV proxy series (indices) --------------------------------------------
   const vix = indices?.series?.VIX?.bars ?? [];
@@ -159,7 +186,7 @@ export function T3TermStructureTab({
                 IV bytenor: {iv30 !== null ? `IV30 ${pct(iv30)}` : 'IV curve'}{invert ? ' · curve inverted' : ''}
               </h3>
             </div>
-            <div className="inline-flex items-center gap-1 rounded-lg border border-[var(--hairline)] bg-[var(--bg-inset)] p-1">
+            <div className="inline-flex flex-wrap items-center gap-1 rounded-lg border border-[var(--hairline)] bg-[var(--bg-inset)] p-1">
               {(['vol', 'totalVariance'] as const).map((m) => (
                 <button
                   key={m}
@@ -171,16 +198,76 @@ export function T3TermStructureTab({
                   {m === 'vol' ? 'σ axis' : 'w = σ²T axis'}
                 </button>
               ))}
+              <button
+                type="button"
+                onClick={() => setShowCone((v) => !v)}
+                aria-pressed={showCone}
+                className={`cursor-pointer rounded-md px-2 py-1 font-mono text-[10px] font-semibold transition-colors ${
+                  showCone ? 'bg-gold-500 text-zinc-950' : 'text-zinc-500 hover:text-zinc-800 dark:text-zinc-400'
+                }`}
+              >
+                RV cone
+              </button>
             </div>
           </div>
           <ChartFullscreen title="IV Term Structure" subtitle="European BSM · ~15-min delayed">
             <VolTermStructureChart
               points={tsPoints}
               axisMode={axisMode}
-              band={band}
+              band={showCone ? null : band}
               iv30Marker={30}
+              cone={cone}
+              showCone={showCone}
             />
           </ChartFullscreen>
+          {showCone && coneRows.length === 0 && (
+            <p className="mt-2 font-mono text-[10px] text-zinc-400">
+              Not enough daily history to build a 10–90d realized-vol cone (need ~60+ sessions). IV curve unchanged.
+            </p>
+          )}
+          {showCone && coneRows.length > 0 && (
+            <div className="mt-3 rounded-lg border border-[var(--hairline)] bg-[var(--bg-inset)] p-3">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <p className="font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
+                  Where IV sits in the RV distribution
+                </p>
+                {barsSource && barsSource !== 'live_market' && (
+                  <span className="flex items-center gap-1 rounded border border-gold-500/40 bg-gold-500/10 px-1.5 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-wider text-gold-800 dark:text-gold-200">
+                    <AlertTriangle className="h-3 w-3" /> illustrative — synthetic daily bars
+                  </span>
+                )}
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse font-mono text-[9.5px]">
+                  <thead>
+                    <tr className="text-left text-[8.5px] uppercase tracking-wider text-zinc-400">
+                      <th className="py-1 font-medium">Tenor</th>
+                      <th className="py-1 text-right font-medium">RV median</th>
+                      <th className="py-1 text-right font-medium">RV 10–90</th>
+                      <th className="py-1 text-right font-medium">IV @ tenor</th>
+                      <th className="py-1 text-right font-medium">IV pctile</th>
+                      <th className="py-1 text-right font-medium">Verdict</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {coneRows.map((r) => (
+                      <tr key={r.band.dte} className="border-t border-[var(--hairline)]">
+                        <td className="py-1 text-zinc-500 dark:text-zinc-400">{r.band.dte}d</td>
+                        <td className="py-1 text-right tabular-nums text-zinc-700 dark:text-zinc-200">{pct(r.band.median)}</td>
+                        <td className="py-1 text-right tabular-nums text-zinc-700 dark:text-zinc-200">{pct(r.band.p10)}–{pct(r.band.p90)}</td>
+                        <td className="py-1 text-right tabular-nums text-gold-700 dark:text-gold-300">{pct(r.iv)}</td>
+                        <td className="py-1 text-right tabular-nums text-zinc-700 dark:text-zinc-200">{r.percentile === null ? '—' : `${r.percentile.toFixed(0)}th`}</td>
+                        <td className={`py-1 text-right font-semibold ${verdictClass(r.verdict)}`}>{r.verdict}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="mt-2 font-mono text-[9px] leading-relaxed text-zinc-400">
+                IV above the historical RV distribution = the market prices more future variance than the recent past realized; below it = less. IV is today&apos;s ~15-min-delayed European BSM quote, not a forecast. The distribution uses overlapping windows from up to ~1y of daily bars and is not independent data.
+              </p>
+            </div>
+          )}
           {invert && (
             <div className="mt-2 flex items-center gap-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-[11px] font-medium text-rose-500 dark:text-rose-400">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />

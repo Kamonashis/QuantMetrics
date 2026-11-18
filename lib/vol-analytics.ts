@@ -2,7 +2,7 @@
 // Pure functions over daily close series. All series are plain number[] in
 // chronological order unless noted. No React, no I/O.
 
-import { incBeta, fSurvival, normalQuantile } from './options';
+import { incBeta, fSurvival, normalQuantile, totalVarianceInterpolate } from './options';
 
 export interface DatedPoint {
   date: string;
@@ -500,6 +500,110 @@ export function crossCorrelation(dIv: number[], dVix: number[], maxLag = 3): { l
     out.push({ lag: k, corr: va > 0 && vb > 0 ? cov / Math.sqrt(va * vb) : 0 });
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Realized-volatility cone — historical RV distribution by lookback tenor.
+// ---------------------------------------------------------------------------
+
+export interface RealizedVolConeBand {
+  /** Lookback window length in trading days. */
+  dte: number;
+  min: number;
+  p10: number;
+  p25: number;
+  median: number;
+  p75: number;
+  p90: number;
+  max: number;
+  /** RV over the most recent `dte` returns (the last overlapping window). */
+  current: number;
+  /** Number of overlapping windows sampled — they are not independent draws. */
+  n: number;
+  /** Sorted annualized RV samples, so IV can be ranked against the distribution. */
+  samples: number[];
+}
+
+/**
+ * Empirical distribution of trailing realized volatility for each tenor.
+ * Annualized with √252 from squared log returns. Windows overlap; this is a
+ * description of the historical distribution, not a forecast or a set of
+ * independent observations. Tenors with too few windows are omitted.
+ */
+export function computeRealizedVolCone(
+  returns: number[],
+  tenors: number[] = [10, 20, 30, 60, 90],
+  historyDays = 252,
+  minSamples = 30
+): RealizedVolConeBand[] {
+  const n = returns.length;
+  if (n < 2) return [];
+  const cum = new Float64Array(n + 1);
+  for (let i = 0; i < n; i++) {
+    const r = returns[i];
+    cum[i + 1] = cum[i] + (isFinite(r) ? r * r : 0);
+  }
+  const firstEndpoint = Math.max(0, n - Math.max(1, historyDays));
+  const out: RealizedVolConeBand[] = [];
+  for (const tenor of tenors) {
+    const w = Math.floor(tenor);
+    if (!isFinite(w) || w <= 0 || w > n) continue;
+    const samples: number[] = [];
+    for (let end = Math.max(w - 1, firstEndpoint); end < n; end++) {
+      const variance = (cum[end + 1] - cum[end + 1 - w]) / w;
+      const vol = Math.sqrt(Math.max(0, variance) * 252);
+      if (isFinite(vol)) samples.push(vol);
+    }
+    if (samples.length < Math.max(2, minSamples)) continue;
+    samples.sort((a, b) => a - b);
+    out.push({
+      dte: w,
+      min: samples[0],
+      p10: quantileSorted(samples, 0.1),
+      p25: quantileSorted(samples, 0.25),
+      median: quantileSorted(samples, 0.5),
+      p75: quantileSorted(samples, 0.75),
+      p90: quantileSorted(samples, 0.9),
+      max: samples[samples.length - 1],
+      current: samples[samples.length - 1],
+      n: samples.length,
+      samples,
+    });
+  }
+  return out;
+}
+
+/** Chain ATM IV at a cone tenor, interpolated on total variance (never on σ). */
+export function ivAtConeTenor(
+  term: { dte: number; iv: number | null }[],
+  dte: number
+): number | null {
+  const pts = term
+    .filter((p): p is { dte: number; iv: number } =>
+      p.iv !== null && isFinite(p.iv) && p.iv > 0 && p.dte > 0
+    )
+    .map((p) => ({ t: p.dte / 365, iv: p.iv }));
+  if (pts.length === 0) return null;
+  return totalVarianceInterpolate(pts, dte / 365);
+}
+
+export type ConeVerdict = 'CHEAP' | 'cheap' | 'in range' | 'rich' | 'RICH' | 'insufficient-data';
+
+/** Where today's IV sits inside the historical RV distribution at one tenor. */
+export function coneVerdict(
+  iv: number | null,
+  band: RealizedVolConeBand | null
+): { verdict: ConeVerdict; percentile: number | null } {
+  if (iv === null || !isFinite(iv) || iv <= 0 || !band || band.n < 2) {
+    return { verdict: 'insufficient-data', percentile: null };
+  }
+  const percentile = percentileRank(band.samples, iv);
+  let verdict: ConeVerdict = 'in range';
+  if (iv > band.p90) verdict = 'RICH';
+  else if (iv > band.p75) verdict = 'rich';
+  else if (iv < band.p10) verdict = 'CHEAP';
+  else if (iv < band.p25) verdict = 'cheap';
+  return { verdict, percentile };
 }
 
 export { normalQuantile, incBeta };
