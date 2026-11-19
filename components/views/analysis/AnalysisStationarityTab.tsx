@@ -341,6 +341,9 @@ export function AnalysisStationarityTab({
             <div className="mt-2 text-[11px] font-mono text-zinc-400">
               95% VaR: {(evtTail.evtVaR95 * 100).toFixed(2)}%
             </div>
+            <div className="mt-2 font-mono text-[9px] leading-snug text-zinc-400">
+              Same POT-GPD estimator as the EVT row in the unified VaR Explorer (Risk tab) — not a second model.
+            </div>
           </div>
 
           {/* EVT Expected Shortfall */}

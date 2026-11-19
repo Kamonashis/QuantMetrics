@@ -15,6 +15,7 @@ import {
 import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 import { RegimeChip } from '@/components/ui/RegimeChip';
 import { RegimeTransitionMatrix } from '@/components/ui/RegimeTransitionMatrix';
+import { VaRExplorer } from '@/components/ui/VarExplorer';
 import { regimeNames } from '@/components/charts/RegimeTimeline';
 import { useChartSize } from '@/lib/use-chart-size';
 import type { HmmFit } from '@/lib/hmm';
@@ -191,87 +192,7 @@ export function AnalysisRiskTab({
           </div>
         </div>
 
-        <div className="mt-4 overflow-x-auto">
-          <table className="table-sticky-first w-full text-xs text-left">
-            <thead>
-              <tr className="border-b border-zinc-200 dark:border-zinc-800 text-zinc-400 font-mono">
-                <th className="py-2.5 px-3">Model Specification</th>
-                <th className="py-2.5 px-3">95% 1d VaR</th>
-                <th className="py-2.5 px-3">99% 1d VaR</th>
-                <th className="py-2.5 px-3">99% 1d ES (CVaR)</th>
-                <th className="py-2.5 px-3">99% Violations (Act/Exp)</th>
-                <th className="py-2.5 px-3">Kupiec POF Test</th>
-                <th className="py-2.5 px-3">Christoffersen Independence</th>
-                <th className="py-2.5 px-3">Basel Zone</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/60 font-mono">
-              {varBacktestModels.map((m) => (
-                <tr key={m.key} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30">
-                  <td className="py-3 px-3 font-semibold text-zinc-900 dark:text-zinc-100">
-                    {m.modelName}
-                  </td>
-                  <td className="py-3 px-3 text-zinc-700 dark:text-zinc-300">
-                    {(m.var95Pct * 100).toFixed(2)}%
-                  </td>
-                  <td className="py-3 px-3 font-semibold text-rose-600 dark:text-rose-400">
-                    {(m.var99Pct * 100).toFixed(2)}%
-                  </td>
-                  <td className="py-3 px-3 text-rose-700 dark:text-rose-300 font-semibold">
-                    {(m.es99Pct * 100).toFixed(2)}%
-                  </td>
-                  <td className="py-3 px-3">
-                    <span className="font-semibold">{m.exceedances99}</span> / {m.expectedExceedances99.toFixed(1)}
-                  </td>
-                  <td className="py-3 px-3">
-                    <div className="text-zinc-800 dark:text-zinc-200">
-                      LR = {m.kupiecLr99.toFixed(2)}
-                    </div>
-                    <div className="text-[11px] text-zinc-400">
-                      p = {m.kupiecPVal99.toFixed(3)}{' '}
-                      <span className={m.kupiecVerdict99 === 'Pass' ? 'text-gold-500 font-medium' : 'text-rose-500 font-semibold'}>
-                        [{m.kupiecVerdict99}]
-                      </span>
-                    </div>
-                  </td>
-                  <td className="py-3 px-3">
-                    <div className="text-zinc-800 dark:text-zinc-200">
-                      LR = {m.christoffersenLr99.toFixed(2)}
-                    </div>
-                    <div className="text-[11px] text-zinc-400">
-                      p = {m.christoffersenPVal99.toFixed(3)}{' '}
-                      <span className={m.christoffersenVerdict99.startsWith('Pass') ? 'text-gold-500 font-medium' : 'text-gold-500 font-semibold'}>
-                        [{m.christoffersenVerdict99.startsWith('Pass') ? 'Independent' : 'Clustered'}]
-                      </span>
-                    </div>
-                  </td>
-                  <td className="py-3 px-3">
-                    <span
-                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded font-mono font-semibold text-xs ${
-                        m.baselZone === 'Green'
-                          ? 'bg-gold-100 dark:bg-gold-950/40 text-gold-700 dark:text-gold-300'
-                          : m.baselZone === 'Yellow'
-                          ? 'bg-gold-100 dark:bg-gold-950/40 text-gold-700 dark:text-gold-300'
-                          : 'bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300'
-                      }`}
-                    >
-                      <span
-                        className={`w-1.5 h-1.5 rounded-full ${
-                          m.baselZone === 'Green'
-                            ? 'bg-gold-500'
-                            : m.baselZone === 'Yellow'
-                            ? 'bg-gold-500'
-                            : 'bg-rose-500'
-                        }`}
-                      />
-                      {m.baselZone}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <VaRExplorer models={varBacktestModels} />
 
         <div className="mt-4 pt-3 border-t border-zinc-100 dark:border-zinc-800/60 text-xs text-zinc-500 dark:text-zinc-400 flex items-center gap-2">
           <Info className="w-3.5 h-3.5 text-zinc-400 shrink-0" />

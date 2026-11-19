@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { useChartSize } from '@/lib/use-chart-size';
+import { ChartTooltip, useChartTooltip } from '@/components/ui/chart-tooltip';
 
 export interface GexStrikePoint {
   strike: number;
@@ -39,6 +40,7 @@ export function GammaProfileChart({
     : meaningful;
 
   const { ref, size } = useChartSize<HTMLDivElement>();
+  const { tooltipState, showTooltip, hideTooltip } = useChartTooltip();
   const maxGex = Math.max(...abs, 1);
   const width = size.width;
   const ready = width > 0;
@@ -55,7 +57,7 @@ export function GammaProfileChart({
     <div>
       <div ref={ref} className="relative w-full max-h-[540px] overflow-y-auto contain-[layout_paint]">
       {ready && (
-      <svg width={width} height={height} className="block h-auto w-full" role="img" aria-label="Gamma exposure by strike">
+      <svg width={width} height={height} className="block h-auto w-full" role="img" aria-label="Gamma exposure by strike" onMouseLeave={hideTooltip}>
         {/* zero rule */}
         <line x1={mid} x2={mid} y1={4} y2={height - 18} stroke="rgba(236,236,241,0.25)" strokeDasharray="3 3" />
         {/* spot rule */}
@@ -92,9 +94,8 @@ export function GammaProfileChart({
                 height={rowH - 4}
                 rx="1.5"
                 fill={up ? 'rgba(222,192,132,0.75)' : 'rgba(224,101,95,0.7)'}
-              >
-                <title>{`Strike ${p.strike}\nGEX ${(p.gex / 1e6).toFixed(1)}M $ per 1%\ncall OI ${p.callOi.toLocaleString()} · put OI ${p.putOi.toLocaleString()}`}</title>
-              </rect>
+                onMouseMove={(e) => showTooltip(e, [`Strike ${p.strike}`, `GEX ${(p.gex / 1e6).toFixed(1)}M $ per 1%`, `call OI ${p.callOi.toLocaleString()} · put OI ${p.putOi.toLocaleString()}`])}
+              />
             </g>
           );
         })}
@@ -103,6 +104,7 @@ export function GammaProfileChart({
         </text>
       </svg>
       )}
+      <ChartTooltip state={tooltipState} />
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-4 font-mono text-[9px] text-zinc-400">
         <span className="flex items-center gap-1.5"><span className="inline-block h-2 w-3 rounded-sm bg-[rgba(222,192,132,0.75)]" /> long gamma (re-hedge sells rallies)</span>

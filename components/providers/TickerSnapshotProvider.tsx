@@ -12,6 +12,7 @@ import {
   type RvReading,
 } from '@/lib/ticker-snapshot';
 import type { ChainPayload, IndicesPayload, IvHistoryEntry, PanelRowOut } from '@/components/views/volatility/types';
+import type { PanelPayload } from '@/components/views/fno/types';
 
 export interface TickerSnapshotValue {
   ticker: string;
@@ -19,6 +20,9 @@ export interface TickerSnapshotValue {
   indices: IndicesPayload | null;
   ivHistory: IvHistoryEntry[];
   panel: PanelRowOut[];
+  /** The /api/fno panel — one fetch shared by the whole options workstation. */
+  fnoPanel: PanelPayload | null;
+  fnoLoading: boolean;
   chainLoading: boolean;
   refresh: () => void;
   /** One RV ladder for the whole app: sample stdev of log returns × √252. */
@@ -59,6 +63,8 @@ export function TickerSnapshotProvider({
   const [indices, setIndices] = useState<IndicesPayload | null>(null);
   const [ivHistory, setIvHistory] = useState<IvHistoryEntry[]>([]);
   const [panel, setPanel] = useState<PanelRowOut[]>([]);
+  const [fnoPanel, setFnoPanel] = useState<PanelPayload | null>(null);
+  const [fnoLoadedKey, setFnoLoadedKey] = useState<string | null>(null);
   const [chainLoading, setChainLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -98,6 +104,16 @@ export function TickerSnapshotProvider({
     return () => { cancelled = true; };
   }, [refreshKey]);
 
+  const fnoLoading = fnoLoadedKey !== `${ticker}:${refreshKey}`;
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/fno?mode=panel&symbol=${encodeURIComponent(ticker)}`)
+      .then((r) => r.json() as Promise<PanelPayload>)
+      .then((d) => { if (!cancelled) { setFnoPanel(d); setFnoLoadedKey(`${ticker}:${refreshKey}`); } })
+      .catch(() => { if (!cancelled) { setFnoPanel({ available: false, reason: 'fetch failed' }); setFnoLoadedKey(`${ticker}:${refreshKey}`); } });
+    return () => { cancelled = true; };
+  }, [ticker, refreshKey]);
+
   const rvSeries = useMemo(() => canonicalRvSeries(bars.map((b) => b.close)), [bars]);
   const garchFit = useMemo(() => {
     const rets = calculateReturns(bars.map((b) => b.close), 'log');
@@ -113,9 +129,9 @@ export function TickerSnapshotProvider({
   const session = useMemo(() => sessionDiff(panel), [panel]);
 
   const value = useMemo<TickerSnapshotValue>(() => ({
-    ticker, chain, indices, ivHistory, panel, chainLoading, refresh,
+    ticker, chain, indices, ivHistory, panel, fnoPanel, fnoLoading, chainLoading, refresh,
     rvLadder, rvSeries, garchFit, rv20, vix, curve, session, barsSource, intradaySource,
-  }), [ticker, chain, indices, ivHistory, panel, chainLoading, refresh, rvLadder, rvSeries, garchFit, rv20, vix, curve, session, barsSource, intradaySource]);
+  }), [ticker, chain, indices, ivHistory, panel, fnoPanel, fnoLoading, chainLoading, refresh, rvLadder, rvSeries, garchFit, rv20, vix, curve, session, barsSource, intradaySource]);
 
   return <SnapshotContext.Provider value={value}>{children}</SnapshotContext.Provider>;
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useMemo } from 'react';
+import { ChartTooltip, useChartTooltip } from '@/components/ui/chart-tooltip';
 
 /** Structural subset of an RND payload — SVI-fitted (`RndOut`) or market-price (`MarketRnd`). */
 export interface DensityCurve {
@@ -93,10 +94,11 @@ export function RndChart({
     : null;
 
   const barW = hist.binWidth > 0 ? (hist.binWidth / spanK) * (width - pad.l - pad.r) : 0;
+  const { tooltipState, showTooltip, hideTooltip } = useChartTooltip();
 
   return (
-    <div className="w-full overflow-x-auto">
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[560px]" role="img" aria-label="Risk-neutral vs realized density">
+    <div className="relative w-full overflow-x-auto">
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[560px]" role="img" aria-label="Risk-neutral vs realized density" onMouseLeave={hideTooltip}>
         {/* zero return line */}
         <line x1={xPix(0)} x2={xPix(0)} y1={pad.t} y2={height - pad.b} stroke="rgba(236,236,241,0.14)" strokeDasharray="2 3" />
 
@@ -115,9 +117,8 @@ export function RndChart({
               fill="rgba(163,163,173,0.32)"
               stroke="rgba(163,163,173,0.35)"
               strokeWidth="0.3"
-            >
-              <title>{`${(b.x0 * 100).toFixed(1)}% to ${(b.x1 * 100).toFixed(1)}%\n${b.count} occurrences · density ${density.toFixed(1)}`}</title>
-            </rect>
+              onMouseMove={(e) => showTooltip(e, [`Return ${(b.x0 * 100).toFixed(1)}% to ${(b.x1 * 100).toFixed(1)}%`, `${b.count} occurrences · density ${density.toFixed(1)}`])}
+            />
           );
         })}
 
@@ -148,6 +149,7 @@ export function RndChart({
         ))}
         <text x={4} y={pad.t + 8} fontSize="8.5" fill="#8b8b93" fontFamily="var(--font-mono)">density</text>
       </svg>
+      <ChartTooltip state={tooltipState} />
       <div className="mt-1.5 flex flex-wrap items-center gap-4 font-mono text-[9px] text-zinc-400">
         <span className="flex items-center gap-1.5"><span className="inline-block h-0.5 w-4 rounded bg-[#DEC084]" /> {primaryLabel}</span>
         {fittedPath && (

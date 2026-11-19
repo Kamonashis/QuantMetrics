@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useMemo } from 'react';
+import { ChartTooltip, useChartTooltip } from '@/components/ui/chart-tooltip';
+import { EmptyState } from '@/components/ui/empty-state';
 
 /**
  * Distribution of historical horizon |moves| with the option-market's implied
@@ -15,6 +17,7 @@ export function MoveDistributionChart({
   impliedPct: number | null;
   horizonLabel: string;
 }) {
+  const { tooltipState, showTooltip, hideTooltip } = useChartTooltip();
   const width = 680;
   const height = 190;
   const pad = { l: 36, r: 14, t: 12, b: 24 };
@@ -42,9 +45,7 @@ export function MoveDistributionChart({
 
   if (hist.bins.length === 0) {
     return (
-      <div className="flex h-40 items-center justify-center rounded-xl border border-[var(--hairline)] bg-[var(--bg-inset)] text-xs text-zinc-400">
-        Not enough history in this sample
-      </div>
+      <EmptyState title="Not enough history in this sample" detail="Need at least 20 realized-move windows" className="h-40" />
     );
   }
 
@@ -53,8 +54,8 @@ export function MoveDistributionChart({
   const barW = Math.max(4, ((hist.bins[0].x1 - hist.bins[0].x0) / hist.cap) * (width - pad.l - pad.r) - 1);
 
   return (
-    <div className="w-full overflow-x-auto">
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[520px]" role="img" aria-label="Move distribution">
+    <div className="relative w-full overflow-x-auto">
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[520px]" role="img" aria-label="Move distribution" onMouseLeave={hideTooltip}>
         {/* P75 gridline */}
         {[hist.p25, hist.p50, hist.p75].map((q, i) => (
           <g key={i}>
@@ -69,9 +70,11 @@ export function MoveDistributionChart({
           const x = xOf(b.x0);
           const y = yOf(b.count);
           return (
-            <rect key={i} x={x} y={y} width={barW} height={height - pad.b - y} fill="rgba(222,192,132,0.32)" stroke="rgba(222,192,132,0.4)" strokeWidth="0.3">
-              <title>{`|move| ${(b.x0 * 100).toFixed(1)}–${(b.x1 * 100).toFixed(1)}% · ${b.count} sessions`}</title>
-            </rect>
+            <rect
+              key={i} x={x} y={y} width={barW} height={height - pad.b - y}
+              fill="rgba(222,192,132,0.32)" stroke="rgba(222,192,132,0.4)" strokeWidth="0.3"
+              onMouseMove={(e) => showTooltip(e, [`|move| ${(b.x0 * 100).toFixed(1)}–${(b.x1 * 100).toFixed(1)}%`, `${b.count} sessions`])}
+            />
           );
         })}
         {/* implied rule */}
@@ -86,6 +89,7 @@ export function MoveDistributionChart({
         <text x={pad.l} y={height - 4} fontSize="8" fill="#8b8b93" fontFamily="var(--font-mono)">0%</text>
         <text x={width - pad.r} y={height - 4} fontSize="8" fill="#8b8b93" textAnchor="end" fontFamily="var(--font-mono)">{(hist.cap * 100).toFixed(0)}%+</text>
       </svg>
+      <ChartTooltip state={tooltipState} />
       <p className="mt-1 font-mono text-[9px] text-zinc-400">
         {horizonLabel} · n = {samples.length.toLocaleString()} windows · histogram capped at P75×2.5 · implied = 0.8×ATM straddle
       </p>

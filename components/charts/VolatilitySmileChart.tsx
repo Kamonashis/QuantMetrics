@@ -1,6 +1,7 @@
 'use client';
 
 import { EmptyState } from '@/components/ui/empty-state';
+import { ChartTooltip, useChartTooltip } from '@/components/ui/chart-tooltip';
 
 import React, { useMemo } from 'react';
 import type { SliceOut } from '@/components/views/volatility/types';
@@ -29,6 +30,7 @@ const FIT_LABELS: Record<SmileFitMethod, string> = {
  */
 export function VolatilitySmileChart({ slice, fitMethod = 'svi', onFitMethodChange }: VolatilitySmileChartProps) {
   const { ref, size } = useChartSize<HTMLDivElement>();
+  const { tooltipState, showTooltip, hideTooltip } = useChartTooltip();
   // Local refit for ssvi/spline from the raw quotes in the slice
   const localFit = useMemo<LocalSmileFit | null>(() => {
     if (!slice || fitMethod === 'svi') return null;
@@ -134,9 +136,9 @@ export function VolatilitySmileChart({ slice, fitMethod = 'svi', onFitMethodChan
         )}
       </div>
 
-      <div ref={ref} className="chart-frame">
+      <div ref={ref} className="chart-frame relative">
       {ready && (
-      <svg width={width} height={height} className="block h-full w-full" role="img" aria-label="Volatility smile">
+      <svg width={width} height={height} className="block h-full w-full" role="img" aria-label="Volatility smile" onMouseLeave={hideTooltip}>
         {/* gridlines */}
         {yTicks.map((iv, i) => (
           <g key={i}>
@@ -163,9 +165,8 @@ export function VolatilitySmileChart({ slice, fitMethod = 'svi', onFitMethodChan
             stroke={p.type === 'call' ? '#DEC084' : 'rgba(236,236,241,0.75)'}
             strokeWidth="0.9"
             opacity="0.9"
-          >
-            <title>{`${p.type.toUpperCase()} K=${p.strike}\nk=${p.k.toFixed(3)} IV=${(p.iv * 100).toFixed(2)}%\nmid=${p.mid.toFixed(2)} · spread ${(p.relSpread * 100).toFixed(1)}%`}</title>
-          </circle>
+            onMouseMove={(e) => showTooltip(e, [`${p.type.toUpperCase()} K=${p.strike}`, `k=${p.k.toFixed(3)} · IV=${(p.iv * 100).toFixed(2)}%`, `mid=${p.mid.toFixed(2)} · spread ${(p.relSpread * 100).toFixed(1)}%`])}
+          />
         ))}
 
         {/* x axis labels */}
@@ -174,6 +175,7 @@ export function VolatilitySmileChart({ slice, fitMethod = 'svi', onFitMethodChan
         <text x={xOf(kMax)} y={height - 8} fontSize="9" fill="#8b8b93" fontFamily="var(--font-mono)" textAnchor="end">k +{kMax.toFixed(2)}</text>
       </svg>
       )}
+      <ChartTooltip state={tooltipState} />
       </div>
 
       {/* Fit diagnostics strip */}

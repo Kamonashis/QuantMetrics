@@ -13,8 +13,7 @@ import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
 import { HomeView } from '@/components/views/HomeView';
 import { AnalysisView } from '@/components/views/AnalysisView';
-import { VolatilityView } from '@/components/views/VolatilityView';
-import { FnoView } from '@/components/views/FnoView';
+import { OptionsWorkstation } from '@/components/views/OptionsWorkstation';
 import { ModelingView } from '@/components/views/ModelingView';
 import { CorrelationView } from '@/components/views/CorrelationView';
 import { RegressionView } from '@/components/views/RegressionView';
@@ -491,30 +490,15 @@ export default function App() {
           />
         )}
 
-        {activeView === 'volatility' && (
-          <VolatilityView
+        {(activeView === 'volatility' || activeView === 'fno') && (
+          <OptionsWorkstation
             ticker={activeTicker}
             bars={currentBars}
             intradayBars={currentIntradayBars}
             intradaySource={currentIntradaySource}
             barsSource={currentBarsSource}
             companyName={currentCompanyName}
-            isLoading={isLoading}
-          />
-        )}
-
-        {activeView === 'fno' && (
-          <FnoView
-            ticker={activeTicker}
-            onTickerChange={(t) => {
-              setActiveTicker(t);
-              fetchTickers([t]);
-            }}
-            bars={currentBars}
-            intradayBars={currentIntradayBars}
-            barsSource={currentBarsSource}
-            companyName={currentCompanyName}
-            isLoading={isLoading}
+            initialGroup={activeView === 'fno' ? 'fno' : 'vol'}
           />
         )}
 

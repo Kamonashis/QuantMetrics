@@ -7,6 +7,7 @@ import {
   FittedDistribution,
 } from '@/lib/distribution-engine';
 import { useChartSize } from '@/lib/use-chart-size';
+import { ChartTooltip, useChartTooltip } from '@/components/ui/chart-tooltip';
 import {
   StudentTEquation,
   HansenSkewTEquation,
@@ -64,6 +65,7 @@ export function DistributionFittingPanel({
   };
 
   const { ref: distRef, size: distSize } = useChartSize<HTMLDivElement>();
+  const { tooltipState, showTooltip, hideTooltip } = useChartTooltip();
   const width = distSize.width;
   const height = distSize.height;
   const distReady = width > 0;
@@ -221,9 +223,9 @@ export function DistributionFittingPanel({
       </div>
 
       {/* SVG Canvas: Empirical Histogram & Multi-Distribution Curves */}
-      <div ref={distRef} className="chart-frame">
+      <div ref={distRef} className="chart-frame relative">
         {distReady && (
-        <svg width={width} height={height} className="block h-full w-full select-none">
+        <svg width={width} height={height} className="block h-full w-full select-none" onMouseLeave={hideTooltip}>
           {/* Grid lines */}
           {[0, 0.5, 1].map((pct) => {
             const count = Math.round(pct * maxCount);
@@ -269,16 +271,12 @@ export function DistributionFittingPanel({
                 height={h}
                 fill="#8b8b93"
                 fillOpacity="0.45"
-                stroke="#0284c7"
+                stroke="#DEC084"
                 strokeWidth="0.3"
                 strokeOpacity="0.6"
                 className="hover:fill-gold-400 transition-colors"
-              >
-                <title>{`Bin: ${(binStart * 100).toFixed(2)}% to ${(
-                  (binStart + binWidth) *
-                  100
-                ).toFixed(2)}% | Count: ${count}`}</title>
-              </rect>
+                onMouseMove={(e) => showTooltip(e, [`Bin ${(binStart * 100).toFixed(2)}% to ${((binStart + binWidth) * 100).toFixed(2)}%`, `Count: ${count}`])}
+              />
             );
           })}
 
@@ -339,6 +337,7 @@ export function DistributionFittingPanel({
           })}
         </svg>
         )}
+        <ChartTooltip state={tooltipState} />
       </div>
 
       {/* Model Ranking and Goodness-of-Fit Table */}

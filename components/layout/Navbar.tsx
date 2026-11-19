@@ -24,8 +24,8 @@ const NAV_ITEMS = [
   { id: 'home', label: 'Home', shortLabel: 'Home', icon: Home },
   { id: 'analysis', label: 'Analysis', shortLabel: 'Analysis', icon: Activity },
   { id: 'modeling', label: 'Modeling', shortLabel: 'Model', icon: Sigma },
-  { id: 'volatility', label: 'Implied Vol', shortLabel: 'Vol', icon: Waves },
-  { id: 'fno', label: 'F&O', shortLabel: 'F&O', icon: CandlestickChart },
+  { id: 'volatility', label: 'Options · Vol', shortLabel: 'Vol', icon: Waves },
+  { id: 'fno', label: 'Options · Position', shortLabel: 'Pos', icon: CandlestickChart },
   { id: 'correlation', label: 'Correlation', shortLabel: 'Corr.', icon: Network },
   { id: 'regression', label: 'Regression', shortLabel: 'Regr.', icon: TrendingUp },
 ] as const;
