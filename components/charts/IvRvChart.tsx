@@ -1,5 +1,7 @@
 'use client';
 
+import { EmptyState } from '@/components/ui/empty-state';
+
 import React from 'react';
 import { useChartSize } from '@/lib/use-chart-size';
 
@@ -18,9 +20,7 @@ export function IvRvChart({ points, ivLabel }: { points: IvRvPoint[]; ivLabel: s
   const data = points.filter((p) => (p.iv !== null && isFinite(p.iv)) || (p.rv !== null && isFinite(p.rv)));
   if (data.length < 30) {
     return (
-      <div className="flex h-44 items-center justify-center rounded-xl border border-[var(--hairline)] bg-[var(--bg-inset)] text-xs text-zinc-400">
-        Not enough overlapping history for the IV/RV pair
-      </div>
+      <EmptyState title="Not enough overlapping IV/RV history" detail="Need at least 30 aligned sessions" className="h-44" />
     );
   }
 

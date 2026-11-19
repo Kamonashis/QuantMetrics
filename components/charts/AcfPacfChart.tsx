@@ -110,7 +110,7 @@ export function AcfPacfChart({ acfPacf }: AcfPacfResultProps & { acfPacf: AcfPac
             y1={upperBandY}
             x2={width - padRight}
             y2={upperBandY}
-            stroke="#38bdf8"
+            stroke="#8b8b93"
             strokeWidth="0.8"
             strokeDasharray="4 3"
           />
@@ -129,7 +129,7 @@ export function AcfPacfChart({ acfPacf }: AcfPacfResultProps & { acfPacf: AcfPac
             y1={lowerBandY}
             x2={width - padRight}
             y2={lowerBandY}
-            stroke="#38bdf8"
+            stroke="#8b8b93"
             strokeWidth="0.8"
             strokeDasharray="4 3"
           />

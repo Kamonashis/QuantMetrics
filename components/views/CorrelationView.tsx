@@ -16,6 +16,7 @@ import { CorrelationRiskTab } from '@/components/views/correlation/CorrelationRi
 import { CorrelationStructureTab } from '@/components/views/correlation/CorrelationStructureTab';
 import { ShimmerButton } from '@/components/ui/ShimmerButton';
 import { TickerSuggest } from '@/components/ui/TickerSuggest';
+import { ProvenanceBadge } from '@/components/ui/provenance-badge';
 import { AnimatedTabs } from '@/components/ui/animated-tabs';
 import {
   Play,
@@ -42,6 +43,7 @@ interface CorrelationViewProps {
   isLoading: boolean;
   onRunCorrelation: (tickers: string[]) => void;
   intradayBars?: IntradayBar[];
+  barsSource?: string | null;
 }
 
 type SubTabId = 'overview' | 'dynamics' | 'risk' | 'structure';
@@ -58,6 +60,7 @@ export function CorrelationView({
   isLoading,
   onRunCorrelation,
   intradayBars = [],
+  barsSource,
 }: CorrelationViewProps) {
   const [localInput, setLocalInput] = useState(tickersInput);
   const [activeSubTab, setActiveSubTab] = useState<SubTabId>('overview');
@@ -197,6 +200,7 @@ export function CorrelationView({
                 <span className="text-xs text-zinc-500 dark:text-zinc-400">
                   Tiers 1–4 Cross-Asset Correlation
                 </span>
+                <ProvenanceBadge daily={barsSource} />
               </div>
               <h2 className="text-xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100 mt-0.5">
                 Correlation, Dynamic Regimes &amp; Portfolio Risk
@@ -249,7 +253,7 @@ export function CorrelationView({
                 inputClassName="w-full px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 font-mono font-bold text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-1 focus:ring-gold-500 text-sm"
               />
               <span className="text-[11px] text-zinc-400 block mt-1">
-                Supports N=2 to 15 tickers. Matrices and network topologies re-evaluate on submit.
+                Supports N=2 to 10 tickers. Matrices and network topologies re-evaluate on submit.
               </span>
             </div>
 

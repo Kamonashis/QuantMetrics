@@ -72,7 +72,7 @@ export function FnoTermStructureTab({ panel, symbol }: { panel: PanelPayload | n
             <div className="text-xs text-zinc-400">Not enough expiries with two-sided quotes to compute carry.</div>
           ) : (
             <div className="space-y-1.5 font-mono text-[10px]">
-              <div className="grid grid-cols-4 text-[8.5px] uppercase tracking-wider text-zinc-400">
+              <div className="grid grid-cols-4 text-[9.5px] uppercase tracking-wider text-zinc-400">
                 <span>Leg</span><span>From</span><span>To</span><span className="text-right">Carry ann.</span>
               </div>
               {carry.map((c, i) => (

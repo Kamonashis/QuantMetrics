@@ -22,6 +22,8 @@ interface TickerSuggestProps {
   inputClassName?: string;
   ariaLabel?: string;
   id?: string;
+  /** Fired when a suggestion is accepted or an exact symbol is entered. */
+  onCommit?: (symbol: string) => void;
 }
 
 interface FetchedResults {
@@ -59,6 +61,7 @@ export function TickerSuggest({
   inputClassName,
   ariaLabel,
   id,
+  onCommit,
 }: TickerSuggestProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -132,9 +135,10 @@ export function TickerSuggest({
     (symbol: string) => {
       dismissedRef.current = true; // accept = done with suggestions until the next keystroke
       onChange(multiple ? applyMultiple(value, symbol) : symbol);
+      onCommit?.(symbol);
       setOpen(false);
     },
-    [multiple, onChange, value]
+    [multiple, onChange, onCommit, value]
   );
 
   // What to render for the current segment (Yahoo > local cache > local fallback)
@@ -176,7 +180,8 @@ export function TickerSuggest({
         const target = active < results.length ? results[active] : null;
         const targetSymbol = target ? target.symbol : segment.toUpperCase();
         if (targetSymbol.toUpperCase() === segment.toUpperCase()) {
-          // Exact symbol already typed — close and let Enter submit the form
+          // Exact symbol already typed — commit it and let the form submit proceed.
+          onCommit?.(targetSymbol.toUpperCase());
           setOpen(false);
           return;
         }

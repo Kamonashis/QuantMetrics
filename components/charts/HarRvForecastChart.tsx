@@ -107,8 +107,8 @@ export function HarRvForecastChart({
         <svg width={width} height={height} className="block h-full w-full">
           <defs>
             <linearGradient id="harGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#0ea5e9" stopOpacity="0.25" />
-              <stop offset="100%" stopColor="#0ea5e9" stopOpacity="0.05" />
+              <stop offset="0%" stopColor="#DEC084" stopOpacity="0.25" />
+              <stop offset="100%" stopColor="#DEC084" stopOpacity="0.05" />
             </linearGradient>
           </defs>
 
@@ -173,7 +173,7 @@ export function HarRvForecastChart({
           <path
             d={`M ${histPoints}`}
             fill="none"
-            stroke="#0ea5e9"
+            stroke="#DEC084"
             strokeWidth="1.4"
             strokeLinecap="round"
           />
@@ -182,7 +182,7 @@ export function HarRvForecastChart({
           <path
             d={`M ${fcLinePts.join(' L ')}`}
             fill="none"
-            stroke="#0ea5e9"
+            stroke="#DEC084"
             strokeWidth="1.3"
             strokeDasharray="4 2"
           />
@@ -194,7 +194,7 @@ export function HarRvForecastChart({
               cx={getX(i)}
               cy={getY(d.annualizedRealizedVol)}
               r="3.5"
-              fill="#0ea5e9"
+              fill="#DEC084"
               stroke="#0E0E11"
               strokeWidth="1"
             />

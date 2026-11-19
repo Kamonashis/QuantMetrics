@@ -1,5 +1,7 @@
 'use client';
 
+import { EmptyState } from '@/components/ui/empty-state';
+
 import React, { useMemo } from 'react';
 import type { SliceOut } from '@/components/views/volatility/types';
 import { sviTotalVariance, fitLocalSmile, evalLocalSmileIv, type LocalSmileFit } from '@/lib/options';
@@ -71,9 +73,7 @@ export function VolatilitySmileChart({ slice, fitMethod = 'svi', onFitMethodChan
 
   if (!slice || slice.points.length < 3) {
     return (
-      <div className="flex h-56 items-center justify-center rounded-xl border border-[var(--hairline)] bg-[var(--bg-inset)] text-xs text-zinc-400">
-        No usable quotes in this slice
-      </div>
+      <EmptyState title="No usable quotes in this slice" detail="Wide or zero-bid quotes are filtered out rather than fitted" className="h-56" />
     );
   }
 

@@ -1,0 +1,121 @@
+'use client';
+
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import type { PriceBar, RollingVolSeries } from '@/lib/quant-engine';
+import { calculateReturns, fitGarch11 } from '@/lib/quant-engine';
+import {
+  canonicalRvLadder,
+  canonicalRvSeries,
+  curveVerdict,
+  sessionDiff,
+  vixContext,
+  type RvReading,
+} from '@/lib/ticker-snapshot';
+import type { ChainPayload, IndicesPayload, IvHistoryEntry, PanelRowOut } from '@/components/views/volatility/types';
+
+export interface TickerSnapshotValue {
+  ticker: string;
+  chain: ChainPayload | null;
+  indices: IndicesPayload | null;
+  ivHistory: IvHistoryEntry[];
+  panel: PanelRowOut[];
+  chainLoading: boolean;
+  refresh: () => void;
+  /** One RV ladder for the whole app: sample stdev of log returns × √252. */
+  rvLadder: RvReading[];
+  rvSeries: RollingVolSeries[];
+  /** One GARCH(1,1) fit for the whole vol suite (T3/T8), same sample gate. */
+  garchFit: ReturnType<typeof fitGarch11> | null;
+  rv20: number | null;
+  vix: { level: number | null; percentile: number | null; n: number };
+  curve: 'CONTANGO' | 'FLAT' | 'INVERTED' | null;
+  session: ReturnType<typeof sessionDiff>;
+  barsSource?: string | null;
+  intradaySource?: string | null;
+}
+
+const SnapshotContext = createContext<TickerSnapshotValue | null>(null);
+
+export function useTickerSnapshot(): TickerSnapshotValue {
+  const ctx = useContext(SnapshotContext);
+  if (!ctx) throw new Error('useTickerSnapshot must be used inside <TickerSnapshotProvider>');
+  return ctx;
+}
+
+export function TickerSnapshotProvider({
+  ticker,
+  bars,
+  barsSource = null,
+  intradaySource = null,
+  children,
+}: {
+  ticker: string;
+  bars: PriceBar[];
+  barsSource?: string | null;
+  intradaySource?: string | null;
+  children: React.ReactNode;
+}) {
+  const [chain, setChain] = useState<ChainPayload | null>(null);
+  const [indices, setIndices] = useState<IndicesPayload | null>(null);
+  const [ivHistory, setIvHistory] = useState<IvHistoryEntry[]>([]);
+  const [panel, setPanel] = useState<PanelRowOut[]>([]);
+  const [chainLoading, setChainLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
+
+  // One chain/history/panel fetch for every view. Views no longer refetch the
+  // same option chain from four separate places.
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      fetch(`/api/options?mode=chain&symbol=${encodeURIComponent(ticker)}`)
+        .then((r) => r.json() as Promise<ChainPayload>)
+        .catch(() => ({ available: false, reason: 'fetch failed' } as ChainPayload)),
+      fetch(`/api/options?mode=history&symbol=${encodeURIComponent(ticker)}`)
+        .then((r) => r.json() as Promise<{ history: IvHistoryEntry[] }>)
+        .catch(() => ({ history: [] })),
+      fetch(`/api/options?mode=panel&symbol=${encodeURIComponent(ticker)}`)
+        .then((r) => r.json() as Promise<{ panel?: PanelRowOut[] }>)
+        .catch(() => ({ panel: [] as PanelRowOut[] })),
+    ])
+      .then(([chainData, historyData, panelData]) => {
+        if (cancelled) return;
+        setChain({ ...chainData, requested: chainData.requested ?? ticker.toUpperCase() });
+        setIvHistory(Array.isArray(historyData?.history) ? historyData.history : []);
+        setPanel(Array.isArray(panelData?.panel) ? panelData.panel : []);
+      })
+      .finally(() => { if (!cancelled) setChainLoading(false); });
+    return () => { cancelled = true; };
+  }, [ticker, refreshKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/options?mode=indices')
+      .then((r) => r.json() as Promise<IndicesPayload>)
+      .then((d) => { if (!cancelled) setIndices(d); })
+      .catch(() => { if (!cancelled) setIndices({ available: false, reason: 'fetch failed' }); });
+    return () => { cancelled = true; };
+  }, [refreshKey]);
+
+  const rvSeries = useMemo(() => canonicalRvSeries(bars.map((b) => b.close)), [bars]);
+  const garchFit = useMemo(() => {
+    const rets = calculateReturns(bars.map((b) => b.close), 'log');
+    return rets.length > 50 ? fitGarch11(rets) : null;
+  }, [bars]);
+  const rvLadder = useMemo(() => canonicalRvLadder(bars.map((b) => b.close)), [bars]);
+  const rv20 = useMemo(() => rvLadder.find((r) => r.window === 20)?.vol ?? null, [rvLadder]);
+  const vix = useMemo(
+    () => vixContext(indices?.series?.VIX?.bars ?? [], indices?.series?.VIX?.bars?.slice(-1)[0]?.close ?? null),
+    [indices]
+  );
+  const curve = useMemo(() => curveVerdict(chain?.termStructure ?? []), [chain]);
+  const session = useMemo(() => sessionDiff(panel), [panel]);
+
+  const value = useMemo<TickerSnapshotValue>(() => ({
+    ticker, chain, indices, ivHistory, panel, chainLoading, refresh,
+    rvLadder, rvSeries, garchFit, rv20, vix, curve, session, barsSource, intradaySource,
+  }), [ticker, chain, indices, ivHistory, panel, chainLoading, refresh, rvLadder, rvSeries, garchFit, rv20, vix, curve, session, barsSource, intradaySource]);
+
+  return <SnapshotContext.Provider value={value}>{children}</SnapshotContext.Provider>;
+}

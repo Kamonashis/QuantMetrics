@@ -43,6 +43,7 @@ import { TickerSuggest } from '@/components/ui/TickerSuggest';
 import { AnimatedTabs } from '@/components/ui/animated-tabs';
 import { Iv30Chip } from '@/components/views/Iv30Chip';
 import { TrapStateChip } from '@/components/views/TrapStateChip';
+import { ProvenanceBadge } from '@/components/ui/provenance-badge';
 import {
   Play,
   RotateCcw,
@@ -77,6 +78,7 @@ interface AnalysisViewProps {
   intradayBars: IntradayBar[];
   /** 'live_market' | 'synthetic_gbm' — provenance of the intraday cache (defaults to synthetic) */
   intradaySource?: string | null;
+  barsSource?: string | null;
   resolution: 'daily' | 'intraday';
   onResolutionChange: (res: 'daily' | 'intraday') => void;
   isLoading: boolean;
@@ -109,6 +111,7 @@ export function AnalysisView({
   onDecompModelChange,
   bars,
   intradayBars,
+  barsSource,
   resolution,
   onResolutionChange,
   isLoading,
@@ -372,6 +375,7 @@ export function AnalysisView({
                 <span className="text-xs text-zinc-500 dark:text-zinc-400">
                   {companyName} ({ticker})
                 </span>
+                <ProvenanceBadge daily={barsSource} intraday={intradaySource} />
               </div>
               <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100 mt-0.5 text-balance">
                 Econometric Distributions, Volatility Dynamics &amp; Tail Risk
@@ -627,8 +631,8 @@ export function AnalysisView({
 
         <div className="grid shrink-0 grid-cols-3 gap-px overflow-hidden rounded-lg border border-[var(--hairline)] bg-[var(--hairline)] sm:grid-cols-6">
           {[
-            { label: 'IV30', node: <Iv30Chip ticker={ticker} /> },
-            { label: 'TRAP', node: <TrapStateChip ticker={ticker} /> },
+            { label: 'IV30', node: <Iv30Chip /> },
+            { label: 'TRAP', node: <TrapStateChip /> },
             { label: 'Ann Vol', node: <span className="font-mono text-sm font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">{(returnStats.annualizedVol * 100).toFixed(2)}%</span> },
             { label: 'Skew', node: <span className="font-mono text-sm font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">{returnStats.skewness.toFixed(2)}</span> },
             { label: 'Kurtosis', node: <span className="font-mono text-sm font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">{returnStats.excessKurtosis.toFixed(2)}</span> },

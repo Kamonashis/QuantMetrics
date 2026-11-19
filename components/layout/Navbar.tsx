@@ -1,18 +1,26 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Sun, Moon, Home, Activity, Sigma, Waves, CandlestickChart, Network, TrendingUp } from 'lucide-react';
+import { Sun, Moon, Home, Activity, Sigma, Waves, CandlestickChart, Network, TrendingUp, LayoutDashboard } from 'lucide-react';
 import { motion } from 'motion/react';
+import { TickerSuggest } from '@/components/ui/TickerSuggest';
+import { ProvenanceBadge } from '@/components/ui/provenance-badge';
 
 interface NavbarProps {
-  activeView: 'home' | 'analysis' | 'modeling' | 'correlation' | 'regression' | 'volatility' | 'fno';
-  onViewChange: (view: 'home' | 'analysis' | 'modeling' | 'correlation' | 'regression' | 'volatility' | 'fno') => void;
+  activeView: 'now' | 'home' | 'analysis' | 'modeling' | 'correlation' | 'regression' | 'volatility' | 'fno';
+  onViewChange: (view: 'now' | 'home' | 'analysis' | 'modeling' | 'correlation' | 'regression' | 'volatility' | 'fno') => void;
   isDark: boolean;
   onToggleTheme: () => void;
   activeTicker: string;
+  onTickerChange: (ticker: string) => void;
+  dailySource?: string | null;
+  intradaySource?: string | null;
+  price?: number | null;
+  changePct?: number | null;
 }
 
 const NAV_ITEMS = [
+  { id: 'now', label: 'Now', shortLabel: 'Now', icon: LayoutDashboard },
   { id: 'home', label: 'Home', shortLabel: 'Home', icon: Home },
   { id: 'analysis', label: 'Analysis', shortLabel: 'Analysis', icon: Activity },
   { id: 'modeling', label: 'Modeling', shortLabel: 'Model', icon: Sigma },
@@ -22,8 +30,31 @@ const NAV_ITEMS = [
   { id: 'regression', label: 'Regression', shortLabel: 'Regr.', icon: TrendingUp },
 ] as const;
 
-export function Navbar({ activeView, onViewChange, isDark, onToggleTheme, activeTicker }: NavbarProps) {
+export function Navbar({
+  activeView,
+  onViewChange,
+  isDark,
+  onToggleTheme,
+  activeTicker,
+  onTickerChange,
+  dailySource,
+  intradaySource,
+  price = null,
+  changePct = null,
+}: NavbarProps) {
   const [scrolled, setScrolled] = useState(false);
+  const [tickerInput, setTickerInput] = useState(activeTicker);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setTickerInput(activeTicker), 0);
+    return () => clearTimeout(timer);
+  }, [activeTicker]);
+
+  const commitTicker = (raw: string) => {
+    const symbol = raw.trim().toUpperCase();
+    if (symbol && symbol !== activeTicker) onTickerChange(symbol);
+    else setTickerInput(activeTicker);
+  };
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
@@ -96,16 +127,36 @@ export function Navbar({ activeView, onViewChange, isDark, onToggleTheme, active
 
         {/* Right cluster */}
         <div className="flex shrink-0 items-center gap-2">
-          {/* Live asset badge */}
-          <div className="hidden items-center gap-2 rounded-lg border border-zinc-200/80 dark:border-white/[0.06] bg-zinc-100/60 dark:bg-white/[0.03] py-1.5 pl-2.5 pr-3 lg:flex">
-            <span className="h-1.5 w-1.5 rounded-full bg-[var(--positive)] animate-ping-dot" />
-            <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-zinc-400 dark:text-zinc-500">
-              Asset
+          {/* Global context: one ticker control for the whole terminal */}
+          <form
+            onSubmit={(e) => { e.preventDefault(); commitTicker(tickerInput); }}
+            className="flex min-w-0 items-center gap-2"
+          >
+            <TickerSuggest
+              ariaLabel="Active ticker — changes context in every view"
+              value={tickerInput}
+              onChange={setTickerInput}
+              onCommit={commitTicker}
+              placeholder={activeTicker}
+              className="w-[104px] sm:w-[136px]"
+              inputClassName="h-8 w-full rounded-lg border border-zinc-200/80 bg-zinc-100/60 font-mono text-[11px] font-semibold tabular-nums text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-400/60 dark:border-white/[0.07] dark:bg-white/[0.03] dark:text-zinc-100"
+            />
+            {price !== null && (
+              <div className="hidden flex-col items-end leading-none xl:flex">
+                <span className="font-mono text-[11px] font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">
+                  {price.toFixed(2)}
+                </span>
+                {changePct !== null && (
+                  <span className={`mt-0.5 font-mono text-[9px] tabular-nums ${changePct >= 0 ? 'text-[var(--positive)]' : 'text-[var(--negative)]'}`}>
+                    {changePct >= 0 ? '+' : ''}{changePct.toFixed(2)}%
+                  </span>
+                )}
+              </div>
+            )}
+            <span className="hidden sm:inline-flex">
+              <ProvenanceBadge daily={dailySource} intraday={intradaySource} compact />
             </span>
-            <span className="font-mono text-[11px] font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">
-              {activeTicker}
-            </span>
-          </div>
+          </form>
 
           {/* Theme toggle */}
           <button
@@ -125,7 +176,7 @@ export function Navbar({ activeView, onViewChange, isDark, onToggleTheme, active
         className="fixed inset-x-0 bottom-0 z-40 border-t border-zinc-200/80 bg-[#f5f4f1]/92 backdrop-blur-xl dark:border-white/[0.07] dark:bg-[#0e0e11]/92 md:hidden pb-safe"
         aria-label="Primary"
       >
-        <div className="grid grid-cols-7">
+        <div className="grid grid-cols-8">
           {NAV_ITEMS.map((item) => {
             const active = item.id === activeView;
             const Icon = item.icon;
@@ -142,7 +193,7 @@ export function Navbar({ activeView, onViewChange, isDark, onToggleTheme, active
                 }`}
               >
                 <Icon className="h-5 w-5" strokeWidth={active ? 2.2 : 1.8} aria-hidden="true" />
-                <span className="w-full truncate text-center font-mono text-[8px] font-medium uppercase leading-none tracking-wide">
+                <span className="w-full truncate text-center font-mono text-[9px] font-medium uppercase leading-none tracking-wide">
                   {item.shortLabel}
                 </span>
                 <span

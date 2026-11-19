@@ -123,7 +123,7 @@ export function ResidualDiagnosticsChart({
                     cx={cx}
                     cy={cy}
                     r="2.8"
-                    fill="#38bdf8"
+                    fill="#8b8b93"
                     opacity="0.75"
                     className="hover:r-4 hover:fill-gold-300"
                   />
@@ -150,7 +150,7 @@ export function ResidualDiagnosticsChart({
         <div>
           <div className="w-full aspect-[2/1] max-h-[300px] min-h-[200px]">
             <svg viewBox="0 0 600 300" className="w-full h-full">
-              <line x1="60" y1="150" x2="560" y2="150" stroke="#10b981" strokeWidth="0.8" strokeDasharray="3 3" />
+              <line x1="60" y1="150" x2="560" y2="150" stroke="#3fb27f" strokeWidth="0.8" strokeDasharray="3 3" />
 
               {residuals.map((r, i) => {
                 const cx = 310 + r.fitted * 2500;
@@ -161,7 +161,7 @@ export function ResidualDiagnosticsChart({
                     cx={Math.max(65, Math.min(555, cx))}
                     cy={Math.max(25, Math.min(275, cy))}
                     r="2.5"
-                    fill="#a855f7"
+                    fill="#a1a1aa"
                     opacity="0.65"
                   />
                 );
@@ -216,7 +216,7 @@ export function ResidualDiagnosticsChart({
                       y={y}
                       width={480 / bCount - 2}
                       height={h}
-                      fill="#38bdf8"
+                      fill="#8b8b93"
                       opacity="0.8"
                     />
                   );
@@ -239,7 +239,7 @@ export function ResidualDiagnosticsChart({
 
               {/* Render beta lines for each independent ticker */}
               {summary.independentTickers.map((ticker, tIdx) => {
-                const color = ['#0ea5e9', '#DEC084', '#10b981', '#f43f5e'][tIdx % 4];
+                const color = ['#DEC084', '#DEC084', '#3fb27f', '#f43f5e'][tIdx % 4];
                 const points = rollingBetas.map((rb, i) => {
                   const x = 60 + (i / Math.max(1, rollingBetas.length - 1)) * 590;
                   const bVal = rb.betas[ticker] ?? 1;
@@ -274,7 +274,7 @@ export function ResidualDiagnosticsChart({
               <span key={ticker} className="flex items-center gap-1.5">
                 <span
                   className="w-2.5 h-2.5 rounded-full inline-block"
-                  style={{ backgroundColor: ['#0ea5e9', '#DEC084', '#10b981', '#f43f5e'][tIdx % 4] }}
+                  style={{ backgroundColor: ['#DEC084', '#DEC084', '#3fb27f', '#f43f5e'][tIdx % 4] }}
                 />
                 Beta ({ticker})
               </span>

@@ -148,7 +148,7 @@ export function JumpDecompositionChart({
                   y={yCont}
                   width={barW}
                   height={hCont}
-                  fill="#0ea5e9"
+                  fill="#DEC084"
                   className="opacity-80 group-hover:opacity-100 transition-opacity"
                   rx="1"
                 />

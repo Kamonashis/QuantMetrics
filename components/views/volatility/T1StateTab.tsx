@@ -12,20 +12,23 @@ import {
 } from 'lucide-react';
 import type { ChainPayload, IndicesPayload } from './types';
 import { percentileRank } from '@/lib/vol-analytics';
+import { selectFrontSlice } from '@/lib/ticker-snapshot';
 
 interface T1Props {
   chain: ChainPayload | null;
   indices: IndicesPayload | null;
   rv20: number | null; // annualized realized vol, decimal
+  vix?: { level: number | null; percentile: number | null; n: number };
 }
 
 const pct = (v: number | null | undefined, digits = 1) =>
   v === null || v === undefined || !isFinite(v) ? '—' : `${(v * 100).toFixed(digits)}%`;
 
-export function T1StateTab({ chain, indices, rv20 }: T1Props) {
+export function T1StateTab({ chain, indices, rv20, vix }: T1Props) {
   const slices = chain?.slices ?? [];
   const headline = slices.find((s) => s.dte >= 21) ?? slices[0] ?? null;
-  const front21 = slices.find((s) => s.dte >= 15 && s.dte <= 45) ?? headline;
+  // One front-slice rule, shared with the Now view, T6, T8 and the options decision.
+  const front21 = selectFrontSlice(slices) ?? headline;
 
   const iv30 = chain?.iv30 ?? headline?.atmIv ?? null;
 
@@ -39,7 +42,7 @@ export function T1StateTab({ chain, indices, rv20 }: T1Props) {
   const skewBars = indices?.series?.SKEW?.bars ?? [];
   const vix1y = vixBars.slice(-252).map((b) => b.close);
   const skew1y = skewBars.slice(-252).map((b) => b.close);
-  const vixPercentile = vixNow !== null && vix1y.length > 30 ? percentileRank(vix1y, vixNow) : null;
+  const vixPercentile = vix?.percentile ?? (vixNow !== null && vix1y.length > 30 ? percentileRank(vix1y, vixNow) : null);
   const skewPercentile = skewNow !== null && skew1y.length > 30 ? percentileRank(skew1y, skewNow) : null;
 
   // Slope: 30d chain IV vs 90d slice, plus VIX9D/VIX3M short-end

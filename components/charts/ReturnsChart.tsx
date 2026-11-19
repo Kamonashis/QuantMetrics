@@ -163,7 +163,7 @@ export function ReturnsChart({
                 y={top}
                 width={barW}
                 height={h}
-                fill={isPos ? '#10b981' : '#f43f5e'}
+                fill={isPos ? '#3fb27f' : '#f43f5e'}
                 opacity={hoverIndex === i ? 1 : 0.75}
               />
             );
@@ -176,7 +176,7 @@ export function ReturnsChart({
               y1={padTop}
               x2={getX(activeIndex)}
               y2={padTop + chartH}
-              stroke="#38bdf8"
+              stroke="#8b8b93"
               strokeWidth="0.65"
               strokeDasharray="2 2"
             />

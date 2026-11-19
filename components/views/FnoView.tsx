@@ -22,23 +22,28 @@ import { FnoMaxPainTab } from './fno/FnoMaxPainTab';
 import { FnoTermStructureTab } from './fno/FnoTermStructureTab';
 import { FnoExpectedMoveTab } from './fno/FnoExpectedMoveTab';
 import type { PanelPayload } from './fno/types';
+import { ProvenanceBadge } from '@/components/ui/provenance-badge';
+import { OptionsVerdictStrip } from './OptionsVerdictStrip';
+import { useTickerSnapshot } from '@/components/providers/TickerSnapshotProvider';
 
 interface FnoViewProps {
   ticker: string;
   onTickerChange: (ticker: string) => void;
   bars: PriceBar[];
   intradayBars: IntradayBar[];
+  barsSource?: string | null;
   companyName: string;
   isLoading: boolean;
 }
 
 type SubTab = 'chain' | 'oi' | 'pcr' | 'maxpain' | 'termstructure' | 'expectedmove';
 
-export function FnoView({ ticker, onTickerChange, bars, companyName, isLoading }: FnoViewProps) {
+export function FnoView({ ticker, onTickerChange, bars, barsSource, companyName, isLoading }: FnoViewProps) {
   const [panel, setPanel] = useState<PanelPayload | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [subTab, setSubTab] = useState<SubTab>('chain');
+  const { chain, rv20 } = useTickerSnapshot();
 
   // Deep-link: ?fno=pcr restores the selection (replaceState keeps history clean).
   // Deferred 0ms so the setState doesn't cascade synchronously inside the effect.
@@ -98,6 +103,7 @@ export function FnoView({ ticker, onTickerChange, bars, companyName, isLoading }
               <span className="kicker">Options F&amp;O Suite · US Universe</span>
               <span className="text-zinc-300 dark:text-zinc-700" aria-hidden="true">·</span>
               <span className="text-xs text-zinc-500 dark:text-zinc-400">{companyName} ({ticker})</span>
+              <ProvenanceBadge daily={barsSource} />
               {substitution && (
                 <span className="flex items-center gap-1 rounded border border-gold-500/40 bg-gold-500/10 px-1.5 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-wider text-gold-800 dark:text-gold-200">
                   <AlertTriangle className="h-3 w-3" /> Proxy
@@ -153,7 +159,7 @@ export function FnoView({ ticker, onTickerChange, bars, companyName, isLoading }
           {panel?.available ? (
             <>
               <span className="text-[var(--positive)]">
-                ✓ Live chain{asOf ? ` · ${asOf}` : ''} · ~15-min delayed · EOD open interest · European BSM approximation
+                ✓ Live chain{asOf ? ` · fetched ${asOf}` : ''} · ~15-min delayed quotes · EOD open interest · European BSM approximation
               </span>
               <span className="text-zinc-500 dark:text-zinc-400">
                 OI sessions accrued: {panel.sessions ?? 0}{panel.firstDate ? ` (since ${panel.firstDate})` : ''} · {panel.strikesUsed ?? '—'}/{panel.strikesTotal ?? '—'} contracts used
@@ -168,6 +174,8 @@ export function FnoView({ ticker, onTickerChange, bars, companyName, isLoading }
           )}
         </div>
       </div>
+
+      <OptionsVerdictStrip chain={chain} fnoPanel={panel} rv20={rv20} />
 
       {/* Sub-tab strip — scrollable chips, deep-linked via ?fno= */}
         <AnimatedTabs

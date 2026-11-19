@@ -30,7 +30,7 @@ export function FnoChainTable({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[860px] border-collapse font-mono text-[10.5px]">
+      <table className="table-sticky-first w-full min-w-[860px] border-collapse font-mono text-[10.5px]">
         <thead>
           <tr className="text-[8.5px] uppercase tracking-[0.14em] text-zinc-400">
             <th className="px-1.5 py-1 text-right">OI</th>

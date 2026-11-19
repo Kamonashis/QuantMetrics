@@ -1,6 +1,8 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { TickerSnapshotProvider } from '@/components/providers/TickerSnapshotProvider';
+import { NowView } from '@/components/views/NowView';
 import { PriceBar, IntradayBar } from '@/lib/quant-engine';
 import {
   generateRealisticStockHistory,
@@ -17,11 +19,12 @@ import { ModelingView } from '@/components/views/ModelingView';
 import { CorrelationView } from '@/components/views/CorrelationView';
 import { RegressionView } from '@/components/views/RegressionView';
 
+type AppView = 'now' | 'home' | 'analysis' | 'modeling' | 'correlation' | 'regression' | 'volatility' | 'fno';
+const VALID_VIEWS: AppView[] = ['now', 'home', 'analysis', 'modeling', 'correlation', 'regression', 'volatility', 'fno'];
+
 export default function App() {
   // Navigation
-  const [activeView, setActiveView] = useState<
-    'home' | 'analysis' | 'modeling' | 'correlation' | 'regression' | 'volatility' | 'fno'
-  >('home');
+  const [activeView, setActiveView] = useState<AppView>('now');
 
   // Dark / Light Theme: default to true on both server and client for matching hydration
   const [isDark, setIsDark] = useState<boolean>(true);
@@ -66,30 +69,7 @@ export default function App() {
   const todayStr = '2026-11-08';
   const oneYearAgoStr = '2025-11-08';
 
-  // Deep-link: ?view=analysis (plus tab params like ?tab=risk) restores the
-  // top-level view on mount. Deferred 0ms so the setState doesn't cascade in the effect.
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const timer = setTimeout(() => {
-      const v = new URLSearchParams(window.location.search).get('view');
-      const valid: Array<typeof activeView> = ['home', 'analysis', 'modeling', 'correlation', 'regression', 'volatility', 'fno'];
-      if (v && (valid as string[]).includes(v)) {
-        setActiveView(v as typeof activeView);
-      }
-    }, 0);
-    return () => clearTimeout(timer);
-  }, []);
-
-  const navigateView = useCallback((view: typeof activeView) => {
-    setActiveView(view);
-    if (typeof window !== 'undefined') {
-      const url = new URL(window.location.href);
-      url.searchParams.set('view', view);
-      window.history.replaceState(null, '', url.toString());
-    }
-  }, []);
-
-  // Shared Analysis Parameters
+  // Shared Analysis Parameters — declared before navigation so URL state can reference them.
   const [activeTicker, setActiveTicker] = useState<string>('AAPL');
   const [resolution, setResolution] = useState<'daily' | 'intraday'>('daily');
   const [startDate, setStartDate] = useState<string>(oneYearAgoStr);
@@ -98,6 +78,39 @@ export default function App() {
   const [rollingWindows, setRollingWindows] = useState<string>('10,20,30');
   const [decompPeriod, setDecompPeriod] = useState<number>(30);
   const [decompModel, setDecompModel] = useState<'additive' | 'multiplicative'>('additive');
+
+  // Deep-link: ?view=analysis (plus tab params like ?tab=risk) restores the
+  // top-level view on mount. Deferred 0ms so the setState doesn't cascade in the effect.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const timer = setTimeout(() => {
+      const p = new URLSearchParams(window.location.search);
+      const v = p.get('view');
+      if (v && (VALID_VIEWS as string[]).includes(v)) setActiveView(v as AppView);
+      const t = p.get('ticker');
+      if (t) setActiveTicker(t.toUpperCase());
+      const s = p.get('start');
+      if (s) setStartDate(s);
+      const e = p.get('end');
+      if (e) setEndDate(e);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const navigateView = useCallback((view: AppView, params?: Record<string, string>) => {
+    setActiveView(view);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      // Clear stale sub-tab keys so a bookmark always lands on the intended panel.
+      ['tab', 'vol', 'fno', 'corr'].forEach((k) => url.searchParams.delete(k));
+      url.searchParams.set('view', view);
+      url.searchParams.set('ticker', activeTicker);
+      url.searchParams.set('start', startDate);
+      url.searchParams.set('end', endDate);
+      Object.entries(params ?? {}).forEach(([k, v]) => url.searchParams.set(k, v));
+      window.history.pushState(null, '', url.toString());
+    }
+  }, [activeTicker, startDate, endDate]);
 
   // Sync the default end date to the actual current day on mount (SSR/client parity preserved —
   // first paint uses the deterministic constant, the effect moves it to "today").
@@ -303,6 +316,28 @@ export default function App() {
     [startDate, endDate]
   );
 
+  // Browser Back/Forward restores the full context (view + ticker + dates), not just a tab.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onPopState = () => {
+      const p = new URLSearchParams(window.location.search);
+      const v = p.get('view');
+      if (v && (VALID_VIEWS as string[]).includes(v)) setActiveView(v as AppView);
+      const t = p.get('ticker');
+      if (t) {
+        const next = t.toUpperCase();
+        setActiveTicker(next);
+        fetchTickers([next]);
+      }
+      const s = p.get('start');
+      if (s) setStartDate(s);
+      const e = p.get('end');
+      if (e) setEndDate(e);
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [fetchTickers]);
+
   // Automatically fetch fresh live market data on initial load
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -321,6 +356,24 @@ export default function App() {
       }
     },
     [activeTicker, stockBarsCache, fetchTickers, endDate]
+  );
+
+  // One ticker change for the whole terminal — called by the global navbar control.
+  const lastRequestedTickerRef = useRef(activeTicker);
+  const handleGlobalTickerChange = useCallback(
+    (symbol: string) => {
+      const next = symbol.trim().toUpperCase();
+      if (!next || next === lastRequestedTickerRef.current) return;
+      lastRequestedTickerRef.current = next;
+      setActiveTicker(next);
+      fetchTickers([next]);
+      if (typeof window !== 'undefined') {
+        const url = new URL(window.location.href);
+        url.searchParams.set('ticker', next);
+        window.history.pushState(null, '', url.toString());
+      }
+    },
+    [fetchTickers]
   );
 
   // Build the ticker tape from whatever market data is currently cached
@@ -353,8 +406,20 @@ export default function App() {
     companyNames[activeTicker] ||
     KNOWN_TICKERS[activeTicker]?.name ||
     `${activeTicker} Equity`;
+  const currentQuote = useMemo(() => {
+    if (currentBars.length < 2) return { price: null as number | null, changePct: null as number | null };
+    const last = currentBars[currentBars.length - 1].close;
+    const prev = currentBars[currentBars.length - 2].close;
+    return { price: last, changePct: prev > 0 ? ((last - prev) / prev) * 100 : null };
+  }, [currentBars]);
 
   return (
+    <TickerSnapshotProvider
+      ticker={activeTicker}
+      bars={currentBars}
+      barsSource={currentBarsSource}
+      intradaySource={currentIntradaySource}
+    >
     <div className="min-h-dvh bg-[#F5F4F1] dark:bg-[#08080A] text-zinc-900 dark:text-[#ECECF1] flex flex-col font-sans transition-colors pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))] md:pb-0">
       {/* Top Navigation */}
       <Navbar
@@ -363,13 +428,30 @@ export default function App() {
         isDark={isDark}
         onToggleTheme={handleToggleTheme}
         activeTicker={activeTicker}
+        onTickerChange={handleGlobalTickerChange}
+        dailySource={currentBarsSource}
+        intradaySource={currentIntradaySource}
+        price={currentQuote.price}
+        changePct={currentQuote.changePct}
       />
 
       {/* Main Content Area — fluid shell: 2.2vw gutters, capped only ≥1920px */}
       <main className="flex-1 w-full mx-auto px-[clamp(16px,2.2vw,48px)] pt-4 sm:pt-6 [@media(min-width:1920px)]:max-w-[2400px]">
+        {activeView === 'now' && (
+          <NowView
+            ticker={activeTicker}
+            companyName={currentCompanyName}
+            tapeItems={tapeItems}
+            onNavigate={navigateView}
+          />
+        )}
+
         {activeView === 'home' && (
           <HomeView
             onNavigate={navigateView}
+            ticker={activeTicker}
+            bars={currentBars}
+            barsSource={currentBarsSource}
             tapeItems={tapeItems}
             onSelectPreset={(ticker) => {
               setActiveTicker(ticker);
@@ -400,6 +482,7 @@ export default function App() {
             bars={currentBars}
             intradayBars={currentIntradayBars}
             intradaySource={currentIntradaySource}
+            barsSource={currentBarsSource}
             resolution={resolution}
             onResolutionChange={setResolution}
             isLoading={isLoading}
@@ -429,6 +512,7 @@ export default function App() {
             }}
             bars={currentBars}
             intradayBars={currentIntradayBars}
+            barsSource={currentBarsSource}
             companyName={currentCompanyName}
             isLoading={isLoading}
           />
@@ -442,6 +526,8 @@ export default function App() {
             returnType={returnType}
             bars={currentBars}
             intradayBars={currentIntradayBars}
+            barsSource={currentBarsSource}
+            intradaySource={currentIntradaySource}
             resolution={resolution}
             onResolutionChange={setResolution}
             companyName={currentCompanyName}
@@ -462,6 +548,7 @@ export default function App() {
             isLoading={isLoading}
             onRunCorrelation={(tickers) => fetchTickers(tickers, '10y', startDate, endDate)}
             intradayBars={currentIntradayBars}
+            barsSource={currentBarsSource}
           />
         )}
 
@@ -477,11 +564,13 @@ export default function App() {
             allStockBars={stockBarsCache}
             isLoading={isLoading}
             onRunRegression={(tickers) => fetchTickers(tickers, '10y', startDate, endDate)}
+            barsSource={currentBarsSource}
           />
         )}
       </main>
 
       <Footer />
     </div>
+    </TickerSnapshotProvider>
   );
 }

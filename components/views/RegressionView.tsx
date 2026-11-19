@@ -19,6 +19,7 @@ import {
 import { ShimmerButton } from '@/components/ui/ShimmerButton';
 import { TickerSuggest } from '@/components/ui/TickerSuggest';
 import { AlgoSelect } from '@/components/ui/AlgoSelect';
+import { ProvenanceBadge } from '@/components/ui/provenance-badge';
 import { Play, RotateCcw, HelpCircle, ArrowUpRight, TrendingUp, Info } from 'lucide-react';
 
 interface RegressionViewProps {
@@ -32,6 +33,7 @@ interface RegressionViewProps {
   allStockBars: { [ticker: string]: PriceBar[] };
   isLoading: boolean;
   onRunRegression: (tickers: string[]) => void;
+  barsSource?: string | null;
 }
 
 export function RegressionView({
@@ -45,6 +47,7 @@ export function RegressionView({
   allStockBars,
   isLoading,
   onRunRegression,
+  barsSource,
 }: RegressionViewProps) {
   const [localInput, setLocalInput] = useState(regressionTickers);
   const [regressionType, setRegressionType] = useState<
@@ -126,6 +129,7 @@ export function RegressionView({
                 <span className="text-xs text-zinc-500 dark:text-zinc-400">
                   {isMultiple ? 'Multiple Linear Regression' : 'Simple Linear Regression (CAPM Beta)'}
                 </span>
+                <ProvenanceBadge daily={barsSource} />
               </div>
               <h2 className="text-xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100 mt-0.5">
                 Factor Sensitivity &amp; Residual Econometrics
@@ -304,7 +308,7 @@ export function RegressionView({
             {regressionSummary.fStatistic.toFixed(1)}
           </span>
           <span className="text-[11px] text-zinc-500 dark:text-zinc-400 block mt-0.5">
-            p &lt; 0.001 (Joint sig.)
+            Joint significance · p-value not computed
           </span>
         </div>
 
@@ -324,7 +328,9 @@ export function RegressionView({
             {regressionSummary.durbinWatson.toFixed(2)}
           </span>
           <span className="text-[11px] text-zinc-500 dark:text-zinc-400 block mt-0.5">
-            ~2.0 (No serial residual corr)
+            {regressionSummary.durbinWatson >= 1.5 && regressionSummary.durbinWatson <= 2.5
+              ? 'near 2 · no strong serial correlation'
+              : 'departs from 2 · inspect residuals'}
           </span>
         </div>
 
@@ -357,7 +363,7 @@ export function RegressionView({
               Parameter Estimates, Significance &amp; Multicollinearity (VIF)
             </h3>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-              Dependent Variable: {dependentTicker} · Observations: {regressionSummary.nObservations}
+              Dependent Variable: {dependentTicker} · Benchmark: {independentTickers.join(', ')} · Observations: {regressionSummary.nObservations} · aligned on available dates
             </p>
           </div>
           <span className="text-xs font-mono text-zinc-500 dark:text-zinc-400">

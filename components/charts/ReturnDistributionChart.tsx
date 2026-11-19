@@ -142,7 +142,7 @@ export function ReturnDistributionChart({
                 y={y}
                 width={bWidth}
                 height={h}
-                fill="#38bdf8"
+                fill="#8b8b93"
                 className="opacity-70 hover:opacity-100 transition-opacity"
               />
             );
@@ -163,7 +163,7 @@ export function ReturnDistributionChart({
             y1={padTop}
             x2={getX(mean)}
             y2={padTop + chartH}
-            stroke="#10b981"
+            stroke="#3fb27f"
             strokeWidth="1"
             strokeDasharray="4 2"
           />

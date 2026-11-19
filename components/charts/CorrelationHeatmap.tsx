@@ -1,5 +1,7 @@
 'use client';
 
+import { EmptyState } from '@/components/ui/empty-state';
+
 import React, { useState } from 'react';
 import { CorrelationMatrixResult } from '@/lib/quant-engine';
 
@@ -18,16 +20,14 @@ export function CorrelationHeatmap({
 
   if (!tickers || tickers.length === 0) {
     return (
-      <div className="h-64 flex items-center justify-center border border-zinc-200 dark:border-zinc-800 rounded-lg text-zinc-500">
-        No correlation matrix available. Input multiple tickers.
-      </div>
+      <EmptyState title="No correlation matrix available" detail="Input at least two tickers with overlapping history" className="h-64" />
     );
   }
 
   // Color interpolator for correlation:
   // -1.0 -> Rose (#f43f5e)
   //  0.0 -> Slate (#64748b / transparent neutral)
-  // +1.0 -> Emerald (#10b981) or Sky (#0ea5e9)
+  // +1.0 -> Emerald (#3fb27f) or Sky (#DEC084)
   const getCellBg = (corr: number) => {
     if (corr >= 0) {
       // 0 to 1 -> sky/emerald
@@ -127,7 +127,17 @@ export function CorrelationHeatmap({
                       return (
                         <td
                           key={colTicker}
+                          role={isSelf ? undefined : 'button'}
+                          tabIndex={isSelf ? undefined : 0}
+                          aria-label={isSelf ? undefined : `Correlation ${rowTicker} vs ${colTicker}: ${corr.toFixed(2)} — open scatter`}
                           onClick={() => !isSelf && setSelectedPair({ tA: rowTicker, tB: colTicker })}
+                          onKeyDown={(e) => {
+                            if (isSelf) return;
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              setSelectedPair({ tA: rowTicker, tB: colTicker });
+                            }
+                          }}
                           style={{
                             backgroundColor: getCellBg(corr),
                             color: getTextColor(corr),
@@ -168,7 +178,7 @@ export function CorrelationHeatmap({
                 <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
                   {activePair.tA} vs {activePair.tB} Return Scatter
                 </span>
-                <span className="text-xs font-mono text-gold-600 dark:text-gold-300 dark:text-gold-600 dark:text-gold-300 font-bold tabular-nums">
+                <span className="text-xs font-mono text-gold-600 dark:text-gold-300 font-bold tabular-nums">
                   r = {matrix[tickers.indexOf(activePair.tA)]?.[tickers.indexOf(activePair.tB)]?.toFixed(3)}
                 </span>
               </div>
@@ -190,7 +200,7 @@ export function CorrelationHeatmap({
                         cx={Math.max(35, Math.min(275, cx))}
                         cy={Math.max(25, Math.min(195, cy))}
                         r="2.5"
-                        fill="#38bdf8"
+                        fill="#8b8b93"
                         opacity="0.65"
                       />
                     );

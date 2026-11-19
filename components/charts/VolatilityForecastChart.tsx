@@ -214,7 +214,7 @@ export function VolatilityForecastChart({
                 y1={getY(modelSummary.longRunAnnualizedVol)}
                 x2={width - padRight}
                 y2={getY(modelSummary.longRunAnnualizedVol)}
-                stroke="#10b981"
+                stroke="#3fb27f"
                 strokeWidth="0.8"
                 strokeDasharray="4 4"
               />

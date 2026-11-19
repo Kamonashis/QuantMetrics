@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { RollingVolSeries } from '@/lib/quant-engine';
 import { useChartSize } from '@/lib/use-chart-size';
+import { SERIES_COLORS as COLORS } from '@/lib/chart-palette';
 
 export interface ReferenceLine {
   /** Horizontal level in the same units as the series (annualized decimal). */
@@ -17,8 +18,6 @@ interface RollingVolatilityChartProps {
   /** Optional horizontal reference levels (e.g. IV30, breakeven). Absent by default — call sites opt in. */
   referenceLines?: ReferenceLine[];
 }
-
-const COLORS = ['#06b6d4', '#DEC084', '#a855f7', '#10b981', '#f43f5e'];
 
 export function RollingVolatilityChart({
   series,
@@ -219,7 +218,7 @@ export function RollingVolatilityChart({
               y1={padTop}
               x2={getX(activeIndex)}
               y2={padTop + chartH}
-              stroke="#38bdf8"
+              stroke="#8b8b93"
               strokeWidth="0.8"
               strokeDasharray="2 2"
             />

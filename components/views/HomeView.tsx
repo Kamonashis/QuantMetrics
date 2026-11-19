@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef } from 'react';
+import React, { useMemo, useRef } from 'react';
 import {
   TrendingUp,
   Activity,
@@ -16,6 +16,8 @@ import {
   LineChart as RegressionIcon,
   ScanSearch,
   Braces,
+  Waves,
+  CandlestickChart,
 } from 'lucide-react';
 import { AnimatedBeam } from '@/components/ui/AnimatedBeam';
 import { NumberTicker } from '@/components/ui/NumberTicker';
@@ -32,14 +34,24 @@ import {
   GarchEquation,
   CorrelationEquation,
 } from '@/components/math/MathEquations';
+import {
+  calculateReturns,
+  computeEwmaVolatility,
+  fitGarch11,
+  type PriceBar,
+} from '@/lib/quant-engine';
+import { ProvenanceBadge } from '@/components/ui/provenance-badge';
 
 interface HomeViewProps {
-  onNavigate: (view: 'analysis' | 'modeling' | 'correlation' | 'regression') => void;
+  onNavigate: (view: 'analysis' | 'modeling' | 'volatility' | 'fno' | 'correlation' | 'regression') => void;
   onSelectPreset: (ticker: string) => void;
+  ticker: string;
+  bars: PriceBar[];
+  barsSource?: string | null;
   tapeItems: TapeItem[];
 }
 
-export function HomeView({ onNavigate, onSelectPreset, tapeItems }: HomeViewProps) {
+export function HomeView({ onNavigate, onSelectPreset, ticker, bars, barsSource, tapeItems }: HomeViewProps) {
   // References for the AnimatedBeam data pipeline
   const containerRef = useRef<HTMLDivElement>(null);
   const feedRef = useRef<HTMLDivElement>(null);
@@ -47,12 +59,53 @@ export function HomeView({ onNavigate, onSelectPreset, tapeItems }: HomeViewProp
   const engineRef = useRef<HTMLDivElement>(null);
   const riskRef = useRef<HTMLDivElement>(null);
 
+  // Real figures from the active ticker's daily bars — no decorative numbers.
+  const stats = useMemo(() => {
+    if (!bars || bars.length < 60) return null;
+    const rets = calculateReturns(bars.map((b) => b.close), 'log');
+    if (rets.length < 50) return null;
+    const recent = rets.slice(-252);
+    const annualizedRv = Math.sqrt((recent.reduce((s, r) => s + r * r, 0) / recent.length) * 252);
+    const ewma = computeEwmaVolatility(rets, 0.94).summary.latestAnnualizedVol;
+    const garch = fitGarch11(rets);
+    const sorted = [...rets].sort((a, b) => a - b);
+    const q01 = sorted[Math.floor(0.01 * (sorted.length - 1))] ?? 0;
+    return {
+      annualizedRv,
+      ewma,
+      persistence: garch.summary.persistence,
+      nextVar: garch.conditionalVariance[garch.conditionalVariance.length - 1] ?? 0,
+      historicalVar99: Math.max(0, -q01),
+    };
+  }, [bars]);
+
+  const telemetry: [string, string][] = stats
+    ? [
+        ['σ²(t+1) forecast', stats.nextVar.toFixed(6)],
+        ['α + β persistence', `${stats.persistence.toFixed(3)}${stats.persistence < 1 ? ' · stationary' : ''}`],
+        ['VaR 99% · 1d', `-${(stats.historicalVar99 * 100).toFixed(2)}%`],
+        ['EWMA λ=0.94 latest', `${(stats.ewma * 100).toFixed(2)}%`],
+      ]
+    : [
+        ['σ²(t+1) forecast', '—'],
+        ['α + β persistence', '—'],
+        ['VaR 99% · 1d', '—'],
+        ['EWMA λ=0.94 latest', '—'],
+      ];
+
+  const kpiNode = (value: number | null | undefined, decimals: number, suffix = '') =>
+    value === null || value === undefined || !isFinite(value)
+      ? '—'
+      : <NumberTicker value={value} decimalPlaces={decimals} suffix={suffix} />;
+
+  const tapeBySymbol = useMemo(() => new Map(tapeItems.map((t) => [t.symbol, t])), [tapeItems]);
+
   const presets = [
-    { ticker: 'AAPL', name: 'Apple Inc.', category: 'Consumer Tech', vol: 21.4, beta: 1.12 },
-    { ticker: 'NVDA', name: 'NVIDIA Corp.', category: 'Semiconductors / AI', vol: 44.8, beta: 1.95 },
-    { ticker: 'MSFT', name: 'Microsoft Corp.', category: 'Enterprise Cloud', vol: 19.8, beta: 0.98 },
-    { ticker: 'SPY', name: 'S&P 500 ETF', category: 'Broad Market Benchmark', vol: 13.6, beta: 1.00 },
-    { ticker: 'TSLA', name: 'Tesla Inc.', category: 'High Beta Momentum', vol: 52.3, beta: 2.15 },
+    { ticker: 'AAPL', name: 'Apple Inc.', category: 'Consumer Tech' },
+    { ticker: 'NVDA', name: 'NVIDIA Corp.', category: 'Semiconductors / AI' },
+    { ticker: 'MSFT', name: 'Microsoft Corp.', category: 'Enterprise Cloud' },
+    { ticker: 'SPY', name: 'S&P 500 ETF', category: 'Broad Market Benchmark' },
+    { ticker: 'TSLA', name: 'Tesla Inc.', category: 'High Beta Momentum' },
   ];
 
   return (
@@ -135,9 +188,10 @@ export function HomeView({ onNavigate, onSelectPreset, tapeItems }: HomeViewProp
                     <span className="h-2 w-2 rounded-full bg-gold-400/80" />
                   </span>
                   <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-zinc-500">
-                    quant-engine · AAPL
+                    quant-engine · {ticker}
                   </span>
                 </div>
+                <ProvenanceBadge daily={barsSource} compact />
                 <span className="rounded border border-gold-500/30 bg-gold-400/10 px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wider text-gold-300">
                   MLE
                 </span>
@@ -163,12 +217,7 @@ export function HomeView({ onNavigate, onSelectPreset, tapeItems }: HomeViewProp
 
               {/* Telemetry rows */}
               <dl className="mt-4 space-y-2 font-mono text-[11px]">
-                {[
-                  ['σ²(t+1) forecast', '0.000412'],
-                  ['α + β persistence', '0.9741 · stationary'],
-                  ['VaR 99% · 1d', '-3.42%'],
-                  ['ARCH-LM (12)', 'p = 0.000 · reject H₀'],
-                ].map(([k, v]) => (
+                {telemetry.map(([k, v]) => (
                   <div key={k} className="flex items-baseline justify-between gap-4 border-b border-white/[0.05] pb-2 last:border-0 last:pb-0">
                     <dt className="text-zinc-500">{k}</dt>
                     <dd className="tabular-nums text-zinc-100">{v}</dd>
@@ -194,7 +243,7 @@ export function HomeView({ onNavigate, onSelectPreset, tapeItems }: HomeViewProp
               From raw ticks to risk attribution
             </h2>
             <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-              Live computational path of every number shown in the terminal
+              The same engines as the workstations, run on the active ticker&apos;s daily bars
             </p>
           </div>
           <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-500">
@@ -276,6 +325,18 @@ export function HomeView({ onNavigate, onSelectPreset, tapeItems }: HomeViewProp
             description="OLS single-index CAPM with Jensen's alpha, Durbin–Watson diagnostics, residual QQ inspection and next-day return forecasting with confidence bands."
           />
           <BentoGridItem
+            onClick={() => onNavigate('volatility')}
+            icon={<Waves className="h-6 w-6" strokeWidth={1.6} />}
+            title="Implied Volatility Suite"
+            description="IV term structure, variance risk premium, forecast validation, dealer positioning and a pre-registered decision checklist — with a one-screen Now digest."
+          />
+          <BentoGridItem
+            onClick={() => onNavigate('fno')}
+            icon={<CandlestickChart className="h-6 w-6" strokeWidth={1.6} />}
+            title={'Options F&O Suite'}
+            description="Open interest, GEX walls, put-call ratio, max pain, term structure and expected-vs-realized move, each with an honest used/total and accrual badge."
+          />
+          <BentoGridItem
             icon={<Braces className="h-6 w-6" strokeWidth={1.6} />}
             title="Traceable by construction"
             description="No LLM reasoning anywhere in the chain. Deterministic generators, seeded paths, analytic MLE, closed-form test statistics — every figure reproducible offline."
@@ -291,10 +352,10 @@ export function HomeView({ onNavigate, onSelectPreset, tapeItems }: HomeViewProp
       {/* ════════════ KPI BAND ════════════ */}
       <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {[
-          { label: 'S&P 500 Realized Vol', node: <NumberTicker value={13.62} decimalPlaces={2} suffix="%" />, sub: 'Annualized · σ × √252', tone: 'text-zinc-900 dark:text-zinc-50' },
-          { label: 'RiskMetrics EWMA λ', node: <NumberTicker value={0.94} decimalPlaces={2} />, sub: 'Half-life ≈ 11.2 sessions', tone: 'text-gold-700 dark:text-gold-300' },
-          { label: 'GARCH(1,1) Persistence', node: <NumberTicker value={0.978} decimalPlaces={3} />, sub: 'α + β < 1 · mean-reverting', tone: 'text-gold-700 dark:text-gold-300' },
-          { label: 'POT-GPD 99% Tail VaR', node: <NumberTicker value={3.42} decimalPlaces={2} suffix="%" />, sub: 'Fréchet extreme quantile', tone: 'text-[var(--negative)]' },
+          { label: `Realized Vol · ${ticker}`, node: kpiNode(stats ? stats.annualizedRv * 100 : null, 2, '%'), sub: 'Annualized · σ × √252', tone: 'text-zinc-900 dark:text-zinc-50' },
+          { label: 'RiskMetrics EWMA λ=0.94', node: kpiNode(stats ? stats.ewma * 100 : null, 2, '%'), sub: 'Latest annualized vol', tone: 'text-gold-700 dark:text-gold-300' },
+          { label: 'GARCH(1,1) Persistence', node: kpiNode(stats ? stats.persistence : null, 3), sub: 'α + β · fitted on this ticker', tone: 'text-gold-700 dark:text-gold-300' },
+          { label: 'Historical 99% 1d VaR', node: kpiNode(stats ? stats.historicalVar99 * 100 : null, 2, '%'), sub: 'Empirical return quantile', tone: 'text-[var(--negative)]' },
         ].map((s) => (
           <div key={s.label} className="panel-inset flex flex-col justify-between gap-2 p-4">
             <div className="text-[11px] font-medium leading-snug text-zinc-500 dark:text-zinc-400">{s.label}</div>
@@ -380,8 +441,10 @@ export function HomeView({ onNavigate, onSelectPreset, tapeItems }: HomeViewProp
                 <span className="font-mono text-sm font-bold tracking-wide text-zinc-900 transition-colors group-hover:text-gold-700 dark:text-zinc-50 dark:group-hover:text-gold-300">
                   {item.ticker}
                 </span>
-                <span className="font-mono text-[10px] font-semibold text-gold-700 dark:text-gold-300">
-                  β {item.beta.toFixed(2)}
+                <span className={`font-mono text-[10px] font-semibold ${(tapeBySymbol.get(item.ticker)?.changePct ?? 0) >= 0 ? 'text-[var(--positive)]' : 'text-[var(--negative)]'}`}>
+                  {tapeBySymbol.has(item.ticker)
+                    ? `${tapeBySymbol.get(item.ticker)!.changePct >= 0 ? '+' : ''}${tapeBySymbol.get(item.ticker)!.changePct.toFixed(2)}%`
+                    : '—'}
                 </span>
               </div>
               <div className="mt-1.5 truncate text-[11px] font-medium text-zinc-600 dark:text-zinc-300">
@@ -389,7 +452,7 @@ export function HomeView({ onNavigate, onSelectPreset, tapeItems }: HomeViewProp
               </div>
               <div className="mt-3 flex items-center justify-between font-mono text-[9px] uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
                 <span className="truncate">{item.category}</span>
-                <span className="shrink-0">σ {item.vol}%</span>
+                <span className="shrink-0">{tapeBySymbol.has(item.ticker) ? tapeBySymbol.get(item.ticker)!.price.toFixed(2) : '—'}</span>
               </div>
             </button>
           ))}

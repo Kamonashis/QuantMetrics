@@ -13,12 +13,10 @@ import {
 import type { PriceBar, IntradayBar, RollingVolSeries } from '@/lib/quant-engine';
 import {
   calculateReturns,
-  computeRollingAnnualizedVol,
   decomposeTimeSeries,
   computeAdfTest,
   computeRealizedVolatilityAndJumps,
   fitHarRvModel,
-  fitGarch11,
 } from '@/lib/quant-engine';
 import {
   computeStructuralBreaks,
@@ -57,6 +55,9 @@ interface T8DecisionTabProps {
   intradayBars: IntradayBar[];
   /** 'live_market' | 'synthetic_gbm' | null — provenance of the intraday cache */
   intradaySource?: string | null;
+  /** Canonical RV series from the shared snapshot; no local recomputation. */
+  rvSeries?: RollingVolSeries[];
+  garchFitProp?: ReturnType<typeof import('@/lib/quant-engine').fitGarch11> | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -111,18 +112,18 @@ function MeterRow({ label, value, hint, tone = 'gold' }: { label: string; value:
 function StatePill({ state }: { state: SignalState }) {
   if (state === 'met')
     return (
-      <span className="inline-flex items-center gap-1 rounded border border-gold-500/50 bg-gold-500/15 px-1.5 py-0.5 font-mono text-[8.5px] font-bold uppercase tracking-wider text-gold-800 dark:text-gold-200">
+      <span className="inline-flex items-center gap-1 rounded border border-gold-500/50 bg-gold-500/15 px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-wider text-gold-800 dark:text-gold-200">
         <CheckCircle2 className="h-2.5 w-2.5" /> met
       </span>
     );
   if (state === 'not-met')
     return (
-      <span className="inline-flex items-center gap-1 rounded border border-[var(--hairline)] bg-[var(--bg-inset)] px-1.5 py-0.5 font-mono text-[8.5px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+      <span className="inline-flex items-center gap-1 rounded border border-[var(--hairline)] bg-[var(--bg-inset)] px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
         <Circle className="h-2.5 w-2.5" /> not met
       </span>
     );
   return (
-    <span className="inline-flex items-center gap-1 rounded border border-amber-500/50 bg-amber-500/10 px-1.5 py-0.5 font-mono text-[8.5px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300">
+    <span className="inline-flex items-center gap-1 rounded border border-amber-500/50 bg-amber-500/10 px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300">
       <Circle className="h-2.5 w-2.5" /> no data
     </span>
   );
@@ -132,16 +133,13 @@ function StatePill({ state }: { state: SignalState }) {
 // T8 — Decision tab
 // ---------------------------------------------------------------------------
 
-export function T8DecisionTab({ chain, bars, ticker, ivHistory, intradayBars, intradaySource = null }: T8DecisionTabProps) {
+export function T8DecisionTab({ chain, bars, ticker, ivHistory, intradayBars, intradaySource = null, rvSeries = [], garchFitProp = null }: T8DecisionTabProps) {
   const dates = useMemo(() => bars.map((b) => b.date), [bars]);
   const prices = useMemo(() => bars.map((b) => b.close), [bars]);
   const returns = useMemo(() => calculateReturns(prices, 'log'), [prices]);
 
-  // Rolling RV ladder (sample stdev, quant-engine convention)
-  const rolling = useMemo(
-    () => (returns.length >= 5 ? computeRollingAnnualizedVol(dates, returns, [5, 10, 20, 30, 60]) : []),
-    [dates, returns],
-  );
+  // Rolling RV ladder — one canonical series from the shared snapshot.
+  const rolling = rvSeries;
   const rvL = useMemo(
     () => ({
       rv5: latestOf(rolling, 5),
@@ -282,12 +280,11 @@ export function T8DecisionTab({ chain, bars, ticker, ivHistory, intradayBars, in
   const innovation = useMemo(() => {
     if (returns.length < 60) return null;
     try {
-      const g = fitGarch11(returns);
-      return computeInnovationDiagnostics(returns, g.conditionalVariance);
+      return garchFitProp ? computeInnovationDiagnostics(returns, garchFitProp.conditionalVariance) : null;
     } catch {
       return null;
     }
-  }, [returns]);
+  }, [returns, garchFitProp]);
 
   // Next earnings — fetched client-side (server-cached 15 min). "No data" when Yahoo's calendar is down.
   const [earnings, setEarnings] = useState<{ ticker: string; date: string; isEstimate: boolean; sessions: number } | null>(null);
@@ -503,7 +500,7 @@ export function T8DecisionTab({ chain, bars, ticker, ivHistory, intradayBars, in
               The Gap, Charted — IV30 − RV20 with its z-score
             </h3>
             <p className="mt-0.5 max-w-2xl text-[11px] leading-snug text-zinc-500 dark:text-zinc-400">
-              Where the decision actually lives. Positive &amp; rising: implied is harvesting the spike premium. Negative: realized is outrunning the price — the only state in which buying gamma is free money, and it rarely lasts.
+              Accrued single-name IV versus RV — a different series from T3&apos;s market-proxy tape. Positive &amp; rising: implied is harvesting the spike premium. Negative: realized is outrunning the price — the only state in which buying gamma is free money, and it rarely lasts.
             </p>
           </div>
           <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-zinc-400">z window 20 · needs ~15 sessions</span>
@@ -605,7 +602,7 @@ export function T8DecisionTab({ chain, bars, ticker, ivHistory, intradayBars, in
                   { label: '30→60d (days 30–60 back)', v: fwdReal30_60, note: 'older shell' },
                 ].map(({ label, v, note }) => (
                   <div key={label} className="flex items-center justify-between gap-2 py-1.5">
-                    <span className="text-zinc-500 dark:text-zinc-400">{label}<span className="block text-[8.5px] text-zinc-400 dark:text-zinc-500">{note}</span></span>
+                    <span className="text-zinc-500 dark:text-zinc-400">{label}<span className="block text-[9.5px] text-zinc-400 dark:text-zinc-500">{note}</span></span>
                     <span className="tabular-nums font-bold text-zinc-900 dark:text-zinc-100">{pct(v)}</span>
                   </div>
                 ))}
@@ -624,7 +621,7 @@ export function T8DecisionTab({ chain, bars, ticker, ivHistory, intradayBars, in
                   </div>
                 ))}
               </div>
-              <p className="mt-2 font-mono text-[8.5px] leading-snug text-zinc-400 dark:text-zinc-500">
+              <p className="mt-2 font-mono text-[9.5px] leading-snug text-zinc-400 dark:text-zinc-500">
                 {tsPoints.length >= 2
                   ? `from ${tsPoints.length} quoted tenors · null if the bucket's forward variance is inverted`
                   : `needs ≥ 2 fitted slices in the ladder — chain returned ${tsPoints.length}`}
@@ -642,7 +639,7 @@ export function T8DecisionTab({ chain, bars, ticker, ivHistory, intradayBars, in
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h3 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
-              The Regime Strip — HMM k=3, calm→crisis
+              Return HMM (k=3 · features r, |r|, log GK-RV) — calm→crisis
             </h3>
             <p className="mt-0.5 max-w-2xl text-[11px] leading-snug text-zinc-500 dark:text-zinc-400">
               Unsupervised occupancy, shaded by dominant-state posterior. Watch the transition matrix, not the label: calm here survives days, not weeks. HMM is a risk gate, never a timing edge.
@@ -671,7 +668,7 @@ export function T8DecisionTab({ chain, bars, ticker, ivHistory, intradayBars, in
             </div>
           )}
         </div>
-        <p className="mt-2 font-mono text-[8.5px] uppercase tracking-[0.16em] text-zinc-500">
+        <p className="mt-2 font-mono text-[9.5px] uppercase tracking-[0.16em] text-zinc-500">
           features [r, |r|, log GK-RV] · k=3 ranked by GK-RV · BIC {hmm?.bic !== undefined ? hmm.bic.toFixed(0) : '—'} · watchful ⇒ half size, always
         </p>
       </div>
@@ -720,7 +717,7 @@ export function T8DecisionTab({ chain, bars, ticker, ivHistory, intradayBars, in
         <div className="mt-3 overflow-x-auto">
           <table className="w-full min-w-[880px] border-collapse text-left font-mono text-[10.5px]">
             <thead>
-              <tr className="border-b border-[var(--hairline)] text-[8.5px] uppercase tracking-[0.18em] text-zinc-400">
+              <tr className="border-b border-[var(--hairline)] text-[9.5px] uppercase tracking-[0.18em] text-zinc-400">
                 <th className="py-1.5 pr-3 font-semibold">Rule</th>
                 <th className="py-1.5 pr-3 font-semibold">Metric</th>
                 <th className="py-1.5 pr-3 font-semibold">Trigger</th>

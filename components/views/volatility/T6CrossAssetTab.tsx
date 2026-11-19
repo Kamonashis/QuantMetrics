@@ -350,7 +350,7 @@ export function T6CrossAssetTab({
             </h3>
             {hmmFragility && (
               <p className="mt-1 font-mono text-[9px] uppercase tracking-[0.16em] text-zinc-400">
-                HMM overlay · log ^VIX | log ^VVIX | log RV · K = {hmmFragility.k}{hmmFragility.converged ? ` · converged ${hmmFragility.iterations}` : ' · not converged'} · BIC {hmmFragility.bic.toFixed(0)}
+                Market HMM (different partition from T7/T8) · log ^VIX | log ^VVIX | log RV · K = {hmmFragility.k}{hmmFragility.converged ? ` · converged ${hmmFragility.iterations}` : ' · not converged'} · BIC {hmmFragility.bic.toFixed(0)}
               </p>
             )}
           </div>

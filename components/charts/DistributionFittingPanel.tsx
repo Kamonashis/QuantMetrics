@@ -267,7 +267,7 @@ export function DistributionFittingPanel({
                 y={y}
                 width={bWidth}
                 height={h}
-                fill="#38bdf8"
+                fill="#8b8b93"
                 fillOpacity="0.45"
                 stroke="#0284c7"
                 strokeWidth="0.3"
@@ -308,7 +308,7 @@ export function DistributionFittingPanel({
             y1={padTop}
             x2={getX(stats.mean)}
             y2={padTop + chartH}
-            stroke="#10b981"
+            stroke="#3fb27f"
             strokeWidth="1"
             strokeDasharray="4 2"
           />

@@ -4,7 +4,6 @@ import React, { useMemo, useState } from 'react';
 import { TrendingUp, LineChart, ShieldAlert, Sigma, AlertTriangle } from 'lucide-react';
 import {
   calculateReturns,
-  fitGarch11,
   forecastGarch,
 } from '@/lib/quant-engine';
 import type { PriceBar } from '@/lib/quant-engine';
@@ -31,18 +30,26 @@ const verdictClass = (v: ConeVerdict) =>
       ? 'text-emerald-600 dark:text-emerald-400'
       : 'text-zinc-500 dark:text-zinc-400';
 
+import type { RollingVolSeries } from '@/lib/quant-engine';
+
 export function T3TermStructureTab({
   chain,
   indices,
   bars,
   ticker,
   barsSource,
+  rvSeriesCanonical = [],
+  vixContextProp,
+  garchFitProp = null,
 }: {
   chain: ChainPayload | null;
   indices: IndicesPayload | null;
   bars: PriceBar[];
   ticker: string;
   barsSource?: string | null;
+  rvSeriesCanonical?: RollingVolSeries[];
+  vixContextProp?: { level: number | null; percentile: number | null; n: number };
+  garchFitProp?: ReturnType<typeof import('@/lib/quant-engine').fitGarch11> | null;
 }) {
   const [axisMode, setAxisMode] = useState<'vol' | 'totalVariance'>('vol');
   const [showCone, setShowCone] = useState(false);
@@ -50,23 +57,20 @@ export function T3TermStructureTab({
   const slices = useMemo(() => chain?.slices ?? [], [chain]);
   const tsPoints = useMemo(() => chain?.termStructure ?? [], [chain]);
 
-  // --- RV20 series for the active ticker -----------------------------------
-  const { rvSeries, returns, dates } = useMemo(() => {
-    if (!bars || bars.length < 40) {
-      return { rvSeries: [] as { date: string; vol: number }[], returns: [] as number[], dates: [] as string[] };
-    }
-    const closes = bars.map((b) => b.close);
-    const rets = calculateReturns(closes, 'log');
-    const ds = bars.slice(1).map((b) => b.date);
-    const out: { date: string; vol: number }[] = [];
-    for (let i = 19; i < rets.length; i++) {
-      let sum = 0;
-      for (let j = i - 19; j <= i; j++) sum += rets[j] * rets[j];
-      const ann = Math.sqrt((sum / 20) * 252);
-      out.push({ date: ds[i], vol: ann });
-    }
-    return { rvSeries: out, returns: rets, dates: ds };
+  // --- RV20 series and returns — canonical series from the shared snapshot ---
+  const { returns, dates } = useMemo(() => {
+    if (!bars || bars.length < 40) return { returns: [] as number[], dates: [] as string[] };
+    const rets = calculateReturns(bars.map((b) => b.close), 'log');
+    return { returns: rets, dates: bars.slice(1).map((b) => b.date) };
   }, [bars]);
+
+  const rvSeries = useMemo(() => {
+    const s = rvSeriesCanonical.find((x) => x.window === 20);
+    if (!s) return [] as { date: string; vol: number }[];
+    return s.values
+      .map((v, i) => ({ date: bars[i + 1]?.date ?? v.date, vol: v.vol }))
+      .filter((v): v is { date: string; vol: number } => v.vol !== null);
+  }, [rvSeriesCanonical, bars]);
 
   const rv20 = rvSeries.length > 0 ? rvSeries[rvSeries.length - 1].vol : null;
 
@@ -106,7 +110,7 @@ export function T3TermStructureTab({
   }, [ivProxySeries]);
 
   // --- VRP by tenor ----------------------------------------------------------
-  const garchFit = useMemo(() => (returns.length > 50 ? fitGarch11(returns) : null), [returns]);
+  const garchFit = garchFitProp;
   const garchPath = useMemo(() => {
     if (!garchFit) return null;
     const latestVar = garchFit.conditionalVariance[garchFit.conditionalVariance.length - 1] ?? 0.0002;
@@ -232,15 +236,15 @@ export function T3TermStructureTab({
                   Where IV sits in the RV distribution
                 </p>
                 {barsSource && barsSource !== 'live_market' && (
-                  <span className="flex items-center gap-1 rounded border border-gold-500/40 bg-gold-500/10 px-1.5 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-wider text-gold-800 dark:text-gold-200">
+                  <span className="flex items-center gap-1 rounded border border-gold-500/40 bg-gold-500/10 px-1.5 py-0.5 font-mono text-[9.5px] font-semibold uppercase tracking-wider text-gold-800 dark:text-gold-200">
                     <AlertTriangle className="h-3 w-3" /> illustrative — synthetic daily bars
                   </span>
                 )}
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full border-collapse font-mono text-[9.5px]">
+                <table className="table-sticky-first w-full border-collapse font-mono text-[9.5px]">
                   <thead>
-                    <tr className="text-left text-[8.5px] uppercase tracking-wider text-zinc-400">
+                    <tr className="text-left text-[9.5px] uppercase tracking-wider text-zinc-400">
                       <th className="py-1 font-medium">Tenor</th>
                       <th className="py-1 text-right font-medium">RV median</th>
                       <th className="py-1 text-right font-medium">RV 10–90</th>
@@ -287,7 +291,7 @@ export function T3TermStructureTab({
             </h3>
           </div>
           <div className="space-y-1.5 font-mono text-[10px]">
-            <div className="grid grid-cols-4 gap-2 text-[8.5px] uppercase tracking-wider text-zinc-400">
+            <div className="grid grid-cols-4 gap-2 text-[9.5px] uppercase tracking-wider text-zinc-400">
               <span>Tenor</span><span className="text-right">IV²</span><span className="text-right">vs RV20</span><span className="text-right">vs GARCH path</span>
             </div>
             {vrpByTenor.length === 0 && <div className="text-zinc-400">RV history unavailable</div>}
@@ -384,9 +388,11 @@ export function T3TermStructureTab({
         )}
         {rvAnnPct !== null && (
           <div className="mt-3 font-mono text-[9px] uppercase tracking-[0.16em] text-zinc-400">
-            ticker RV(20d, ann): {rvAnnPct.toFixed(1)}% · ^VIX percentile 1y: {(() => {
-              const h = ivProxySeries.slice(-252).map((b) => b.close);
-              return h.length > 30 ? `${percentileRank(h, ivProxySeries[ivProxySeries.length - 1].close)?.toFixed(0)}th` : '—';
+            ticker RV(20d, ann): {rvAnnPct.toFixed(1)}% · {ivProxyLabel} percentile 1y: {(() => {
+              const p = ticker === 'QQQ'
+                ? (vxn.length > 30 ? percentileRank(vxn.slice(-252).map((b) => b.close), vxn[vxn.length - 1].close) : null)
+                : (vixContextProp?.percentile ?? null);
+              return p === null ? '—' : `${p.toFixed(0)}th`;
             })()}
           </div>
         )}

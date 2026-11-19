@@ -146,9 +146,9 @@ export function DecompositionChart({
       {/* Subplots */}
       <div className="space-y-3">
         {(activeComponent === 'all' || activeComponent === 'observed') &&
-          renderSubplot('Observed Price (Y_t)', observed, '#06b6d4')}
+          renderSubplot('Observed Price (Y_t)', observed, '#DEC084')}
         {(activeComponent === 'all' || activeComponent === 'trend') &&
-          renderSubplot('Trend Component (T_t: Centered Moving Average)', trend, '#10b981')}
+          renderSubplot('Trend Component (T_t: Centered Moving Average)', trend, '#3fb27f')}
         {(activeComponent === 'all' || activeComponent === 'seasonal') &&
           renderSubplot('Seasonal Component (S_t: Repeating Periodic Factor)', seasonal, '#DEC084')}
         {(activeComponent === 'all' || activeComponent === 'residual') &&

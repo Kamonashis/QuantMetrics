@@ -124,7 +124,7 @@ export function RegimeTimeline({ posteriors, labels, className, height = 44, max
         </div>
       )}
 
-      <div className="mt-1 flex items-center justify-between font-mono text-[8px] text-zinc-500">
+      <div className="mt-1 flex items-center justify-between font-mono text-[9px] text-zinc-500">
         <span>{posteriors.length} obs</span>
         <div className="flex items-center gap-2">
           {names.map((n, k) => (

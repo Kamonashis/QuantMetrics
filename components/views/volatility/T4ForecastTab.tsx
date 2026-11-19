@@ -18,6 +18,7 @@ import {
   fitGarchX,
 } from '@/lib/vol-analytics';
 import type { ChainPayload, IndicesPayload, IvHistoryEntry } from './types';
+import { ForecastTrustCard } from '@/components/ui/ForecastTrustCard';
 
 const f4 = (v: number | null, d = 4) => (v === null || !isFinite(v) ? '—' : v.toFixed(d));
 
@@ -401,6 +402,10 @@ export function T4ForecastTab({
         <p className="mt-2 font-mono text-[9px] leading-relaxed text-zinc-400">
           In-sample-fit evaluation over aligned windows; DM = mean(QLIKE_A − QLIKE_B)/√(LRV/T), Newey–West LRV. QLIKE penalizes under-prediction asymmetrically; MSE on log-RV controls tail inflation.
         </p>
+      </div>
+
+      <div className="panel p-5">
+        <ForecastTrustCard returns={returns} compact />
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">

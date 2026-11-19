@@ -3,6 +3,8 @@
 import React from 'react';
 import { useChartSize } from '@/lib/use-chart-size';
 import type { RealizedVolConeBand } from '@/lib/vol-analytics';
+import { ChartTooltip, useChartTooltip } from '@/components/ui/chart-tooltip';
+import { EmptyState } from '@/components/ui/empty-state';
 
 export interface TermStructurePoint {
   dte: number;
@@ -36,6 +38,7 @@ export function VolTermStructureChart({
   showCone?: boolean;
 }) {
   const { ref, size } = useChartSize<HTMLDivElement>();
+  const { tooltipState, showTooltip, hideTooltip } = useChartTooltip();
   const valid = points.filter((p): p is { dte: number; iv: number } => p.iv !== null && isFinite(p.iv) && p.iv > 0);
   const coneSorted = showCone && cone
     ? [...cone].filter((b) => b.n >= 2).sort((a, b) => a.dte - b.dte)
@@ -44,11 +47,7 @@ export function VolTermStructureChart({
   const coneVisible = coneSorted.length >= 2;
 
   if (valid.length < 2 && !coneVisible) {
-    return (
-      <div className="flex h-44 items-center justify-center rounded-xl border border-[var(--hairline)] bg-[var(--bg-inset)] text-xs text-zinc-400">
-        Not enough expiries to draw the curve
-      </div>
-    );
+    return <EmptyState title="Not enough expiries to draw the curve" detail="Need at least two usable ATM IV points" className="h-44" />;
   }
 
   const width = size.width;
@@ -112,7 +111,7 @@ export function VolTermStructureChart({
 
   return (
     <div>
-      <div ref={ref} className="chart-frame">
+      <div ref={ref} className="chart-frame relative">
       {ready && (
       <svg
         width={width}
@@ -120,6 +119,7 @@ export function VolTermStructureChart({
         className="block h-full w-full"
         role="img"
         aria-label={coneVisible ? 'Realized volatility cone with implied volatility term structure' : 'IV term structure'}
+        onMouseLeave={hideTooltip}
       >
         {/* realized-vol cone: nested historical percentile bands */}
         {coneVisible && (
@@ -130,9 +130,14 @@ export function VolTermStructureChart({
             <path d={coneLine((b) => b.median)} fill="none" stroke="rgba(212,212,216,0.55)" strokeWidth="1" strokeDasharray="4 3" />
             <path d={coneLine((b) => b.current)} fill="none" stroke="rgba(228,228,232,0.9)" strokeWidth="1.3" />
             {coneSorted.map((b) => (
-              <circle key={`cone-${b.dte}`} cx={xOf(b.dte)} cy={yPix(coneVal(b.current, b.dte))} r="2.6" fill="rgba(228,228,232,0.9)">
-                <title>{`${b.dte}d RV · current ${(b.current * 100).toFixed(1)}% · median ${(b.median * 100).toFixed(1)}% · 10–90 ${(b.p10 * 100).toFixed(1)}–${(b.p90 * 100).toFixed(1)}% · n=${b.n} overlapping windows`}</title>
-              </circle>
+              <circle
+                key={`cone-${b.dte}`}
+                cx={xOf(b.dte)}
+                cy={yPix(coneVal(b.current, b.dte))}
+                r="2.6"
+                fill="rgba(228,228,232,0.9)"
+                onMouseMove={(e) => showTooltip(e, [`${b.dte}d realized vol`, `current ${(b.current * 100).toFixed(1)}% · median ${(b.median * 100).toFixed(1)}%`, `10–90 ${(b.p10 * 100).toFixed(1)}–${(b.p90 * 100).toFixed(1)}%`, `n=${b.n} overlapping windows`])}
+              />
             ))}
           </g>
         )}
@@ -159,9 +164,16 @@ export function VolTermStructureChart({
         {/* chain IV curve — gold, always on top */}
         <path d={linePath} fill="none" stroke="#DEC084" strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round" />
         {valid.map((p) => (
-          <circle key={p.dte} cx={xOf(p.dte)} cy={yPix(yOf(p))} r="3.4" fill="#0B0B0D" stroke="#DEC084" strokeWidth="1.05">
-            <title>{`${p.dte}d: ${(p.iv * 100).toFixed(2)}% IV${axisMode === 'totalVariance' ? ` · w=${(p.iv * p.iv * (p.dte / 365) * 1e4).toFixed(1)} bp` : ''}`}</title>
-          </circle>
+          <circle
+            key={p.dte}
+            cx={xOf(p.dte)}
+            cy={yPix(yOf(p))}
+            r="3.4"
+            fill="#0B0B0D"
+            stroke="#DEC084"
+            strokeWidth="1.05"
+            onMouseMove={(e) => showTooltip(e, [`${p.dte}d ATM IV ${(p.iv * 100).toFixed(2)}%`, axisMode === 'totalVariance' ? `w = ${(p.iv * p.iv * (p.dte / 365) * 1e4).toFixed(1)} bp` : 'European BSM · ~15-min delayed'])}
+          />
         ))}
 
         {/* axes */}
@@ -178,6 +190,7 @@ export function VolTermStructureChart({
         ))}
       </svg>
       )}
+      <ChartTooltip state={tooltipState} />
       </div>
 
       {activeBand && axisMode === 'vol' && (

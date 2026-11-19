@@ -1,5 +1,7 @@
 'use client';
 
+import { EmptyState } from '@/components/ui/empty-state';
+
 import React, { useState, useMemo } from 'react';
 import { PriceBar } from '@/lib/quant-engine';
 import { useChartSize } from '@/lib/use-chart-size';
@@ -84,7 +86,7 @@ export function TimeSeriesChart({
 
   // Determine trend color
   const isUp = validBars.length > 0 && validBars[validBars.length - 1].close >= validBars[0].close;
-  const strokeColor = isUp ? '#10b981' : '#f43f5e';
+  const strokeColor = isUp ? '#3fb27f' : '#f43f5e';
 
   // Hovered item
   const activeBar = hoverIndex !== null && validBars[hoverIndex] ? validBars[hoverIndex] : validBars[validBars.length - 1];
@@ -136,9 +138,7 @@ export function TimeSeriesChart({
 
   if (!bars || bars.length === 0) {
     return (
-      <div className="h-64 flex items-center justify-center border border-zinc-200 dark:border-zinc-800 rounded-lg text-zinc-500">
-        No price data available
-      </div>
+      <EmptyState title="No price data available" detail="The active ticker has no bars in the current cache" className="h-64" />
     );
   }
 
@@ -280,8 +280,8 @@ export function TimeSeriesChart({
         >
           <defs>
             <linearGradient id="priceGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={isUp ? '#10b981' : '#f43f5e'} stopOpacity="0.22" />
-              <stop offset="100%" stopColor={isUp ? '#10b981' : '#f43f5e'} stopOpacity="0.0" />
+              <stop offset="0%" stopColor={isUp ? '#3fb27f' : '#f43f5e'} stopOpacity="0.22" />
+              <stop offset="100%" stopColor={isUp ? '#3fb27f' : '#f43f5e'} stopOpacity="0.0" />
             </linearGradient>
 
             <filter id="breakGlow" x="-50%" y="-50%" width="200%" height="200%">
@@ -401,7 +401,7 @@ export function TimeSeriesChart({
                   y={y}
                   width={barW}
                   height={height - 15 - y}
-                  fill={isBarUp ? '#10b981' : '#f43f5e'}
+                  fill={isBarUp ? '#3fb27f' : '#f43f5e'}
                   opacity={hoverIndex === i ? 0.8 : 0.3}
                 />
               );
@@ -439,7 +439,7 @@ export function TimeSeriesChart({
                 y1={padTop}
                 x2={getX(activeIndex)}
                 y2={padTop + chartH}
-                stroke="#38bdf8"
+                stroke="#8b8b93"
                 strokeWidth="0.8"
                 strokeDasharray="2 2"
               />
@@ -447,7 +447,7 @@ export function TimeSeriesChart({
                 cx={getX(activeIndex)}
                 cy={getY(activeBar.close)}
                 r="4.5"
-                fill="#38bdf8"
+                fill="#8b8b93"
                 stroke="#0E0E11"
                 strokeWidth="1.3"
               />
@@ -561,7 +561,7 @@ export function TimeSeriesChart({
                   <polyline
                     points={skPoints}
                     fill="none"
-                    stroke="#10b981"
+                    stroke="#3fb27f"
                     strokeWidth="1.3"
                     strokeLinecap="round"
                   />

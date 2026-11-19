@@ -21,15 +21,32 @@ export function AnimatedTabs({
   onChange,
   className = '',
   size = 'md',
+  panelId,
 }: {
   tabs: TabItem[];
   value: string;
   onChange: (id: string) => void;
   className?: string;
   size?: 'sm' | 'md';
+  /** Optional id of the tabpanel this list controls. */
+  panelId?: string;
 }) {
   const uid = React.useId();
   const listRef = React.useRef<HTMLDivElement>(null);
+  const tabRefs = React.useRef<(HTMLButtonElement | null)[]>([]);
+
+  // WAI-ARIA tab semantics: one tab stop, Left/Right/Home/End move and activate.
+  const moveTo = (index: number) => {
+    const i = (index + tabs.length) % tabs.length;
+    onChange(tabs[i].id);
+    tabRefs.current[i]?.focus();
+  };
+  const onTabKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+    if (e.key === 'ArrowRight') { e.preventDefault(); moveTo(index + 1); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); moveTo(index - 1); }
+    else if (e.key === 'Home') { e.preventDefault(); moveTo(0); }
+    else if (e.key === 'End') { e.preventDefault(); moveTo(tabs.length - 1); }
+  };
 
   // Keep the active tab in view when it changes (esp. after deep-link restore)
   React.useEffect(() => {
@@ -44,14 +61,19 @@ export function AnimatedTabs({
       aria-label="Section tabs"
       className={`scrollbar-none edge-fade-x inline-flex max-w-full items-center gap-1 snap-x snap-mandatory overflow-x-auto rounded-xl border border-zinc-200 dark:border-white/[0.06] bg-zinc-100/70 dark:bg-white/[0.03] p-1 ${className}`}
     >
-      {tabs.map((tab) => {
+      {tabs.map((tab, index) => {
         const active = tab.id === value;
         const Icon = tab.icon;
         return (
           <button
             key={tab.id}
+            ref={(el) => { tabRefs.current[index] = el; }}
             role="tab"
             aria-selected={active}
+            aria-controls={panelId}
+            tabIndex={active ? 0 : -1}
+            id={`${uid}-tab-${tab.id}`}
+            onKeyDown={(e) => onTabKeyDown(e, index)}
             onClick={() => onChange(tab.id)}
             className={`relative shrink-0 snap-start cursor-pointer whitespace-nowrap rounded-lg font-medium transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-400/60 ${
               size === 'sm' ? 'px-2.5 py-1.5 text-[11px]' : 'px-3.5 py-2 text-xs'

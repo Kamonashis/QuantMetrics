@@ -38,6 +38,8 @@ import { ShimmerButton } from '@/components/ui/ShimmerButton';
 import { AlgoSelect } from '@/components/ui/AlgoSelect';
 import { regimeNames } from '@/components/charts/RegimeTimeline';
 import { RegimeTransitionMatrix } from '@/components/ui/RegimeTransitionMatrix';
+import { ProvenanceBadge } from '@/components/ui/provenance-badge';
+import { ForecastTrustCard } from '@/components/ui/ForecastTrustCard';
 
 import { Play, Zap, Clock, Info, ShieldCheck, Activity, Layers } from 'lucide-react';
 
@@ -48,6 +50,8 @@ interface ModelingViewProps {
   returnType: 'simple' | 'log';
   bars: PriceBar[];
   intradayBars?: IntradayBar[];
+  barsSource?: string | null;
+  intradaySource?: string | null;
   resolution?: 'daily' | 'intraday';
   onResolutionChange?: (res: 'daily' | 'intraday') => void;
   companyName: string;
@@ -61,6 +65,8 @@ export function ModelingView({
   returnType,
   bars,
   intradayBars = [],
+  barsSource,
+  intradaySource,
   resolution = 'daily',
   onResolutionChange,
   companyName,
@@ -293,6 +299,7 @@ export function ModelingView({
               <span className="text-xs text-zinc-500 dark:text-zinc-400">
                 {companyName} ({ticker})
               </span>
+              <ProvenanceBadge daily={barsSource} intraday={intradaySource} />
               <span className="text-zinc-300 dark:text-zinc-700" aria-hidden="true">·</span>
               <span className="text-[11px] font-mono text-gold-600 dark:text-gold-400">
                 1-Min Data Permitted
@@ -602,6 +609,10 @@ export function ModelingView({
           />
         </ChartFullscreen>
       )}
+
+      <div className="mt-4">
+        <ForecastTrustCard returns={returns} />
+      </div>
 
       {/* HAR-RV (Heterogeneous Autoregressive Model of Realized Volatility) Informational Panel */}
       <div className="bg-white dark:bg-[#101014] border border-gold-500/30 dark:border-gold-400/20 rounded-xl p-5 shadow-xs">
@@ -1016,9 +1027,9 @@ export function ModelingView({
                 </td>
               </tr>
               <tr>
-                <td className="py-2 text-zinc-500">Out-of-Sample RMSE Improvement</td>
-                <td className="py-2 text-right font-bold text-gold-600 dark:text-gold-300 tabular-nums">
-                  +34.8% lower forecasting error
+                <td className="py-2 text-zinc-500">Forecast Validation</td>
+                <td className="py-2 text-right font-bold text-zinc-700 dark:text-zinc-200">
+                  In-sample only · see Implied Vol → T4
                 </td>
               </tr>
               <tr>

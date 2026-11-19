@@ -2,6 +2,7 @@ import type {Metadata, Viewport} from 'next';
 import {Space_Grotesk, Inter, IBM_Plex_Mono} from 'next/font/google';
 import 'katex/dist/katex.min.css';
 import './globals.css'; // Global styles
+import { MotionReducer } from '@/components/ui/motion-reducer';
 
 const spaceGrotesk = Space_Grotesk({
   subsets: ['latin'],
@@ -52,7 +53,7 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
   return (
     <html lang="en" className={`dark ${spaceGrotesk.variable} ${inter.variable} ${plexMono.variable}`}>
       <body suppressHydrationWarning className="bg-[#F5F4F1] dark:bg-[#08080A] text-zinc-900 dark:text-[#ECECF1] font-sans min-h-dvh antialiased">
-        {children}
+        <MotionReducer>{children}</MotionReducer>
       </body>
     </html>
   );

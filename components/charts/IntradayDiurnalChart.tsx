@@ -1,5 +1,7 @@
 'use client';
 
+import { EmptyState } from '@/components/ui/empty-state';
+
 import React, { useState } from 'react';
 import { DiurnalPoint } from '@/lib/quant-engine';
 import { useChartSize } from '@/lib/use-chart-size';
@@ -18,9 +20,7 @@ export function IntradayDiurnalChart({
 
   if (!points || points.length === 0) {
     return (
-      <div className="h-64 flex items-center justify-center border border-zinc-200 dark:border-zinc-800 rounded-lg text-zinc-500 text-xs">
-        No intraday 1-minute observations available
-      </div>
+      <EmptyState title="No intraday observations" detail="1-minute bars are needed for the diurnal profile" className="h-64" />
     );
   }
 
@@ -127,8 +127,8 @@ export function IntradayDiurnalChart({
         >
           <defs>
             <linearGradient id="diurnalGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#0ea5e9" stopOpacity="0.22" />
-              <stop offset="100%" stopColor="#0ea5e9" stopOpacity="0.04" />
+              <stop offset="0%" stopColor="#DEC084" stopOpacity="0.22" />
+              <stop offset="100%" stopColor="#DEC084" stopOpacity="0.04" />
             </linearGradient>
           </defs>
 
@@ -193,7 +193,7 @@ export function IntradayDiurnalChart({
           <path
             d={`M ${meanPts.join(' L ')}`}
             fill="none"
-            stroke="#0ea5e9"
+            stroke="#DEC084"
             strokeWidth="1.4"
             strokeLinecap="round"
           />
@@ -206,7 +206,7 @@ export function IntradayDiurnalChart({
                 y1={padTop}
                 x2={getX(activePt.minuteOfDay)}
                 y2={padTop + chartH}
-                stroke="#38bdf8"
+                stroke="#8b8b93"
                 strokeWidth="0.8"
                 strokeDasharray="2 2"
               />
@@ -214,7 +214,7 @@ export function IntradayDiurnalChart({
                 cx={getX(activePt.minuteOfDay)}
                 cy={getY(activePt.avgAnnualizedVol)}
                 r="4"
-                fill="#38bdf8"
+                fill="#8b8b93"
                 stroke="#0E0E11"
                 strokeWidth="1.3"
               />
@@ -238,11 +238,11 @@ export function IntradayDiurnalChart({
       <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400 mt-2 pt-2 border-t border-zinc-100 dark:border-zinc-800/60">
         <div className="flex items-center gap-4">
           <span className="flex items-center gap-1.5">
-            <span className="w-3 h-0.5 bg-sky-500 inline-block" />
+            <span className="w-3 h-0.5 bg-gold-500 inline-block" />
             Mean 1-Min Annualized Volatility
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-xs bg-sky-500/20 inline-block" />
+            <span className="w-2.5 h-2.5 rounded-xs bg-gold-500/20 inline-block" />
             ±1σ Diurnal Dispersion Band
           </span>
         </div>

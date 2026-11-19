@@ -1,5 +1,7 @@
 'use client';
 
+import { EmptyState } from '@/components/ui/empty-state';
+
 import React from 'react';
 import { useChartSize } from '@/lib/use-chart-size';
 
@@ -24,9 +26,7 @@ export function TrapPriceChart({
   const { ref, size } = useChartSize<HTMLDivElement>();
   if (closes.length < 10) {
     return (
-      <div className="flex h-44 items-center justify-center rounded-xl border border-[var(--hairline)] bg-[var(--bg-inset)] text-xs text-zinc-400">
-        Not enough price history
-      </div>
+      <EmptyState title="Not enough price history" detail="The trap overlay needs a daily close series" className="h-44" />
     );
   }
 
