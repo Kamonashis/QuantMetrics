@@ -22,8 +22,8 @@ type AppView = 'now' | 'home' | 'analysis' | 'modeling' | 'correlation' | 'regre
 const VALID_VIEWS: AppView[] = ['now', 'home', 'analysis', 'modeling', 'correlation', 'regression', 'volatility', 'fno'];
 
 export default function App() {
-  // Navigation
-  const [activeView, setActiveView] = useState<AppView>('now');
+  // Navigation — default landing page is Home (Edge remains available via the nav).
+  const [activeView, setActiveView] = useState<AppView>('home');
 
   // Dark / Light Theme: default to true on both server and client for matching hydration
   const [isDark, setIsDark] = useState<boolean>(true);
