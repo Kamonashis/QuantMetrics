@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { TickerSnapshotProvider } from '@/components/providers/TickerSnapshotProvider';
-import { NowView } from '@/components/views/NowView';
+import { EdgeView } from '@/components/views/EdgeView';
 import { PriceBar, IntradayBar } from '@/lib/quant-engine';
 import {
   generateRealisticStockHistory,
@@ -418,6 +418,7 @@ export default function App() {
       bars={currentBars}
       barsSource={currentBarsSource}
       intradaySource={currentIntradaySource}
+      allStockBars={stockBarsCache}
     >
     <div className="min-h-dvh bg-[#F5F4F1] dark:bg-[#08080A] text-zinc-900 dark:text-[#ECECF1] flex flex-col font-sans transition-colors pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))] md:pb-0">
       {/* Top Navigation */}
@@ -437,9 +438,10 @@ export default function App() {
       {/* Main Content Area — fluid shell: 2.2vw gutters, capped only ≥1920px */}
       <main className="flex-1 w-full mx-auto px-[clamp(16px,2.2vw,48px)] pt-4 sm:pt-6 [@media(min-width:1920px)]:max-w-[2400px]">
         {activeView === 'now' && (
-          <NowView
+          <EdgeView
             ticker={activeTicker}
             companyName={currentCompanyName}
+            bars={currentBars}
             tapeItems={tapeItems}
             onNavigate={navigateView}
           />

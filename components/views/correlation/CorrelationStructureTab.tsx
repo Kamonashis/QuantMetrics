@@ -6,7 +6,7 @@ import {
   computeLeadLagCorrelation,
   computeMatrixStability,
 } from '@/lib/correlation-engine';
-import { MantegnaDistanceEquation } from '@/components/math/MathEquations';
+import { MantegnaDistanceEquation, FrobeniusDivergenceEquation } from '@/components/math/MathEquations';
 import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 import {
   GitCommit,
@@ -726,8 +726,8 @@ export function CorrelationStructureTab({
               <div className="text-xs font-bold text-zinc-800 dark:text-zinc-200 mb-2">
                 Matrix Frobenius Norm Divergence
               </div>
-              <div className="p-3 bg-zinc-50 dark:bg-zinc-900/50 rounded border border-zinc-100 dark:border-zinc-800 font-mono text-xs text-center text-zinc-800 dark:text-zinc-200">
-                || C_t - C_&#123;t-22&#125; ||_F = √( Σ_i Σ_j (c_ij,t - c_ij,t-22)² )
+              <div className="p-3 bg-zinc-50 dark:bg-zinc-900/50 rounded border border-zinc-100 dark:border-zinc-800 text-center">
+                <FrobeniusDivergenceEquation display="block" />
               </div>
               <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-2">
                 The matrix norm quantifies overall correlation drift over a 1-month trading period (22 days), serving as an early-warning signal for macro regime transitions.

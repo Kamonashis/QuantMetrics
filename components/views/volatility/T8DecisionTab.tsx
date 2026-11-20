@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -45,7 +45,6 @@ import { ExpectedMoveConeChart } from '@/components/charts/ExpectedMoveConeChart
 import { ReconciliationLog } from './ReconciliationLog';
 import { RegimeTimeline, regimeNames } from '@/components/charts/RegimeTimeline';
 import type { ChainPayload, IvHistoryEntry } from './types';
-import { sessionsUntil } from '@/lib/earnings';
 
 interface T8DecisionTabProps {
   chain: ChainPayload | null;
@@ -58,6 +57,8 @@ interface T8DecisionTabProps {
   /** Canonical RV series from the shared snapshot; no local recomputation. */
   rvSeries?: RollingVolSeries[];
   garchFitProp?: ReturnType<typeof import('@/lib/quant-engine').fitGarch11> | null;
+  /** Earnings from the shared snapshot — no second client fetch. */
+  earningsProp?: { ticker: string; date: string; isEstimate: boolean; sessions: number } | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -133,7 +134,7 @@ function StatePill({ state }: { state: SignalState }) {
 // T8 — Decision tab
 // ---------------------------------------------------------------------------
 
-export function T8DecisionTab({ chain, bars, ticker, ivHistory, intradayBars, intradaySource = null, rvSeries = [], garchFitProp = null }: T8DecisionTabProps) {
+export function T8DecisionTab({ chain, bars, ticker, ivHistory, intradayBars, intradaySource = null, rvSeries = [], garchFitProp = null, earningsProp = null }: T8DecisionTabProps) {
   const dates = useMemo(() => bars.map((b) => b.date), [bars]);
   const prices = useMemo(() => bars.map((b) => b.close), [bars]);
   const returns = useMemo(() => calculateReturns(prices, 'log'), [prices]);
@@ -286,34 +287,7 @@ export function T8DecisionTab({ chain, bars, ticker, ivHistory, intradayBars, in
     }
   }, [returns, garchFitProp]);
 
-  // Next earnings — fetched client-side (server-cached 15 min). "No data" when Yahoo's calendar is down.
-  const [earnings, setEarnings] = useState<{ ticker: string; date: string; isEstimate: boolean; sessions: number } | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    fetch(`/api/options?mode=earnings&symbol=${encodeURIComponent(ticker)}`)
-      .then((r) => (r.ok ? (r.json() as Promise<{ available: boolean; nextEarningsDate?: string | null; isEstimate?: boolean }>) : null))
-      .then((d) => {
-        if (cancelled) return;
-        if (d?.available && d.nextEarningsDate) {
-          const today = new Date().toISOString().slice(0, 10);
-          setEarnings({
-            ticker,
-            date: d.nextEarningsDate,
-            isEstimate: d.isEstimate !== false,
-            sessions: sessionsUntil(d.nextEarningsDate, today),
-          });
-        } else {
-          setEarnings(null);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setEarnings(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [ticker]);
-  const earningsCurrent = earnings && earnings.ticker === ticker ? earnings : null;
+  const earningsCurrent = earningsProp ?? null;
 
   // The pre-registered signal table, evaluated
   const signals = useMemo(

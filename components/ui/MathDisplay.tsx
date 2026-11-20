@@ -116,6 +116,7 @@ export type FinancialFormulaPreset =
   | 'diversification-ratio'
   | 'tail-dependence'
   | 'mantegna-distance'
+  | 'frobenius-divergence'
   | 'partial-correlation'
   | 'student-t-pdf'
   | 'hansen-skew-t'
@@ -378,6 +379,11 @@ export const FINANCIAL_FORMULA_PRESETS: Record<FinancialFormulaPreset, { tex: st
     tex: String.raw`d_{ij} = \sqrt{2(1 - \rho_{ij})}`,
     label: 'Mantegna Ultrametric Correlation Distance',
     description: 'Maps bounded Pearson correlations into Euclidean metric distances for Minimum Spanning Tree (MST) network topology.',
+  },
+  'frobenius-divergence': {
+    tex: String.raw`\left\| C_t - C_{t-22} \right\|_F = \sqrt{\sum_{i=1}^{N}\sum_{j=1}^{N} \left(c_{ij,t} - c_{ij,t-22}\right)^2}`,
+    label: 'Matrix Frobenius Norm Divergence',
+    description: 'Entry-wise Euclidean distance between the current correlation matrix and its 22-session (one trading month) lag; a scalar early-warning signal of regime drift in cross-asset co-movement.',
   },
   'partial-correlation': {
     tex: String.raw`\rho_{ij|k} = -\frac{\Omega_{ij}}{\sqrt{\Omega_{ii} \Omega_{jj}}}`,

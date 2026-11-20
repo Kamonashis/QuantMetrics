@@ -720,6 +720,24 @@ export function MantegnaDistanceEquation({
 }
 
 /**
+ * Matrix Frobenius Norm Divergence (correlation-matrix drift over 22 sessions)
+ */
+export function FrobeniusDivergenceEquation({
+  className = '',
+  display = 'inline',
+  outputMode = 'htmlAndMathml',
+}: MathComponentProps) {
+  return (
+    <MathDisplay
+      preset="frobenius-divergence"
+      display={display}
+      outputMode={outputMode}
+      className={className}
+    />
+  );
+}
+
+/**
  * Partial Correlation Precision Matrix
  */
 export function PartialCorrelationEquation({

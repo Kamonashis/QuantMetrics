@@ -20,8 +20,8 @@ interface NavbarProps {
 }
 
 const NAV_ITEMS = [
-  { id: 'now', label: 'Now', shortLabel: 'Now', icon: LayoutDashboard },
   { id: 'home', label: 'Home', shortLabel: 'Home', icon: Home },
+  { id: 'now', label: 'Edge', shortLabel: 'Edge', icon: LayoutDashboard },
   { id: 'analysis', label: 'Analysis', shortLabel: 'Analysis', icon: Activity },
   { id: 'modeling', label: 'Modeling', shortLabel: 'Model', icon: Sigma },
   { id: 'volatility', label: 'Options · Vol', shortLabel: 'Vol', icon: Waves },

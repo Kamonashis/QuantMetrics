@@ -174,7 +174,7 @@ export function OptionsWorkstation({
       {tab === 'v5' && <T5DensityTab chain={s.chain} bars={bars} ticker={ticker} />}
       {tab === 'v6' && <T6CrossAssetTab chain={s.chain} indices={s.indices} bars={bars} ticker={ticker} />}
       {tab === 'v7' && <T7DealerTab chain={s.chain} panel={s.panel} bars={bars} ticker={ticker} />}
-      {tab === 'v8' && <T8DecisionTab chain={s.chain} bars={bars} ticker={ticker} ivHistory={s.ivHistory} intradayBars={intradayBars} intradaySource={intradaySource} rvSeries={s.rvSeries} garchFitProp={s.garchFit} />}
+      {tab === 'v8' && <T8DecisionTab chain={s.chain} bars={bars} ticker={ticker} ivHistory={s.ivHistory} intradayBars={intradayBars} intradaySource={intradaySource} rvSeries={s.rvSeries} garchFitProp={s.garchFit} earningsProp={s.earnings} />}
       {tab === 'f1' && <FnoChainTab panel={s.fnoPanel} symbol={ticker} />}
       {tab === 'f2' && <FnoOiTab panel={s.fnoPanel} symbol={ticker} />}
       {tab === 'f3' && <FnoPcrTab panel={s.fnoPanel} symbol={ticker} />}

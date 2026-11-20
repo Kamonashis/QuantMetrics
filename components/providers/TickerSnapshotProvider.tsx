@@ -2,6 +2,8 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { PriceBar, RollingVolSeries } from '@/lib/quant-engine';
+import { sessionsUntil } from '@/lib/earnings';
+import { useWatchlist, type WatchRow } from '@/hooks/use-watchlist';
 import { calculateReturns, fitGarch11 } from '@/lib/quant-engine';
 import {
   canonicalRvLadder,
@@ -34,6 +36,13 @@ export interface TickerSnapshotValue {
   vix: { level: number | null; percentile: number | null; n: number };
   curve: 'CONTANGO' | 'FLAT' | 'INVERTED' | null;
   session: ReturnType<typeof sessionDiff>;
+  /** Next earnings, lifted out of T8 so every setup card can gate on it. */
+  earnings: { ticker: string; date: string; isEstimate: boolean; sessions: number } | null;
+  /** All cached daily bars for cross-sectional reads. */
+  allStockBars: Record<string, PriceBar[]>;
+  /** One combined watchlist scan shared by the board and the workstation. */
+  watchRows: WatchRow[];
+  scanWatchlist: (force?: boolean) => Promise<void>;
   barsSource?: string | null;
   intradaySource?: string | null;
 }
@@ -51,12 +60,14 @@ export function TickerSnapshotProvider({
   bars,
   barsSource = null,
   intradaySource = null,
+  allStockBars = {},
   children,
 }: {
   ticker: string;
   bars: PriceBar[];
   barsSource?: string | null;
   intradaySource?: string | null;
+  allStockBars?: Record<string, PriceBar[]>;
   children: React.ReactNode;
 }) {
   const [chain, setChain] = useState<ChainPayload | null>(null);
@@ -64,6 +75,8 @@ export function TickerSnapshotProvider({
   const [ivHistory, setIvHistory] = useState<IvHistoryEntry[]>([]);
   const [panel, setPanel] = useState<PanelRowOut[]>([]);
   const [fnoPanel, setFnoPanel] = useState<PanelPayload | null>(null);
+  const [earnings, setEarnings] = useState<{ ticker: string; date: string; isEstimate: boolean; sessions: number } | null>(null);
+  const watch = useWatchlist();
   const [fnoLoadedKey, setFnoLoadedKey] = useState<string | null>(null);
   const [chainLoading, setChainLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -84,12 +97,26 @@ export function TickerSnapshotProvider({
       fetch(`/api/options?mode=panel&symbol=${encodeURIComponent(ticker)}`)
         .then((r) => r.json() as Promise<{ panel?: PanelRowOut[] }>)
         .catch(() => ({ panel: [] as PanelRowOut[] })),
+      fetch(`/api/options?mode=earnings&symbol=${encodeURIComponent(ticker)}`)
+        .then((r) => (r.ok ? r.json() as Promise<{ available: boolean; nextEarningsDate?: string | null; isEstimate?: boolean }> : null))
+        .catch(() => null),
     ])
-      .then(([chainData, historyData, panelData]) => {
+      .then(([chainData, historyData, panelData, earningsData]) => {
         if (cancelled) return;
         setChain({ ...chainData, requested: chainData.requested ?? ticker.toUpperCase() });
         setIvHistory(Array.isArray(historyData?.history) ? historyData.history : []);
         setPanel(Array.isArray(panelData?.panel) ? panelData.panel : []);
+        if (earningsData?.available && earningsData.nextEarningsDate) {
+          const today = new Date().toISOString().slice(0, 10);
+          setEarnings({
+            ticker,
+            date: earningsData.nextEarningsDate,
+            isEstimate: earningsData.isEstimate !== false,
+            sessions: sessionsUntil(earningsData.nextEarningsDate, today),
+          });
+        } else {
+          setEarnings(null);
+        }
       })
       .finally(() => { if (!cancelled) setChainLoading(false); });
     return () => { cancelled = true; };
@@ -130,8 +157,10 @@ export function TickerSnapshotProvider({
 
   const value = useMemo<TickerSnapshotValue>(() => ({
     ticker, chain, indices, ivHistory, panel, fnoPanel, fnoLoading, chainLoading, refresh,
-    rvLadder, rvSeries, garchFit, rv20, vix, curve, session, barsSource, intradaySource,
-  }), [ticker, chain, indices, ivHistory, panel, fnoPanel, fnoLoading, chainLoading, refresh, rvLadder, rvSeries, garchFit, rv20, vix, curve, session, barsSource, intradaySource]);
+    rvLadder, rvSeries, garchFit, rv20, vix, curve, session,
+    earnings, allStockBars, watchRows: watch.rows, scanWatchlist: watch.scan,
+    barsSource, intradaySource,
+  }), [ticker, chain, indices, ivHistory, panel, fnoPanel, fnoLoading, chainLoading, refresh, rvLadder, rvSeries, garchFit, rv20, vix, curve, session, earnings, allStockBars, watch.rows, watch.scan, barsSource, intradaySource]);
 
   return <SnapshotContext.Provider value={value}>{children}</SnapshotContext.Provider>;
 }
