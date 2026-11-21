@@ -1,6 +1,35 @@
 // Market Data Service: Yahoo Finance Stock Data Fetcher with resilient caching & realistic historical seed generators
 import { PriceBar, IntradayBar } from './quant-engine';
 
+export interface LatestQuoteSummary {
+  price: number;
+  prevClose: number;
+  changePct: number;
+  asOf: string;
+}
+
+export interface LiveQuoteTick {
+  ticker: string;
+  name: string;
+  source: 'live_market' | 'synthetic_gbm';
+  price: number;
+  prevClose: number;
+  changePct: number;
+  asOf: string;
+  bar: PriceBar;
+  fetchedAt: string;
+}
+
+const VALID_TICKER_RE = /^[A-Z0-9^.=/-]{1,12}$/;
+
+/** Strictly validates and normalizes an equity/index ticker symbol. */
+export function sanitizeTickerSymbol(raw: string): string | null {
+  const cleaned = raw.trim().toUpperCase();
+  if (!cleaned || !VALID_TICKER_RE.test(cleaned)) return null;
+  if (cleaned.includes('..') || cleaned.includes('//')) return null;
+  return cleaned;
+}
+
 export interface TickerDataResponse {
   ticker: string;
   name: string;
@@ -8,6 +37,7 @@ export interface TickerDataResponse {
   bars: PriceBar[];
   source: 'live_market' | 'cached_institutional' | 'synthetic_gbm';
   lastUpdated: string;
+  latestQuote?: LatestQuoteSummary;
 }
 
 export interface IntradayTickerDataResponse {
@@ -133,6 +163,29 @@ export function generateRealisticStockHistory(
   return bars;
 }
 
+function parseEndDateToUnixSeconds(endDate?: string): { p2: number; upToPresent: boolean } {
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (!endDate) {
+    return { p2: nowSec, upToPresent: true };
+  }
+  const todayUtc = new Date().toISOString().split('T')[0];
+  if (/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+    if (endDate >= todayUtc) {
+      return { p2: nowSec, upToPresent: true };
+    }
+    const endOfDaySec = Math.floor(new Date(`${endDate}T23:59:59Z`).getTime() / 1000);
+    return {
+      p2: Number.isFinite(endOfDaySec) ? Math.min(endOfDaySec, nowSec) : nowSec,
+      upToPresent: false,
+    };
+  }
+  const parsed = Math.floor(new Date(endDate).getTime() / 1000);
+  if (!Number.isFinite(parsed) || parsed >= nowSec - 86400) {
+    return { p2: nowSec, upToPresent: true };
+  }
+  return { p2: parsed, upToPresent: false };
+}
+
 export async function fetchLiveStockData(
   ticker: string,
   range: string = '10y',
@@ -148,12 +201,10 @@ export async function fetchLiveStockData(
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 6000);
 
+    const { p2, upToPresent } = parseEndDateToUnixSeconds(endDate);
     let url: string;
     if (startDate) {
       const p1 = Math.floor(new Date(startDate).getTime() / 1000);
-      const p2 = endDate
-        ? Math.floor(new Date(endDate).getTime() / 1000)
-        : Math.floor(Date.now() / 1000);
       url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
         sym
       )}?period1=${p1}&period2=${p2}&interval=1d&includePrePost=false`;
@@ -169,7 +220,7 @@ export async function fetchLiveStockData(
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       },
-      next: { revalidate: 3600 },
+      cache: 'no-store',
     });
 
     clearTimeout(timeoutId);
@@ -204,7 +255,65 @@ export async function fetchLiveStockData(
           }
         }
 
+        // Reconcile Yahoo's live regularMarketPrice into the latest bar when fetching up to present
+        const meta = result.meta;
+        const regPrice =
+          typeof meta?.regularMarketPrice === 'number' &&
+          Number.isFinite(meta.regularMarketPrice) &&
+          meta.regularMarketPrice > 0
+            ? Number(meta.regularMarketPrice.toFixed(2))
+            : null;
+        const regTime =
+          typeof meta?.regularMarketTime === 'number' && Number.isFinite(meta.regularMarketTime)
+            ? meta.regularMarketTime
+            : null;
+
+        if (upToPresent && regPrice !== null && regTime !== null && bars.length > 0) {
+          const metaDateStr = new Date(regTime * 1000).toISOString().split('T')[0];
+          const lastBar = bars[bars.length - 1];
+          if (lastBar.date === metaDateStr) {
+            lastBar.close = regPrice;
+            if (regPrice > lastBar.high) lastBar.high = regPrice;
+            if (regPrice < lastBar.low) lastBar.low = regPrice;
+          } else if (metaDateStr > lastBar.date) {
+            const openVal =
+              typeof meta?.regularMarketOpen === 'number' && meta.regularMarketOpen > 0
+                ? Number(meta.regularMarketOpen.toFixed(2))
+                : regPrice;
+            const highVal =
+              typeof meta?.regularMarketDayHigh === 'number' && meta.regularMarketDayHigh > 0
+                ? Number(meta.regularMarketDayHigh.toFixed(2))
+                : Math.max(openVal, regPrice);
+            const lowVal =
+              typeof meta?.regularMarketDayLow === 'number' && meta.regularMarketDayLow > 0
+                ? Number(meta.regularMarketDayLow.toFixed(2))
+                : Math.min(openVal, regPrice);
+            bars.push({
+              date: metaDateStr,
+              open: openVal,
+              high: Math.max(highVal, regPrice),
+              low: Math.min(lowVal, regPrice),
+              close: regPrice,
+              volume:
+                typeof meta?.regularMarketVolume === 'number' && meta.regularMarketVolume > 0
+                  ? meta.regularMarketVolume
+                  : 0,
+            });
+          }
+        }
+
         if (bars.length >= 20) {
+          let latestQuote: LatestQuoteSummary | undefined;
+          if (upToPresent && bars.length >= 2) {
+            const last = bars[bars.length - 1];
+            const prev = bars[bars.length - 2];
+            latestQuote = {
+              price: last.close,
+              prevClose: prev.close,
+              changePct: prev.close > 0 ? ((last.close - prev.close) / prev.close) * 100 : 0,
+              asOf: last.date,
+            };
+          }
           return {
             ticker: sym,
             name: result.meta?.shortName || companyName,
@@ -212,6 +321,7 @@ export async function fetchLiveStockData(
             bars,
             source: 'live_market',
             lastUpdated: new Date().toISOString(),
+            latestQuote,
           };
         }
       }
@@ -350,7 +460,7 @@ export async function fetchLiveIntradayData(
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       },
-      next: { revalidate: 600 },
+      cache: 'no-store',
     });
 
     clearTimeout(timeoutId);
@@ -419,4 +529,172 @@ export async function fetchLiveIntradayData(
     source: 'synthetic_gbm',
     lastUpdated: new Date().toISOString(),
   };
+}
+
+// Short server-side coalescing cache (5s TTL) so concurrent SSE subscribers
+// or reconnect bursts never stampede Yahoo Finance while staying live.
+const LIVE_QUOTE_COALESCE_TTL_MS = 5_000;
+const liveQuoteCache = new Map<string, { expiresAt: number; tick: LiveQuoteTick }>();
+const liveQuoteInFlight = new Map<string, Promise<LiveQuoteTick>>();
+
+/**
+ * Lightweight 5-day quote snapshot for SSE streaming and background re-validation.
+ * Reconciles Yahoo Finance's `meta.regularMarketPrice` into the latest daily bar
+ * and coalesces concurrent callers within a 5-second window.
+ */
+export async function fetchLiveQuoteSnapshot(ticker: string): Promise<LiveQuoteTick> {
+  const sym = sanitizeTickerSymbol(ticker) ?? 'AAPL';
+  const now = Date.now();
+  const cached = liveQuoteCache.get(sym);
+  if (cached && cached.expiresAt > now) {
+    return cached.tick;
+  }
+
+  const pending = liveQuoteInFlight.get(sym);
+  if (pending) return pending;
+
+  const task = (async (): Promise<LiveQuoteTick> => {
+    const known = KNOWN_TICKERS[sym];
+    const companyName = known?.name || `${sym} Equity`;
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4500);
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
+        sym
+      )}?range=5d&interval=1d&includePrePost=false`;
+
+      const res = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        },
+        cache: 'no-store',
+      });
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        const data = await res.json();
+        const result = data?.chart?.result?.[0];
+        if (result && result.timestamp && result.indicators?.quote?.[0]) {
+          const timestamps: number[] = result.timestamp;
+          const quote = result.indicators.quote[0];
+          const closes: number[] = quote.close;
+          const opens: number[] = quote.open;
+          const highs: number[] = quote.high;
+          const lows: number[] = quote.low;
+          const volumes: number[] = quote.volume;
+
+          const bars: PriceBar[] = [];
+          for (let i = 0; i < timestamps.length; i++) {
+            const c = closes[i];
+            if (c !== null && c !== undefined && !isNaN(c) && c > 0) {
+              const dateStr = new Date(timestamps[i] * 1000).toISOString().split('T')[0];
+              bars.push({
+                date: dateStr,
+                open: Number((opens[i] ?? c).toFixed(2)),
+                high: Number((highs[i] ?? c).toFixed(2)),
+                low: Number((lows[i] ?? c).toFixed(2)),
+                close: Number(c.toFixed(2)),
+                volume: volumes[i] ?? 0,
+              });
+            }
+          }
+
+          const meta = result.meta;
+          const regPrice =
+            typeof meta?.regularMarketPrice === 'number' &&
+            Number.isFinite(meta.regularMarketPrice) &&
+            meta.regularMarketPrice > 0
+              ? Number(meta.regularMarketPrice.toFixed(2))
+              : null;
+          const regTime =
+            typeof meta?.regularMarketTime === 'number' && Number.isFinite(meta.regularMarketTime)
+              ? meta.regularMarketTime
+              : null;
+
+          if (regPrice !== null && regTime !== null && bars.length > 0) {
+            const metaDateStr = new Date(regTime * 1000).toISOString().split('T')[0];
+            const lastBar = bars[bars.length - 1];
+            if (lastBar.date === metaDateStr) {
+              lastBar.close = regPrice;
+              if (regPrice > lastBar.high) lastBar.high = regPrice;
+              if (regPrice < lastBar.low) lastBar.low = regPrice;
+              if (typeof meta?.regularMarketVolume === 'number' && meta.regularMarketVolume > lastBar.volume) {
+                lastBar.volume = meta.regularMarketVolume;
+              }
+            } else if (metaDateStr > lastBar.date) {
+              const openVal =
+                typeof meta?.regularMarketOpen === 'number' && meta.regularMarketOpen > 0
+                  ? Number(meta.regularMarketOpen.toFixed(2))
+                  : regPrice;
+              const highVal =
+                typeof meta?.regularMarketDayHigh === 'number' && meta.regularMarketDayHigh > 0
+                  ? Number(meta.regularMarketDayHigh.toFixed(2))
+                  : Math.max(openVal, regPrice);
+              const lowVal =
+                typeof meta?.regularMarketDayLow === 'number' && meta.regularMarketDayLow > 0
+                  ? Number(meta.regularMarketDayLow.toFixed(2))
+                  : Math.min(openVal, regPrice);
+              bars.push({
+                date: metaDateStr,
+                open: openVal,
+                high: Math.max(highVal, regPrice),
+                low: Math.min(lowVal, regPrice),
+                close: regPrice,
+                volume:
+                  typeof meta?.regularMarketVolume === 'number' && meta.regularMarketVolume > 0
+                    ? meta.regularMarketVolume
+                    : 0,
+              });
+            }
+          }
+
+          if (bars.length >= 2) {
+            const last = bars[bars.length - 1];
+            const prev = bars[bars.length - 2];
+            const tick: LiveQuoteTick = {
+              ticker: sym,
+              name: meta?.shortName || companyName,
+              source: 'live_market',
+              price: last.close,
+              prevClose: prev.close,
+              changePct: prev.close > 0 ? ((last.close - prev.close) / prev.close) * 100 : 0,
+              asOf: last.date,
+              bar: last,
+              fetchedAt: new Date().toISOString(),
+            };
+            liveQuoteCache.set(sym, { expiresAt: Date.now() + LIVE_QUOTE_COALESCE_TTL_MS, tick });
+            return tick;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(`Live quote snapshot failed for ${sym}:`, err);
+    }
+
+    // Offline fallback tick from deterministic seed
+    const fallbackBars = generateRealisticStockHistory(sym, 10, DETERMINISTIC_BASE_DATE);
+    const last = fallbackBars[fallbackBars.length - 1];
+    const prev = fallbackBars[fallbackBars.length - 2] ?? last;
+    return {
+      ticker: sym,
+      name: companyName,
+      source: 'synthetic_gbm',
+      price: last.close,
+      prevClose: prev.close,
+      changePct: prev.close > 0 ? ((last.close - prev.close) / prev.close) * 100 : 0,
+      asOf: last.date,
+      bar: last,
+      fetchedAt: new Date().toISOString(),
+    };
+  })();
+
+  liveQuoteInFlight.set(sym, task);
+  try {
+    return await task;
+  } finally {
+    liveQuoteInFlight.delete(sym);
+  }
 }

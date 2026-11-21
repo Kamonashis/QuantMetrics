@@ -1,9 +1,11 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { ArrowLeftRight, Info } from 'lucide-react';
+import { ArrowLeftRight, Info, Sparkles } from 'lucide-react';
 import type { PriceBar } from '@/lib/quant-engine';
 import { historicalAbsMoves, percentileRankLocal, moveVerdict, moveDistributionSummary } from '@/lib/fno/expected-move';
+import { interpolateTcnExpectedMove, classifyTcnMoveDislocation } from '@/lib/tcn-multi-domain';
+import { useTcnVolatility } from '@/hooks/useTcnVolatility';
 import { MoveDistributionChart } from '@/components/charts/fno/MoveDistributionChart';
 import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 import { AnimatedTabs } from '@/components/ui/animated-tabs';
@@ -26,12 +28,29 @@ export function FnoExpectedMoveTab({
   const [horizonIdx, setHorizonIdx] = useState<number>(0);
   const selected = moves[horizonIdx] ?? closest;
 
+  const { volForecast: tcnVol, isTraining: tcnTraining } = useTcnVolatility(symbol, bars, { autoRun: true });
+
   const effectiveHorizon = selected?.dte ?? 21;
   const realizedSamples = useMemo(() => historicalAbsMoves(bars, effectiveHorizon), [bars, effectiveHorizon]);
   const summary = useMemo(() => moveDistributionSummary(realizedSamples), [realizedSamples]);
   const implied = selected?.straddleMove ?? selected?.sigmaMove ?? null;
+  const isStraddleBasis = selected?.straddleMove !== null && selected?.straddleMove !== undefined;
   const verdict = moveVerdict(implied, realizedSamples);
   const pctRank = implied !== null ? percentileRankLocal(realizedSamples, implied / 100) : null;
+
+  const tcnEstimate = useMemo(
+    () => (tcnVol ? interpolateTcnExpectedMove(tcnVol, effectiveHorizon) : null),
+    [tcnVol, effectiveHorizon]
+  );
+  const tcnComparablePct = tcnEstimate
+    ? isStraddleBasis
+      ? tcnEstimate.straddleEqMovePct
+      : tcnEstimate.sigmaMovePct
+    : null;
+  const tcnDislocation = useMemo(
+    () => classifyTcnMoveDislocation(implied, tcnComparablePct),
+    [implied, tcnComparablePct]
+  );
 
   const verdictColor =
     verdict === 'CHEAP' ? 'text-emerald-600 dark:text-emerald-400'
@@ -58,17 +77,38 @@ export function FnoExpectedMoveTab({
             </h3>
             <p className="mt-1 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
               Implied = 0.8×ATM straddle (or ATM IV × √T). Realized = |log return| over the same horizon, sampled from {bars.length.toLocaleString()} sessions of {symbol} price history.
+              {tcnEstimate && (
+                <>
+                  {' '}TCN-Attention projects <strong className="font-mono text-zinc-800 dark:text-zinc-200">±{tcnComparablePct?.toFixed(1)}%</strong> (99% bound ±{tcnEstimate.move99Pct.toFixed(1)}%{tcnEstimate.extrapolated ? ', flat ≥22d' : ''}).
+                </>
+              )}
             </p>
           </div>
-          <div className="flex shrink-0 items-center gap-4">
+          <div className="flex shrink-0 flex-wrap items-center gap-3">
             {pctRank !== null && (
               <div className="text-right">
                 <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-zinc-400">vs history</div>
-                <div className="font-mono text-lg font-bold text-zinc-800 dark:text-zinc-100">
+                <div className="font-mono text-lg font-bold text-zinc-800 dark:text-zinc-100 tabular-nums">
                   {pctRank.toFixed(0)}th <span className="text-[10px] text-zinc-400">pctile</span>
                 </div>
               </div>
             )}
+            <div className="rounded-xl border border-gold-500/30 bg-[var(--bg-inset)] px-3.5 py-2.5 text-center">
+              <div className={`font-mono text-sm font-bold tabular-nums ${
+                tcnDislocation.verdict === 'RICH vs TCN'
+                  ? 'text-rose-500 dark:text-rose-400'
+                  : tcnDislocation.verdict === 'CHEAP vs TCN'
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-gold-700 dark:text-gold-300'
+              }`}>
+                {tcnDislocation.verdict ?? (tcnTraining ? 'TCN…' : '—')}
+              </div>
+              <div className="font-mono text-[9px] tabular-nums text-zinc-500 dark:text-zinc-400">
+                {tcnComparablePct !== null && tcnDislocation.diffPct !== null
+                  ? `TCN ±${tcnComparablePct.toFixed(1)}% (${tcnDislocation.diffPct >= 0 ? '+' : ''}${tcnDislocation.diffPct.toFixed(1)}pt)`
+                  : 'TCN 1d/5d/22d'}
+              </div>
+            </div>
             <div className={`rounded-xl border px-4 py-2.5 text-center ${
               verdict === 'CHEAP' ? 'border-emerald-500/40 bg-emerald-500/10'
               : verdict === 'RICH' ? 'border-rose-500/40 bg-rose-500/10'
@@ -94,10 +134,11 @@ export function FnoExpectedMoveTab({
             {moves[horizonIdx]?.expiry ?? '—'} · histogram of {realizedSamples.length.toLocaleString()} historical windows
           </span>
         </div>
-        <ChartFullscreen title="Historical |Move| Distribution vs Implied" subtitle={`${effectiveHorizon}-session windows`}>
+        <ChartFullscreen title="Historical |Move| Distribution vs Implied & TCN" subtitle={`${effectiveHorizon}-session windows`}>
           <MoveDistributionChart
             samples={realizedSamples}
             impliedPct={implied}
+            tcnMovePct={tcnComparablePct}
             horizonLabel={`${effectiveHorizon}-session |move| distribution`}
           />
         </ChartFullscreen>
@@ -105,11 +146,17 @@ export function FnoExpectedMoveTab({
 
       {/* Per-expiry table */}
       <div className="panel overflow-hidden">
-        <div className="border-b border-[var(--hairline)] px-5 py-4">
-          <p className="kicker flex items-center gap-2"><ArrowLeftRight className="h-3.5 w-3.5" /> Implied Move by Expiry</p>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--hairline)] px-5 py-4">
+          <p className="kicker flex items-center gap-2"><ArrowLeftRight className="h-3.5 w-3.5" /> Implied Move by Expiry vs TCN-Attention</p>
+          {tcnVol && (
+            <span className="inline-flex items-center gap-1 font-mono text-[9.5px] text-zinc-400">
+              <Sparkles className="h-3 w-3 text-gold-500" />
+              TCN RV 1d {(tcnVol.horizons[1].annualizedVol * 100).toFixed(1)}% · 5d {(tcnVol.horizons[5].annualizedVol * 100).toFixed(1)}% · 22d {(tcnVol.horizons[22].annualizedVol * 100).toFixed(1)}%
+            </span>
+          )}
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] text-xs">
+          <table className="w-full min-w-[780px] text-xs">
             <thead>
               <tr className="text-left font-mono text-[9px] uppercase tracking-wider text-zinc-400">
                 <th className="px-5 py-2">Expiry</th>
@@ -118,16 +165,20 @@ export function FnoExpectedMoveTab({
                 <th className="px-3 py-2 text-right">σ-move</th>
                 <th className="px-3 py-2 text-right">Straddle</th>
                 <th className="px-3 py-2 text-right">Prem %</th>
+                <th className="px-3 py-2 text-right">TCN Move</th>
+                <th className="px-3 py-2 text-right">Implied vs TCN</th>
                 <th className="px-5 py-2 text-right">Implied vs realized</th>
               </tr>
             </thead>
             <tbody className="font-mono">
-              {moves.map((m, i) => {
+              {moves.map((m) => {
                 const samples = historicalAbsMoves(bars, m.dte);
-                const sum = moveDistributionSummary(samples);
                 const imp = m.straddleMove ?? m.sigmaMove;
                 const v = moveVerdict(imp, samples);
                 const pctRankRow = imp !== null ? percentileRankLocal(samples, imp / 100) : null;
+                const tcnRow = tcnVol ? interpolateTcnExpectedMove(tcnVol, m.dte) : null;
+                const tcnPctRow = tcnRow ? (m.straddleMove !== null ? tcnRow.straddleEqMovePct : tcnRow.sigmaMovePct) : null;
+                const disl = classifyTcnMoveDislocation(imp, tcnPctRow);
                 return (
                   <tr key={m.expiry} className="border-t border-[var(--hairline)]">
                     <td className="px-5 py-2 text-zinc-700 dark:text-zinc-200">{m.expiry}</td>
@@ -136,6 +187,22 @@ export function FnoExpectedMoveTab({
                     <td className="px-3 py-2 text-right tabular-nums text-zinc-800 dark:text-zinc-100">{pct(m.sigmaMove)}</td>
                     <td className="px-3 py-2 text-right tabular-nums text-zinc-800 dark:text-zinc-100">{m.straddleMove !== null && m.atmCall !== null && m.atmPut !== null ? (m.atmCall + m.atmPut).toFixed(2) : '—'}</td>
                     <td className="px-3 py-2 text-right tabular-nums text-gold-700 dark:text-gold-300">{pct(m.straddleMove)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-zinc-800 dark:text-zinc-100">
+                      {tcnPctRow !== null ? `±${tcnPctRow.toFixed(1)}%` : '—'}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {disl.verdict && disl.diffPct !== null ? (
+                        <span className={
+                          disl.verdict === 'RICH vs TCN'
+                            ? 'font-semibold text-rose-500 dark:text-rose-400'
+                            : disl.verdict === 'CHEAP vs TCN'
+                              ? 'font-semibold text-emerald-600 dark:text-emerald-400'
+                              : 'text-zinc-500'
+                        }>
+                          {disl.diffPct >= 0 ? '+' : ''}{disl.diffPct.toFixed(1)}pt · {disl.verdict.replace(' vs TCN', '')}
+                        </span>
+                      ) : '—'}
+                    </td>
                     <td className="px-5 py-2 text-right">
                       {v === null ? '—' : (
                         <span className={`rounded px-2 py-0.5 text-[9px] font-bold tracking-wider ${
@@ -151,7 +218,7 @@ export function FnoExpectedMoveTab({
                 );
               })}
               {moves.length === 0 && (
-                <tr><td colSpan={7} className="px-5 py-4 text-zinc-400">No chain data available.</td></tr>
+                <tr><td colSpan={9} className="px-5 py-4 text-zinc-400">No chain data available.</td></tr>
               )}
             </tbody>
           </table>

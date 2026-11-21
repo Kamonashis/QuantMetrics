@@ -96,7 +96,7 @@ export interface OvernightIntradaySplitDay {
 
 export interface VaRBacktestModelResult {
   modelName: string;
-  key: 'historical' | 'parametric-normal' | 'cornish-fisher' | 'evt-gpd' | 'garch-filtered';
+  key: 'historical' | 'parametric-normal' | 'cornish-fisher' | 'evt-gpd' | 'garch-filtered' | 'tcn-attention';
   var95Pct: number;
   var99Pct: number;
   es99Pct: number;

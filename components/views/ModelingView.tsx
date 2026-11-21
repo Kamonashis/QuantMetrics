@@ -40,8 +40,9 @@ import { regimeNames } from '@/components/charts/RegimeTimeline';
 import { RegimeTransitionMatrix } from '@/components/ui/RegimeTransitionMatrix';
 import { ProvenanceBadge } from '@/components/ui/provenance-badge';
 import { ForecastTrustCard } from '@/components/ui/ForecastTrustCard';
+import { useTcnVolatility } from '@/hooks/useTcnVolatility';
 
-import { Play, Zap, Clock, Info, ShieldCheck, Activity, Layers } from 'lucide-react';
+import { Play, Zap, Clock, Info, ShieldCheck, Activity, Layers, RotateCcw, Sparkles } from 'lucide-react';
 
 interface ModelingViewProps {
   ticker: string;
@@ -72,7 +73,7 @@ export function ModelingView({
   companyName,
   onNavigateToAnalysis,
 }: ModelingViewProps) {
-  const [activeModelTab, setActiveModelTab] = useState<'gjr' | 'ewma' | 'har' | 'hmm'>('ewma');
+  const [activeModelTab, setActiveModelTab] = useState<'gjr' | 'ewma' | 'har' | 'hmm' | 'tcn'>('ewma');
   const [harEquationView, setHarEquationView] = useState<'regression' | 'forecast'>('regression');
   const [lambda, setLambda] = useState<number>(0.94);
   const [forecastDays, setForecastDays] = useState<number>(30);
@@ -261,11 +262,37 @@ export function ModelingView({
     return forecastGjr(gjrResult.summary, lastVar, forecastDays, dates[dates.length - 1]);
   }, [gjrResult, forecastDays, dates]);
 
+  // Multi-horizon (1d / 5d / 22d) TCN-Attention Volatility model (cached across tabs)
+  const { volForecast: tcnVol, isTraining: tcnVolTraining, retrain: retrainTcnVol } = useTcnVolatility(
+    ticker,
+    filteredBars,
+    { autoRun: activeModelTab === 'tcn', forecastDays }
+  );
+
+  const tcnSummaryShim = useMemo(
+    () => ({
+      omega: 0,
+      alpha: 0.08,
+      beta: 0.88,
+      persistence: 0.96,
+      logLikelihood: 0,
+      aic: 0,
+      bic: 0,
+      longRunVariance: tcnVol ? tcnVol.horizons[22].dailyVariance : 0.0004,
+      longRunAnnualizedVol: tcnVol ? tcnVol.horizons[22].annualizedVol : 0.2,
+      halfLife: null,
+      converged: true,
+      iterations: 36,
+    }),
+    [tcnVol]
+  );
+
   const forecastPoints = useMemo(() => {
     if (activeModelTab === 'gjr') return gjrForecastPoints;
     if (activeModelTab === 'hmm') return hmmForecastPoints;
+    if (activeModelTab === 'tcn') return tcnVol?.forecastCone ?? [];
     return ewmaForecastPoints;
-  }, [activeModelTab, gjrForecastPoints, ewmaForecastPoints, hmmForecastPoints]);
+  }, [activeModelTab, gjrForecastPoints, ewmaForecastPoints, hmmForecastPoints, tcnVol]);
 
   // Compute 1-minute Realized Volatility and Jumps
   const dailyRealizedVol = useMemo(() => {
@@ -279,6 +306,10 @@ export function ModelingView({
   }, [dailyRealizedVol, garchResult]);
 
   const handleRunCalibration = () => {
+    if (activeModelTab === 'tcn') {
+      retrainTcnVol();
+      return;
+    }
     setIsCalibrating(true);
     setTimeout(() => {
       setIsCalibrating(false);
@@ -315,14 +346,15 @@ export function ModelingView({
             <AlgoSelect
               ariaLabel="Volatility model"
               value={activeModelTab}
-              onChange={(v) => setActiveModelTab(v as 'gjr' | 'ewma' | 'hmm' | 'har')}
+              onChange={(v) => setActiveModelTab(v as 'gjr' | 'ewma' | 'hmm' | 'har' | 'tcn')}
               options={[
                 { value: 'ewma', label: 'EWMA λ = 0.94', hint: 'RiskMetrics' },
                 { value: 'gjr', label: 'GJR-GARCH', hint: 'leverage · MLE' },
                 { value: 'hmm', label: 'HMM', hint: 'Gaussian · latent regimes' },
                 { value: 'har', label: 'HAR-RV', hint: 'Corsi · OLS' },
+                { value: 'tcn', label: 'TCN-Attention Vol', hint: '1d/5d/22d · QLIKE' },
               ]}
-              className="w-56"
+              className="w-60"
             />
 
             <button
@@ -333,17 +365,94 @@ export function ModelingView({
             </button>
             <ShimmerButton
               onClick={handleRunCalibration}
-              disabled={isCalibrating}
+              disabled={isCalibrating || tcnVolTraining}
               className="px-4 py-2"
             >
-              <Play className="w-3.5 h-3.5 fill-current text-gold-500" />
-              <span>{isCalibrating ? 'Re-optimizing...' : 'Run Volatility Models'}</span>
+              {tcnVolTraining ? (
+                <>
+                  <RotateCcw className="w-3.5 h-3.5 animate-spin text-gold-500" />
+                  <span>Training TCN-Attn...</span>
+                </>
+              ) : (
+                <>
+                  <Play className="w-3.5 h-3.5 fill-current text-gold-500" />
+                  <span>{activeModelTab === 'tcn' ? 'Retrain TCN-Attn Vol' : isCalibrating ? 'Re-optimizing...' : 'Run Volatility Models'}</span>
+                </>
+              )}
             </ShimmerButton>
           </div>
         </div>
 
         {/* Dynamic Model Control Panels based on active model */}
-        {activeModelTab !== 'har' ? (
+        {activeModelTab === 'tcn' ? (
+          <div className="mt-4 space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+              {([1, 5, 22] as const).map((h) => {
+                const hz = tcnVol?.horizons[h];
+                return (
+                  <div key={h} className="panel-inset p-3">
+                    <div className="flex items-center justify-between font-mono text-[10px] uppercase tracking-wider text-zinc-400">
+                      <span>TCN {h}D Forward Vol</span>
+                      <span className="text-gold-600 dark:text-gold-400">√252</span>
+                    </div>
+                    <div className="mt-1 font-mono text-xl font-bold tabular-nums text-zinc-900 dark:text-zinc-100">
+                      {hz ? `${(hz.annualizedVol * 100).toFixed(1)}%` : tcnVolTraining ? '…' : '—'}
+                    </div>
+                    <div className="mt-1 font-mono text-[10px] tabular-nums text-zinc-500 dark:text-zinc-400">
+                      {hz
+                        ? `99% PI: ${(hz.lower99Vol * 100).toFixed(1)}%–${(hz.upper99Vol * 100).toFixed(1)}% · OOS QLIKE ${Number.isFinite(hz.holdoutQlike) ? hz.holdoutQlike.toFixed(3) : '—'}`
+                        : 'Awaiting ≥ 70 trading sessions'}
+                    </div>
+                  </div>
+                );
+              })}
+
+              <div className="panel-inset p-3">
+                <div className="flex items-center justify-between font-mono text-[10px] uppercase tracking-wider text-zinc-400">
+                  <span className="flex items-center gap-1"><Sparkles className="h-3 w-3 text-gold-500" /> Causal Attention Shocks</span>
+                  <span>{tcnVol ? (tcnVol.cacheHit ? 'CACHED' : `${tcnVol.trainingDurationMs}ms`) : ''}</span>
+                </div>
+                {tcnVol && tcnVol.topShockDates.length > 0 ? (
+                  <div className="mt-1.5 space-y-1 font-mono text-[10px]">
+                    {tcnVol.topShockDates.map((s) => (
+                      <div key={s.date} className="flex items-center justify-between tabular-nums">
+                        <span className="text-zinc-600 dark:text-zinc-300">{s.date} <span className="text-zinc-400">(t-{s.lag})</span></span>
+                        <span className="text-gold-600 dark:text-gold-400 font-semibold">
+                          {(s.weight * 100).toFixed(1)}% · {s.metricValue >= 0 ? '+' : ''}{s.metricValue.toFixed(1)}%
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 font-mono text-[10px] text-zinc-400">
+                    {tcnVolTraining ? 'Computing QLIKE log-variance head…' : 'Top attended historical variance shocks'}
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-2 font-mono text-[10px] text-zinc-500 dark:text-zinc-400">
+              <span>
+                Multi-channel dilated TCN + Causal Multi-Head Attention [GK log-var, r, |r|, neg-leverage, log RV5/22, causal 3-state HMM] · QLIKE log-variance head · RF {tcnVol?.receptiveField ?? 15}d · {tcnVol?.parameterCount ?? '—'} params
+                {tcnVol?.hmmRegime
+                  ? ` · HMM ${tcnVol.hmmRegime.dominantLabel} (${Math.round(tcnVol.hmmRegime.probs[0] * 100)}/${Math.round(tcnVol.hmmRegime.probs[1] * 100)}/${Math.round(tcnVol.hmmRegime.probs[2] * 100)}%)`
+                  : ''}
+              </span>
+              <div className="flex items-center gap-2">
+                <label className="text-zinc-400">Cone:</label>
+                <input
+                  type="range"
+                  min="5"
+                  max="90"
+                  step="5"
+                  value={forecastDays}
+                  onChange={(e) => setForecastDays(parseInt(e.target.value, 10))}
+                  className="w-24 accent-gold-400 cursor-pointer"
+                />
+                <span className="tabular-nums text-gold-600 dark:text-gold-300">{forecastDays}d</span>
+              </div>
+            </div>
+          </div>
+        ) : activeModelTab !== 'har' ? (
           /* Calibration Sliders for Daily GARCH / GJR / EWMA */
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-4 text-xs">
             {/* HMM diagnostics — only when HMM is the selected model */}
@@ -577,7 +686,9 @@ export function ModelingView({
               ? 'GJR-GARCH Volatility Cone & Forecast'
               : activeModelTab === 'hmm'
                 ? 'HMM Regime-Mixture Volatility Cone & Forecast'
-                : `EWMA Volatility Cone & Forecast (λ = ${lambda.toFixed(2)})`
+                : activeModelTab === 'tcn'
+                  ? 'TCN-Attention Multi-Horizon (1d/5d/22d) Volatility Cone & Forecast'
+                  : `EWMA Volatility Cone & Forecast (λ = ${lambda.toFixed(2)})`
           }
           subtitle={ticker}
         >
@@ -589,14 +700,18 @@ export function ModelingView({
                 ? gjrResult.conditionalAnnualizedVol
                 : activeModelTab === 'hmm'
                   ? hmmVol
-                  : ewmaResult.ewmaAnnualizedVol
+                  : activeModelTab === 'tcn'
+                    ? (tcnVol?.fittedAnnualizedVol ?? ewmaResult.ewmaAnnualizedVol)
+                    : ewmaResult.ewmaAnnualizedVol
             }
             modelLabel={
               activeModelTab === 'gjr'
                 ? 'GJR-GARCH'
                 : activeModelTab === 'hmm'
                   ? 'HMM regime-mixture'
-                  : `EWMA λ = ${lambda.toFixed(2)}`
+                  : activeModelTab === 'tcn'
+                    ? 'TCN-Attention (QLIKE 1d/5d/22d)'
+                    : `EWMA λ = ${lambda.toFixed(2)}`
             }
             forecastPoints={forecastPoints}
             modelSummary={
@@ -604,8 +719,14 @@ export function ModelingView({
                 ? gjrResult.summary
                 : activeModelTab === 'hmm'
                   ? hmmSummaryShim
-                  : ewmaSummaryShim
+                  : activeModelTab === 'tcn'
+                    ? tcnSummaryShim
+                    : ewmaSummaryShim
             }
+            hmmStates={activeModelTab === 'tcn' ? tcnVol?.hmmStates : undefined}
+            hmmProbs={activeModelTab === 'tcn' ? tcnVol?.hmmProbs : undefined}
+            holdoutStartIdx={activeModelTab === 'tcn' ? tcnVol?.holdoutStartIdx : undefined}
+            regimePerformance={activeModelTab === 'tcn' ? tcnVol?.regimePerformance : undefined}
           />
         </ChartFullscreen>
       )}

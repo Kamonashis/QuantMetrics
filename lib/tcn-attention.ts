@@ -5,6 +5,20 @@
 // chronological walk-forward holdout validation.
 
 import type { DecompositionResult } from './quant-engine';
+import {
+  buildCausalReturnVolFeatures,
+  fitAndFilterCausalHmm,
+  type CausalHmmResult,
+  type CausalHmmSummary,
+} from './hmm';
+import {
+  extractDominantHmmSeries,
+  HMM_REGIME_TOKENS,
+  type BacktestRegimePerfRow,
+  type HmmStateIdx,
+} from './hmm-regime-overlay';
+
+const DECOMP_TCN_IN_CHANNELS = 6; // [z_t, Δz_t, pos_t, 2*P(Calm)-1, 2*P(Watchful)-1, 2*P(Crisis)-1]
 
 export type DecompositionComponentKey = 'trend' | 'cyclical' | 'seasonal' | 'residual';
 
@@ -102,7 +116,99 @@ export interface TcnDecompositionForecast {
   parameterCount: number;
   /** Wall-clock training time (ms) */
   trainingDurationMs: number;
+  /** Variance ratio of predicted cyclical component relative to irregular residuals */
+  signalToNoise: CyclicalSignalToNoise;
+  /** Trailing <= 30 strictly out-of-sample daily signals for historical backtest */
+  backtestSignals: BacktestSignalPoint[];
+  /** Strictly causal 3-state HMM volatility regime feature state fed into the TCN */
+  hmmRegime: CausalHmmSummary | null;
   components: Record<DecompositionComponentKey, ComponentForecast>;
+}
+
+export type BacktestCostBps = 0 | 5 | 10 | 25;
+
+export interface BacktestSignalPoint {
+  date: string;
+  prevPrice: number;
+  actualPrice: number;
+  predictedPrice: number;
+  /** Predicted 1-day simple return (Ŷ_t - Y_{t-1}) / Y_{t-1} */
+  predictedReturn: number;
+  /** Realized 1-day simple return (Y_t - Y_{t-1}) / Y_{t-1} */
+  actualReturn: number;
+  /** Bounded signal-weighted portfolio exposure tanh(r̂_t / σ_train) ∈ [-1, +1] */
+  weight: number;
+  /** Strictly causal dominant HMM state at prediction origin (t - 1) */
+  hmmState?: HmmStateIdx;
+  /** Posterior probability of the dominant HMM state at prediction origin (t - 1) */
+  hmmProb?: number;
+}
+
+export interface BacktestDayResult {
+  date: string;
+  prevPrice: number;
+  actualPrice: number;
+  predictedPrice: number;
+  predictedReturn: number;
+  actualReturn: number;
+  weight: number;
+  turnover: number;
+  grossReturn: number;
+  costDrag: number;
+  netReturn: number;
+  strategyEquity: number;
+  benchmarkEquity: number;
+  strategyCumPct: number;
+  benchmarkCumPct: number;
+  drawdownPct: number;
+  hmmState?: HmmStateIdx;
+  hmmProb?: number;
+}
+
+export interface HistoricalBacktestSummary {
+  tradingDays: number;
+  strategyCumPct: number;
+  benchmarkCumPct: number;
+  excessReturnPct: number;
+  grossCumPct: number;
+  totalCostDragPct: number;
+  annualizedSharpe: number;
+  maxDrawdownPct: number;
+  winRatePct: number;
+  winDays: number;
+  profitFactor: number | null;
+  avgAbsWeight: number;
+  avgDailyTurnover: number;
+}
+
+export interface HistoricalBacktestResult {
+  costBps: BacktestCostBps;
+  days: BacktestDayResult[];
+  summary: HistoricalBacktestSummary;
+  regimeBreakdown: BacktestRegimePerfRow[];
+}
+
+export type SignalToNoiseRegime = 'Strong Signal' | 'Moderate Signal' | 'Noise-Dominated';
+
+export interface CyclicalSignalToNoise {
+  /** Linear variance ratio Var(Ĉ_work) / Var(I_work) */
+  ratio: number;
+  /** Decibel scale 10 * log10(ratio) */
+  db: number;
+  /** Sample variance of predicted cyclical component (log-factor² in multiplicative, $² in additive) */
+  signalVariance: number;
+  /** Sample variance of aligned decomposition residuals (same working space) */
+  noiseVariance: number;
+  /** Implied standard deviation of predicted cyclical component */
+  signalStdDev: number;
+  /** Implied standard deviation of residuals */
+  noiseStdDev: number;
+  /** Share of combined signal + noise variance attributable to predicted cycle (0..100) */
+  signalSharePct: number;
+  /** Number of aligned out-of-sample holdout observations */
+  sampleCount: number;
+  /** Empirical regime classification */
+  regime: SignalToNoiseRegime;
 }
 
 export interface TcnTrainingProgress {
@@ -174,6 +280,35 @@ export interface TcnSensitivityResult {
   componentStability: Record<DecompositionComponentKey, ComponentStabilityMetric>;
 }
 
+export interface TrainedComponentWeights {
+  component: DecompositionComponentKey;
+  /** Cloned best-holdout parameter tensors for deterministic forward inference */
+  tensors: Float64Array[];
+  mean: number;
+  std: number;
+  isDiffMode: boolean;
+  isLogMode: boolean;
+  bestEpoch: number;
+}
+
+export interface TcnTrainedModelArtifact {
+  cacheKey: string;
+  dataSignature: string;
+  config: TcnAttentionConfig;
+  weights: Record<DecompositionComponentKey, TrainedComponentWeights>;
+  forecast: TcnDecompositionForecast;
+  cachedAtMs: number;
+}
+
+export interface TcnSensitivityCacheArtifact {
+  cacheKey: string;
+  dataSignature: string;
+  baseCacheKey: string;
+  step: SensitivityStep;
+  result: TcnSensitivityResult;
+  cachedAtMs: number;
+}
+
 // -------------------------------------------------------------
 // HELPERS: RECEPTIVE FIELD, PARAMETER COUNT, PRNG, T-QUANTILE
 // -------------------------------------------------------------
@@ -184,7 +319,7 @@ export function computeReceptiveField(dilations: number[], kernelSize: number): 
 }
 
 export function computeParameterCount(config: TcnAttentionConfig): number {
-  const cIn = 3;
+  const cIn = DECOMP_TCN_IN_CHANNELS;
   const d = config.hiddenChannels;
   const k = config.kernelSize;
   const numBlocks = config.dilations.length;
@@ -316,7 +451,7 @@ interface TcnAttentionNet {
 
 function createNetwork(config: TcnAttentionConfig, seed: number): TcnAttentionNet {
   const rng = createRng(seed);
-  const cIn = 3;
+  const cIn = DECOMP_TCN_IN_CHANNELS;
   const d = config.hiddenChannels;
   const k = config.kernelSize;
   const numHeads = config.numHeads;
@@ -539,11 +674,12 @@ function forwardSample(
   for (let t = 0; t < L; t++) {
     const xBase = t * cIn;
     const hBase = t * d;
-    const x0 = x[xBase];
-    const x1 = x[xBase + 1];
-    const x2 = x[xBase + 2];
     for (let c = 0; c < d; c++) {
-      h0[hBase + c] = inB[c] + x0 * inW[c] + x1 * inW[d + c] + x2 * inW[2 * d + c];
+      let sum = inB[c];
+      for (let ch = 0; ch < cIn; ch++) {
+        sum += x[xBase + ch] * inW[ch * d + c];
+      }
+      h0[hBase + c] = sum;
     }
   }
 
@@ -857,15 +993,12 @@ function backwardSample(net: TcnAttentionNet, cache: ForwardCache, dPred: number
   for (let t = 0; t < L; t++) {
     const xBase = t * cIn;
     const hBase = t * d;
-    const x0 = x[xBase];
-    const x1 = x[xBase + 1];
-    const x2 = x[xBase + 2];
     for (let c = 0; c < d; c++) {
       const gh = gCurr[hBase + c];
       inBG[c] += gh;
-      inWG[c] += x0 * gh;
-      inWG[d + c] += x1 * gh;
-      inWG[2 * d + c] += x2 * gh;
+      for (let ch = 0; ch < cIn; ch++) {
+        inWG[ch * d + c] += x[xBase + ch] * gh;
+      }
     }
   }
 }
@@ -937,12 +1070,36 @@ interface BuiltDataset {
   latestAnchor: number;
 }
 
+function computeCausalHmmForObservedPrices(
+  observed: number[],
+  lookback: number,
+  trainSplit: number
+): CausalHmmResult | null {
+  const n = observed.length;
+  if (n < 35) return null;
+  const priceReturns = new Array<number>(n);
+  priceReturns[0] = 0;
+  for (let i = 1; i < n; i++) {
+    const prev = observed[i - 1];
+    const curr = observed[i];
+    priceReturns[i] =
+      prev > 0 && curr > 0 && Number.isFinite(prev) && Number.isFinite(curr)
+        ? Math.log(curr / prev)
+        : 0;
+  }
+  const numTrendSamples = Math.max(1, n - 1 - lookback);
+  const splitIdx = Math.max(4, Math.min(numTrendSamples - 2, Math.floor(numTrendSamples * trainSplit)));
+  const trainEndRow = Math.min(n, splitIdx + lookback + 1);
+  return fitAndFilterCausalHmm(buildCausalReturnVolFeatures(priceReturns), trainEndRow);
+}
+
 function buildComponentDataset(
   values: number[],
   lookback: number,
   isDiffMode: boolean,
   isLogMode: boolean,
-  trainSplit: number
+  trainSplit: number,
+  hmmPosteriors: number[][] | null
 ): BuiltDataset {
   const work: number[] = [];
   const workToPriceIdx: number[] = [];
@@ -985,14 +1142,21 @@ function buildComponentDataset(
   const z = work.map((v) => (v - mean) / std);
 
   const makeWindow = (startIdx: number): Float64Array => {
-    const buf = new Float64Array(lookback * 3);
+    const cIn = DECOMP_TCN_IN_CHANNELS;
+    const buf = new Float64Array(lookback * cIn);
     const denom = Math.max(1, lookback - 1);
     for (let t = 0; t < lookback; t++) {
       const zi = z[startIdx + t];
       const prevZ = t > 0 ? z[startIdx + t - 1] : zi;
-      buf[t * 3] = zi;
-      buf[t * 3 + 1] = zi - prevZ;
-      buf[t * 3 + 2] = t / denom - 0.5;
+      const base = t * cIn;
+      const priceIdx = workToPriceIdx[startIdx + t];
+      const p = hmmPosteriors?.[priceIdx];
+      buf[base] = zi;
+      buf[base + 1] = zi - prevZ;
+      buf[base + 2] = t / denom - 0.5;
+      buf[base + 3] = p && p.length >= 3 ? 2 * p[0] - 1 : 0;
+      buf[base + 4] = p && p.length >= 3 ? 2 * p[1] - 1 : 0;
+      buf[base + 5] = p && p.length >= 3 ? 2 * p[2] - 1 : 0;
     }
     return buf;
   };
@@ -1045,6 +1209,7 @@ function unscaleToNative(
 interface TrainedComponentResult {
   forecast: Omit<ComponentForecast, 'contributionDollar' | 'contributionPct'>;
   holdoutPredByIndex: Map<number, number>;
+  weights: TrainedComponentWeights;
 }
 
 async function trainSingleComponent(
@@ -1054,13 +1219,21 @@ async function trainSingleComponent(
   model: 'additive' | 'multiplicative',
   config: TcnAttentionConfig,
   seedOffset: number,
+  hmmPosteriors: number[][] | null,
   onEpoch?: (epoch: number) => void,
   yieldControl?: () => Promise<void>,
   isCancelled?: () => boolean
 ): Promise<TrainedComponentResult> {
   const isLogMode = model === 'multiplicative';
   const isDiffMode = component === 'trend';
-  const dataset = buildComponentDataset(values, config.lookback, isDiffMode, isLogMode, config.trainSplit);
+  const dataset = buildComponentDataset(
+    values,
+    config.lookback,
+    isDiffMode,
+    isLogMode,
+    config.trainSplit,
+    hmmPosteriors
+  );
 
   const totalSamples = dataset.inputs.length;
   const splitIdx = Math.max(4, Math.min(totalSamples - 2, Math.floor(totalSamples * config.trainSplit)));
@@ -1251,6 +1424,15 @@ async function trainSingleComponent(
       bestEpoch,
     },
     holdoutPredByIndex,
+    weights: {
+      component,
+      tensors: bestWeights.map((arr) => new Float64Array(arr)),
+      mean: dataset.mean,
+      std: dataset.std,
+      isDiffMode,
+      isLogMode,
+      bestEpoch,
+    },
   };
 }
 
@@ -1267,6 +1449,387 @@ const COMPONENT_ORDER: { key: DecompositionComponentKey; label: string }[] = [
 
 export const MIN_BARS_FOR_TCN = 45;
 
+// -------------------------------------------------------------
+// MODEL WEIGHTS, RESULTS & PREDICTIONS CACHE (LRU + SESSION)
+// -------------------------------------------------------------
+
+const MAX_FORECAST_CACHE_ENTRIES = 24;
+const MAX_SENSITIVITY_CACHE_ENTRIES = 12;
+const MAX_PERSISTED_FORECASTS = 6;
+const MAX_PERSISTED_SWEEPS = 3;
+const TCN_CACHE_STORAGE_KEY = 'quantmetrics_tcn_model_cache_v3_hmm_perf';
+
+const forecastArtifactCache = new Map<string, TcnTrainedModelArtifact>();
+const sensitivityArtifactCache = new Map<string, TcnSensitivityCacheArtifact>();
+const lastForecastKeyByDataSig = new Map<string, string>();
+let hasHydratedSessionStorage = false;
+
+function lruGet<V>(map: Map<string, V>, key: string): V | null {
+  const hit = map.get(key);
+  if (hit === undefined) return null;
+  map.delete(key);
+  map.set(key, hit);
+  return hit;
+}
+
+function lruSet<V>(map: Map<string, V>, key: string, value: V, maxEntries: number): void {
+  if (map.has(key)) {
+    map.delete(key);
+  }
+  map.set(key, value);
+  while (map.size > maxEntries) {
+    const oldestKey = map.keys().next().value;
+    if (oldestKey === undefined) break;
+    map.delete(oldestKey);
+  }
+}
+
+export function buildTcnDataSignature(
+  ticker: string,
+  decomposition: DecompositionResult
+): string {
+  const obs = decomposition.observed;
+  const n = obs.length;
+  const first = n > 0 ? obs[0] : 0;
+  const mid = n > 0 ? obs[Math.floor(n / 2)] : 0;
+  const last = n > 0 ? obs[n - 1] : 0;
+  let checksum = 0;
+  for (let i = 0; i < n; i++) {
+    checksum += obs[i] * ((i % 7) + 1);
+  }
+  const firstDate = decomposition.dates[0] ?? '';
+  const lastDate = decomposition.dates[n - 1] ?? '';
+  return [
+    ticker,
+    decomposition.model,
+    decomposition.period,
+    `${decomposition.cycleMinPeriod}-${decomposition.cycleMaxPeriod}`,
+    n,
+    firstDate,
+    lastDate,
+    `${first.toFixed(4)}:${mid.toFixed(4)}:${last.toFixed(4)}:${checksum.toFixed(2)}`,
+  ].join('|');
+}
+
+export function buildTcnCacheKey(
+  ticker: string,
+  decomposition: DecompositionResult,
+  rawConfig: TcnAttentionConfig = DEFAULT_TCN_CONFIG
+): string {
+  const n = Math.max(decomposition.observed.length, MIN_BARS_FOR_TCN);
+  const cfg = sanitizeTcnConfig(rawConfig, n);
+  const dataSig = buildTcnDataSignature(ticker, decomposition);
+  return `${dataSig}|L:${cfg.lookback}|D:${cfg.dilations.join(',')}|K:${cfg.kernelSize}|H:${cfg.numHeads}|C:${cfg.hiddenChannels}|E:${cfg.epochs}|LR:${cfg.learningRate}|SP:${cfg.trainSplit}|SD:${cfg.seed ?? 42}|HMM3P`;
+}
+
+export function buildTcnSensitivityCacheKey(
+  ticker: string,
+  decomposition: DecompositionResult,
+  rawConfig: TcnAttentionConfig = DEFAULT_TCN_CONFIG,
+  step: SensitivityStep = 4
+): string {
+  return `${buildTcnCacheKey(ticker, decomposition, rawConfig)}|STEP:${step}`;
+}
+
+interface SerializedComponentWeights {
+  component: DecompositionComponentKey;
+  tensors: number[][];
+  mean: number;
+  std: number;
+  isDiffMode: boolean;
+  isLogMode: boolean;
+  bestEpoch: number;
+}
+
+interface SerializedModelArtifact {
+  cacheKey: string;
+  dataSignature: string;
+  config: TcnAttentionConfig;
+  weights: Record<DecompositionComponentKey, SerializedComponentWeights>;
+  forecast: TcnDecompositionForecast;
+  cachedAtMs: number;
+}
+
+interface SerializedTcnCachePayload {
+  version: 3;
+  forecasts: SerializedModelArtifact[];
+  sweeps: TcnSensitivityCacheArtifact[];
+  lastKeys: [string, string][];
+}
+
+function serializeArtifact(artifact: TcnTrainedModelArtifact): SerializedModelArtifact {
+  const weights = {} as Record<DecompositionComponentKey, SerializedComponentWeights>;
+  for (const { key } of COMPONENT_ORDER) {
+    const w = artifact.weights[key];
+    weights[key] = {
+      component: w.component,
+      tensors: w.tensors.map((t) => Array.from(t)),
+      mean: w.mean,
+      std: w.std,
+      isDiffMode: w.isDiffMode,
+      isLogMode: w.isLogMode,
+      bestEpoch: w.bestEpoch,
+    };
+  }
+  return {
+    cacheKey: artifact.cacheKey,
+    dataSignature: artifact.dataSignature,
+    config: artifact.config,
+    weights,
+    forecast: artifact.forecast,
+    cachedAtMs: artifact.cachedAtMs,
+  };
+}
+
+function deserializeArtifact(raw: SerializedModelArtifact): TcnTrainedModelArtifact | null {
+  if (!raw || !raw.cacheKey || !raw.weights || !raw.forecast) return null;
+  const weights = {} as Record<DecompositionComponentKey, TrainedComponentWeights>;
+  for (const { key } of COMPONENT_ORDER) {
+    const w = raw.weights[key];
+    if (!w || !Array.isArray(w.tensors)) return null;
+    weights[key] = {
+      component: w.component,
+      tensors: w.tensors.map((arr) => new Float64Array(arr)),
+      mean: w.mean,
+      std: w.std,
+      isDiffMode: w.isDiffMode,
+      isLogMode: w.isLogMode,
+      bestEpoch: w.bestEpoch,
+    };
+  }
+  return {
+    cacheKey: raw.cacheKey,
+    dataSignature: raw.dataSignature,
+    config: raw.config,
+    weights,
+    forecast: raw.forecast,
+    cachedAtMs: raw.cachedAtMs ?? 0,
+  };
+}
+
+function persistCacheToSessionStorage(): void {
+  if (typeof window === 'undefined' || typeof window.sessionStorage === 'undefined') return;
+  try {
+    const forecasts = Array.from(forecastArtifactCache.values())
+      .slice(-MAX_PERSISTED_FORECASTS)
+      .map(serializeArtifact);
+    const sweeps = Array.from(sensitivityArtifactCache.values()).slice(-MAX_PERSISTED_SWEEPS);
+    const lastKeys = Array.from(lastForecastKeyByDataSig.entries()).slice(
+      -MAX_FORECAST_CACHE_ENTRIES
+    );
+    const payload: SerializedTcnCachePayload = {
+      version: 3,
+      forecasts,
+      sweeps,
+      lastKeys,
+    };
+    window.sessionStorage.setItem(TCN_CACHE_STORAGE_KEY, JSON.stringify(payload));
+  } catch {
+    // Ignore storage quota or private-mode access errors; in-memory LRU cache stays active.
+  }
+}
+
+export function hydrateTcnCacheFromSessionStorage(): boolean {
+  if (hasHydratedSessionStorage) return false;
+  if (typeof window === 'undefined' || typeof window.sessionStorage === 'undefined') return false;
+  hasHydratedSessionStorage = true;
+  try {
+    const rawStr = window.sessionStorage.getItem(TCN_CACHE_STORAGE_KEY);
+    if (!rawStr) return false;
+    const parsed = JSON.parse(rawStr) as SerializedTcnCachePayload;
+    if (!parsed || parsed.version !== 3) return false;
+    let hydratedAny = false;
+    if (Array.isArray(parsed.forecasts)) {
+      for (const item of parsed.forecasts) {
+        const artifact = deserializeArtifact(item);
+        if (artifact && !forecastArtifactCache.has(artifact.cacheKey)) {
+          lruSet(forecastArtifactCache, artifact.cacheKey, artifact, MAX_FORECAST_CACHE_ENTRIES);
+          hydratedAny = true;
+        }
+      }
+    }
+    if (Array.isArray(parsed.sweeps)) {
+      for (const sweep of parsed.sweeps) {
+        if (sweep && sweep.cacheKey && !sensitivityArtifactCache.has(sweep.cacheKey)) {
+          lruSet(
+            sensitivityArtifactCache,
+            sweep.cacheKey,
+            sweep,
+            MAX_SENSITIVITY_CACHE_ENTRIES
+          );
+          hydratedAny = true;
+        }
+      }
+    }
+    if (Array.isArray(parsed.lastKeys)) {
+      for (const [sig, key] of parsed.lastKeys) {
+        if (!lastForecastKeyByDataSig.has(sig) && forecastArtifactCache.has(key)) {
+          lastForecastKeyByDataSig.set(sig, key);
+        }
+      }
+    }
+    return hydratedAny;
+  } catch {
+    return false;
+  }
+}
+
+export function getCachedTcnArtifact(cacheKey: string): TcnTrainedModelArtifact | null {
+  return lruGet(forecastArtifactCache, cacheKey);
+}
+
+export function getLatestCachedTcnArtifactForData(
+  dataSignature: string
+): TcnTrainedModelArtifact | null {
+  const key = lastForecastKeyByDataSig.get(dataSignature);
+  if (!key) return null;
+  return lruGet(forecastArtifactCache, key);
+}
+
+/**
+ * Returns the most recently cached TCN-Attention Decomposition artifact for a
+ * given ticker symbol without requiring decomposition parameters or triggering training.
+ */
+export function getLatestCachedTcnArtifactByTicker(
+  ticker: string
+): TcnTrainedModelArtifact | null {
+  hydrateTcnCacheFromSessionStorage();
+  const target = ticker.trim().toUpperCase();
+  if (!target) return null;
+  let latest: TcnTrainedModelArtifact | null = null;
+  for (const artifact of forecastArtifactCache.values()) {
+    if (artifact.forecast.ticker.toUpperCase() === target) {
+      latest = artifact;
+    }
+  }
+  return latest;
+}
+
+export function getCachedTcnSensitivity(cacheKey: string): TcnSensitivityCacheArtifact | null {
+  return lruGet(sensitivityArtifactCache, cacheKey);
+}
+
+export function getTcnCacheStats(): {
+  forecastCount: number;
+  sensitivityCount: number;
+  totalWeightTensors: number;
+} {
+  let totalWeightTensors = 0;
+  for (const artifact of forecastArtifactCache.values()) {
+    for (const { key } of COMPONENT_ORDER) {
+      totalWeightTensors += artifact.weights[key].tensors.length;
+    }
+  }
+  return {
+    forecastCount: forecastArtifactCache.size,
+    sensitivityCount: sensitivityArtifactCache.size,
+    totalWeightTensors,
+  };
+}
+
+export function clearTcnCache(): void {
+  forecastArtifactCache.clear();
+  sensitivityArtifactCache.clear();
+  lastForecastKeyByDataSig.clear();
+  hasHydratedSessionStorage = false;
+  if (typeof window !== 'undefined' && typeof window.sessionStorage !== 'undefined') {
+    try {
+      window.sessionStorage.removeItem(TCN_CACHE_STORAGE_KEY);
+    } catch {
+      // Ignore storage access failures.
+    }
+  }
+}
+
+/**
+ * Runs deterministic forward inference for t+1 directly from cached model weights
+ * (Float64Array tensors + training normalization moments) without retraining.
+ */
+export function predictNextDayFromCachedWeights(
+  artifact: TcnTrainedModelArtifact,
+  decomposition: DecompositionResult
+): {
+  predictedPrice: number;
+  components: Record<DecompositionComponentKey, number>;
+} {
+  const { model, observed } = decomposition;
+  const neutral = model === 'multiplicative' ? 1 : 0;
+  const seriesMap: Record<DecompositionComponentKey, number[]> = {
+    trend: decomposition.trend.map((v, i) => (v !== null && Number.isFinite(v) ? v : observed[i])),
+    cyclical: decomposition.cyclical.map((v) => (Number.isFinite(v) ? v : neutral)),
+    seasonal: decomposition.seasonal.map((v) => (Number.isFinite(v) ? v : neutral)),
+    residual: decomposition.residual.map((v) => (v !== null && Number.isFinite(v) ? v : neutral)),
+  };
+
+  const lookback = artifact.config.lookback;
+  const hmm = computeCausalHmmForObservedPrices(observed, lookback, artifact.config.trainSplit);
+  const hmmPosteriors = hmm?.filteredPosteriors ?? null;
+  const cIn = DECOMP_TCN_IN_CHANNELS;
+  const preds = {} as Record<DecompositionComponentKey, number>;
+
+  for (const { key } of COMPONENT_ORDER) {
+    const compWeights = artifact.weights[key];
+    const values = seriesMap[key];
+    const work: number[] = [];
+
+    if (compWeights.isDiffMode) {
+      for (let i = 1; i < values.length; i++) {
+        const prev = values[i - 1];
+        const curr = values[i];
+        work.push(
+          compWeights.isLogMode
+            ? Math.log(Math.max(curr, 1e-6) / Math.max(prev, 1e-6))
+            : curr - prev
+        );
+      }
+    } else {
+      for (let i = 0; i < values.length; i++) {
+        work.push(compWeights.isLogMode ? Math.log(Math.max(values[i], 1e-6)) : values[i]);
+      }
+    }
+
+    const startIdx = Math.max(0, work.length - lookback);
+    const inputBuf = new Float64Array(lookback * cIn);
+    const denom = Math.max(1, lookback - 1);
+    for (let t = 0; t < lookback; t++) {
+      const idx = Math.min(work.length - 1, startIdx + t);
+      const prevIdx = Math.max(0, idx - 1);
+      const zi = (work[idx] - compWeights.mean) / compWeights.std;
+      const prevZ = t > 0 ? (work[prevIdx] - compWeights.mean) / compWeights.std : zi;
+      const priceIdx = compWeights.isDiffMode ? idx + 1 : idx;
+      const p = hmmPosteriors?.[priceIdx];
+      const base = t * cIn;
+      inputBuf[base] = zi;
+      inputBuf[base + 1] = zi - prevZ;
+      inputBuf[base + 2] = t / denom - 0.5;
+      inputBuf[base + 3] = p && p.length >= 3 ? 2 * p[0] - 1 : 0;
+      inputBuf[base + 4] = p && p.length >= 3 ? 2 * p[1] - 1 : 0;
+      inputBuf[base + 5] = p && p.length >= 3 ? 2 * p[2] - 1 : 0;
+    }
+
+    const net = createNetwork(artifact.config, 0);
+    restoreWeights(net, compWeights.tensors);
+    const ws = createForwardWorkspace(net, lookback);
+    const out = forwardSample(net, inputBuf, lookback, ws);
+
+    preds[key] = unscaleToNative(
+      out.pred,
+      compWeights.mean,
+      compWeights.std,
+      compWeights.isDiffMode,
+      compWeights.isLogMode,
+      values[values.length - 1]
+    );
+  }
+
+  const predictedPrice =
+    model === 'multiplicative'
+      ? preds.trend * preds.cyclical * preds.seasonal * preds.residual
+      : preds.trend + preds.cyclical + preds.seasonal + preds.residual;
+
+  return { predictedPrice, components: preds };
+}
+
 export async function runTcnDecompositionForecast(
   ticker: string,
   decomposition: DecompositionResult,
@@ -1275,10 +1838,27 @@ export async function runTcnDecompositionForecast(
     onProgress?: (progress: TcnTrainingProgress) => void;
     yieldControl?: () => Promise<void>;
     isCancelled?: () => boolean;
+    /** Read/write trained model weights & predictions cache (default true) */
+    useCache?: boolean;
+    /** Bypass cached entry and train fresh weights, overwriting the cache slot */
+    forceRetrain?: boolean;
   }
 ): Promise<TcnDecompositionForecast | null> {
   const n = decomposition.observed.length;
   if (n < MIN_BARS_FOR_TCN) return null;
+
+  const useCache = options?.useCache !== false;
+  const forceRetrain = options?.forceRetrain === true;
+  const dataSignature = buildTcnDataSignature(ticker, decomposition);
+  const cacheKey = buildTcnCacheKey(ticker, decomposition, rawConfig);
+
+  if (useCache && !forceRetrain) {
+    const cached = getCachedTcnArtifact(cacheKey);
+    if (cached) {
+      lastForecastKeyByDataSig.set(dataSignature, cacheKey);
+      return cached.forecast;
+    }
+  }
 
   const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
   const config = sanitizeTcnConfig(rawConfig, n);
@@ -1291,6 +1871,9 @@ export async function runTcnDecompositionForecast(
     seasonal: decomposition.seasonal.map((v) => (Number.isFinite(v) ? v : neutral)),
     residual: decomposition.residual.map((v) => (v !== null && Number.isFinite(v) ? v : neutral)),
   };
+
+  const hmm = computeCausalHmmForObservedPrices(observed, config.lookback, config.trainSplit);
+  const hmmPosteriors = hmm?.filteredPosteriors ?? null;
 
   const results = {} as Record<DecompositionComponentKey, TrainedComponentResult>;
 
@@ -1305,6 +1888,7 @@ export async function runTcnDecompositionForecast(
       model,
       config,
       idx + 1,
+      hmmPosteriors,
       (epoch) => {
         options?.onProgress?.({
           component: key,
@@ -1354,11 +1938,31 @@ export async function runTcnDecompositionForecast(
   }
   sharedHoldoutIndices.sort((a, b) => a - b);
 
+  // Realized daily return volatility computed strictly on the training period
+  // preceding the first holdout index (zero lookahead bias) for signal sizing.
+  const firstHoldoutIdx = sharedHoldoutIndices.length > 0 ? sharedHoldoutIndices[0] : n;
+  const trainSimpleReturns: number[] = [];
+  for (let i = 1; i < firstHoldoutIdx; i++) {
+    const prev = observed[i - 1];
+    const curr = observed[i];
+    if (prev > 0 && Number.isFinite(prev) && Number.isFinite(curr)) {
+      trainSimpleReturns.push((curr - prev) / prev);
+    }
+  }
+  const rawTrainReturnStd = Math.sqrt(Math.max(0, sampleVariance(trainSimpleReturns)));
+  const trainReturnStd =
+    Number.isFinite(rawTrainReturnStd) && rawTrainReturnStd > 1e-4 ? rawTrainReturnStd : 0.015;
+
   let priceSqErr = 0;
   let priceAbsErr = 0;
   let naiveSqErr = 0;
   let dirHits = 0;
   const compositeWorkErrors: number[] = [];
+  const holdoutPredCyclical: number[] = [];
+  const holdoutResiduals: number[] = [];
+  const allHoldoutSignals: BacktestSignalPoint[] = [];
+
+  const { states: hmmStates, probs: hmmProbs } = extractDominantHmmSeries(hmmPosteriors);
 
   for (const idx of sharedHoldoutIndices) {
     const ht = results.trend.holdoutPredByIndex.get(idx)!;
@@ -1368,6 +1972,26 @@ export async function runTcnDecompositionForecast(
     const yHat = model === 'multiplicative' ? ht * hc * hs * hi : ht + hc + hs + hi;
     const yActual = observed[idx];
     const yPrev = observed[idx - 1];
+
+    holdoutPredCyclical.push(hc);
+    holdoutResiduals.push(seriesMap.residual[idx]);
+
+    const predictedReturn = yPrev > 0 ? (yHat - yPrev) / yPrev : 0;
+    const actualReturn = yPrev > 0 ? (yActual - yPrev) / yPrev : 0;
+    const weight = Math.tanh(predictedReturn / trainReturnStd);
+    // Strictly causal prediction-origin HMM regime at t - 1 (= idx - 1)
+    const originIdx = Math.max(0, idx - 1);
+    allHoldoutSignals.push({
+      date: dates[idx] || `t-${n - 1 - idx}`,
+      prevPrice: yPrev,
+      actualPrice: yActual,
+      predictedPrice: yHat,
+      predictedReturn,
+      actualReturn,
+      weight,
+      hmmState: hmmStates[originIdx],
+      hmmProb: hmmProbs[originIdx],
+    });
 
     const err = yActual - yHat;
     priceSqErr += err * err;
@@ -1386,6 +2010,14 @@ export async function runTcnDecompositionForecast(
       compositeWorkErrors.push(err);
     }
   }
+
+  const backtestSignals = allHoldoutSignals.slice(-30);
+
+  const signalToNoise = computeCyclicalSignalToNoise(
+    holdoutPredCyclical,
+    holdoutResiduals,
+    model
+  );
 
   const holdoutCount = Math.max(1, sharedHoldoutIndices.length);
   const holdoutPriceRmse = Math.sqrt(priceSqErr / holdoutCount);
@@ -1447,7 +2079,7 @@ export async function runTcnDecompositionForecast(
 
   const t1 = typeof performance !== 'undefined' ? performance.now() : 0;
 
-  return {
+  const forecast: TcnDecompositionForecast = {
     ticker,
     model,
     period: decomposition.period,
@@ -1470,7 +2102,268 @@ export async function runTcnDecompositionForecast(
     receptiveField: computeReceptiveField(config.dilations, config.kernelSize),
     parameterCount: computeParameterCount(config),
     trainingDurationMs: Math.max(1, Math.round(t1 - t0)),
+    signalToNoise,
+    backtestSignals,
+    hmmRegime: hmm?.summary ?? null,
     components,
+  };
+
+  if (useCache) {
+    const weights = {} as Record<DecompositionComponentKey, TrainedComponentWeights>;
+    for (const { key } of COMPONENT_ORDER) {
+      weights[key] = results[key].weights;
+    }
+    const artifact: TcnTrainedModelArtifact = {
+      cacheKey,
+      dataSignature,
+      config,
+      weights,
+      forecast,
+      cachedAtMs: Date.now(),
+    };
+    lruSet(forecastArtifactCache, cacheKey, artifact, MAX_FORECAST_CACHE_ENTRIES);
+    lastForecastKeyByDataSig.set(dataSignature, cacheKey);
+    persistCacheToSessionStorage();
+  }
+
+  return forecast;
+}
+
+function sampleVariance(values: number[]): number {
+  if (values.length <= 1) return 0;
+  let sum = 0;
+  for (const v of values) sum += v;
+  const mean = sum / values.length;
+  let sq = 0;
+  for (const v of values) {
+    const d = v - mean;
+    sq += d * d;
+  }
+  return sq / (values.length - 1);
+}
+
+/**
+ * Computes the Signal-to-Noise Ratio (SNR) comparing the sample variance of
+ * the TCN-predicted cyclical component (Ĉ_t) against the sample variance of
+ * the aligned irregular residuals (I_t).
+ *
+ * Uses log-factor working space in multiplicative mode (ln Ĉ_t vs ln I_t) and
+ * linear dollar space in additive mode (Ĉ_t vs I_t) so both variances share
+ * identical scale and units.
+ */
+export function computeCyclicalSignalToNoise(
+  predictedCyclical: number[],
+  residuals: number[],
+  model: 'additive' | 'multiplicative'
+): CyclicalSignalToNoise {
+  const m = Math.min(predictedCyclical.length, residuals.length);
+  const sigWork: number[] = [];
+  const noiseWork: number[] = [];
+
+  for (let i = 0; i < m; i++) {
+    const cVal = predictedCyclical[i];
+    const rVal = residuals[i];
+    if (!Number.isFinite(cVal) || !Number.isFinite(rVal)) continue;
+    if (model === 'multiplicative') {
+      sigWork.push(Math.log(Math.max(cVal, 1e-6)));
+      noiseWork.push(Math.log(Math.max(rVal, 1e-6)));
+    } else {
+      sigWork.push(cVal);
+      noiseWork.push(rVal);
+    }
+  }
+
+  const signalVariance = sampleVariance(sigWork);
+  const noiseVariance = sampleVariance(noiseWork);
+  const signalStdDev = Math.sqrt(Math.max(0, signalVariance));
+  const noiseStdDev = Math.sqrt(Math.max(0, noiseVariance));
+
+  let ratio: number;
+  if (noiseVariance > 1e-12) {
+    ratio = signalVariance / noiseVariance;
+  } else {
+    ratio = signalVariance > 1e-12 ? 999 : 0;
+  }
+
+  const db = ratio > 1e-12 ? 10 * Math.log10(ratio) : -30;
+  const totalVar = signalVariance + noiseVariance;
+  const signalSharePct = totalVar > 1e-12 ? (signalVariance / totalVar) * 100 : 50;
+
+  let regime: SignalToNoiseRegime;
+  if (ratio >= 2.0) {
+    regime = 'Strong Signal';
+  } else if (ratio >= 0.75) {
+    regime = 'Moderate Signal';
+  } else {
+    regime = 'Noise-Dominated';
+  }
+
+  return {
+    ratio,
+    db,
+    signalVariance,
+    noiseVariance,
+    signalStdDev,
+    noiseStdDev,
+    signalSharePct,
+    sampleCount: sigWork.length,
+    regime,
+  };
+}
+
+/**
+ * Evaluates a signal-weighted historical backtest over strictly out-of-sample
+ * daily forecast signals, compounding net equity after turnover-weighted
+ * transaction friction (`costBps`) alongside a Buy & Hold benchmark.
+ */
+export function computeHistoricalBacktest(
+  signals: BacktestSignalPoint[],
+  costBps: BacktestCostBps = 0
+): HistoricalBacktestResult {
+  const costRate = Math.max(0, costBps) / 10000;
+  const days: BacktestDayResult[] = [];
+  const netReturns: number[] = [];
+
+  let strategyEquity = 1;
+  let grossEquity = 1;
+  let benchmarkEquity = 1;
+  let peakEquity = 1;
+  let maxDrawdown = 0;
+  let prevWeight = 0;
+
+  let winDays = 0;
+  let posNetSum = 0;
+  let negNetAbsSum = 0;
+  let absWeightSum = 0;
+  let turnoverSum = 0;
+
+  const regAcc = [0, 1, 2].map(() => ({
+    count: 0,
+    dirHits: 0,
+    sqDollarErr: 0,
+    netReturnSum: 0,
+    compEquity: 1,
+  }));
+
+  for (const s of signals) {
+    const rawW = Number.isFinite(s.weight) ? s.weight : 0;
+    const weight = Math.max(-1, Math.min(1, rawW));
+    const actualRet = Number.isFinite(s.actualReturn) ? s.actualReturn : 0;
+    const predRet = Number.isFinite(s.predictedReturn) ? s.predictedReturn : 0;
+
+    const turnover = Math.abs(weight - prevWeight);
+    const costDrag = turnover * costRate;
+    const grossReturn = weight * actualRet;
+    const netReturn = grossReturn - costDrag;
+
+    strategyEquity = Math.max(1e-6, strategyEquity * (1 + netReturn));
+    grossEquity = Math.max(1e-6, grossEquity * (1 + grossReturn));
+    benchmarkEquity = Math.max(1e-6, benchmarkEquity * (1 + actualRet));
+
+    if (strategyEquity > peakEquity) {
+      peakEquity = strategyEquity;
+    }
+    const drawdown = peakEquity > 0 ? (strategyEquity - peakEquity) / peakEquity : 0;
+    if (drawdown < maxDrawdown) {
+      maxDrawdown = drawdown;
+    }
+
+    netReturns.push(netReturn);
+    absWeightSum += Math.abs(weight);
+    turnoverSum += turnover;
+    if (netReturn > 0) {
+      winDays++;
+      posNetSum += netReturn;
+    } else if (netReturn < 0) {
+      negNetAbsSum += Math.abs(netReturn);
+    }
+
+    if (s.hmmState === 0 || s.hmmState === 1 || s.hmmState === 2) {
+      const b = regAcc[s.hmmState];
+      b.count++;
+      if ((s.predictedPrice - s.prevPrice) * (s.actualPrice - s.prevPrice) >= 0) {
+        b.dirHits++;
+      }
+      const dErr = s.actualPrice - s.predictedPrice;
+      b.sqDollarErr += dErr * dErr;
+      b.netReturnSum += netReturn;
+      b.compEquity = Math.max(1e-6, b.compEquity * (1 + netReturn));
+    }
+
+    days.push({
+      date: s.date,
+      prevPrice: s.prevPrice,
+      actualPrice: s.actualPrice,
+      predictedPrice: s.predictedPrice,
+      predictedReturn: predRet,
+      actualReturn: actualRet,
+      weight,
+      turnover,
+      grossReturn,
+      costDrag,
+      netReturn,
+      strategyEquity,
+      benchmarkEquity,
+      strategyCumPct: (strategyEquity - 1) * 100,
+      benchmarkCumPct: (benchmarkEquity - 1) * 100,
+      drawdownPct: drawdown * 100,
+      hmmState: s.hmmState,
+      hmmProb: s.hmmProb,
+    });
+
+    prevWeight = weight;
+  }
+
+  const tradingDays = days.length;
+  const strategyCumPct = (strategyEquity - 1) * 100;
+  const benchmarkCumPct = (benchmarkEquity - 1) * 100;
+  const excessReturnPct = strategyCumPct - benchmarkCumPct;
+  const grossCumPct = (grossEquity - 1) * 100;
+  const totalCostDragPct = grossCumPct - strategyCumPct;
+
+  const meanNet =
+    tradingDays > 0 ? netReturns.reduce((acc, r) => acc + r, 0) / tradingDays : 0;
+  const stdNet = Math.sqrt(Math.max(0, sampleVariance(netReturns)));
+  const annualizedSharpe = stdNet > 1e-10 ? (meanNet / stdNet) * Math.sqrt(252) : 0;
+  const maxDrawdownPct = maxDrawdown * 100;
+  const winRatePct = tradingDays > 0 ? (winDays / tradingDays) * 100 : 0;
+  const profitFactor =
+    negNetAbsSum > 1e-12 ? posNetSum / negNetAbsSum : posNetSum > 1e-12 ? null : 0;
+  const avgAbsWeight = tradingDays > 0 ? absWeightSum / tradingDays : 0;
+  const avgDailyTurnover = tradingDays > 0 ? turnoverSum / tradingDays : 0;
+
+  const regimeBreakdown: BacktestRegimePerfRow[] = ([0, 1, 2] as const).map((st) => {
+    const b = regAcc[st];
+    return {
+      state: st,
+      label: HMM_REGIME_TOKENS[st].label,
+      count: b.count,
+      directionalHitRatePct: b.count > 0 ? (b.dirHits / b.count) * 100 : null,
+      rmseDollar: b.count > 0 ? Math.sqrt(b.sqDollarErr / b.count) : null,
+      meanNetReturnPct: b.count > 0 ? (b.netReturnSum / b.count) * 100 : null,
+      cumNetReturnPct: b.count > 0 ? (b.compEquity - 1) * 100 : null,
+    };
+  });
+
+  return {
+    costBps,
+    days,
+    summary: {
+      tradingDays,
+      strategyCumPct,
+      benchmarkCumPct,
+      excessReturnPct,
+      grossCumPct,
+      totalCostDragPct,
+      annualizedSharpe,
+      maxDrawdownPct,
+      winRatePct,
+      winDays,
+      profitFactor,
+      avgAbsWeight,
+      avgDailyTurnover,
+    },
+    regimeBreakdown,
   };
 }
 
@@ -1532,10 +2425,26 @@ export async function runTcnLookbackSensitivitySweep(
     onProgress?: (progress: TcnTrainingProgress) => void;
     yieldControl?: () => Promise<void>;
     isCancelled?: () => boolean;
+    useCache?: boolean;
+    forceRetrain?: boolean;
   }
 ): Promise<TcnSensitivityResult | null> {
   const n = decomposition.observed.length;
   if (n < MIN_BARS_FOR_TCN) return null;
+
+  const useCache = options?.useCache !== false;
+  const forceRetrain = options?.forceRetrain === true;
+  const dataSignature = buildTcnDataSignature(ticker, decomposition);
+  const baseCacheKey = buildTcnCacheKey(ticker, decomposition, rawConfig);
+  const sweepCacheKey = buildTcnSensitivityCacheKey(ticker, decomposition, rawConfig, step);
+
+  if (useCache && !forceRetrain) {
+    const cachedSweep = getCachedTcnSensitivity(sweepCacheKey);
+    if (cachedSweep) {
+      lastForecastKeyByDataSig.set(dataSignature, baseCacheKey);
+      return cachedSweep.result;
+    }
+  }
 
   const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
   const baseConfig = sanitizeTcnConfig(rawConfig, n);
@@ -1564,6 +2473,8 @@ export async function runTcnLookbackSensitivitySweep(
       },
       yieldControl: options?.yieldControl,
       isCancelled: options?.isCancelled,
+      useCache,
+      forceRetrain,
     });
 
     if (!forecast || options?.isCancelled?.()) return null;
@@ -1666,7 +2577,7 @@ export async function runTcnLookbackSensitivitySweep(
 
   const t1 = typeof performance !== 'undefined' ? performance.now() : 0;
 
-  return {
+  const result: TcnSensitivityResult = {
     ticker,
     model: decomposition.model,
     baseLookback: baseRun.lookback,
@@ -1693,4 +2604,24 @@ export async function runTcnLookbackSensitivitySweep(
     },
     componentStability,
   };
+
+  if (useCache) {
+    lruSet(
+      sensitivityArtifactCache,
+      sweepCacheKey,
+      {
+        cacheKey: sweepCacheKey,
+        dataSignature,
+        baseCacheKey,
+        step,
+        result,
+        cachedAtMs: Date.now(),
+      },
+      MAX_SENSITIVITY_CACHE_ENTRIES
+    );
+    lastForecastKeyByDataSig.set(dataSignature, baseCacheKey);
+    persistCacheToSessionStorage();
+  }
+
+  return result;
 }

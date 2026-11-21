@@ -11,10 +11,12 @@ import { EmptyState } from '@/components/ui/empty-state';
 export function MoveDistributionChart({
   samples,
   impliedPct,
+  tcnMovePct = null,
   horizonLabel,
 }: {
   samples: number[];
   impliedPct: number | null;
+  tcnMovePct?: number | null;
   horizonLabel: string;
 }) {
   const { tooltipState, showTooltip, hideTooltip } = useChartTooltip();
@@ -86,12 +88,36 @@ export function MoveDistributionChart({
             </text>
           </g>
         )}
+        {/* TCN-Attention forecast move rule */}
+        {tcnMovePct !== null && tcnMovePct > 0 && (
+          <g>
+            <line
+              x1={xOf(Math.min(tcnMovePct / 100, hist.cap))}
+              x2={xOf(Math.min(tcnMovePct / 100, hist.cap))}
+              y1={pad.t + 8}
+              y2={height - pad.b}
+              stroke="#3fb27f"
+              strokeWidth="1.3"
+              strokeDasharray="4 2"
+            />
+            <text
+              x={xOf(Math.min(tcnMovePct / 100, hist.cap))}
+              y={pad.t + 6}
+              fontSize="8"
+              fill="#3fb27f"
+              fontFamily="var(--font-mono)"
+              textAnchor="middle"
+            >
+              TCN {tcnMovePct.toFixed(1)}%
+            </text>
+          </g>
+        )}
         <text x={pad.l} y={height - 4} fontSize="8" fill="#8b8b93" fontFamily="var(--font-mono)">0%</text>
         <text x={width - pad.r} y={height - 4} fontSize="8" fill="#8b8b93" textAnchor="end" fontFamily="var(--font-mono)">{(hist.cap * 100).toFixed(0)}%+</text>
       </svg>
       <ChartTooltip state={tooltipState} />
       <p className="mt-1 font-mono text-[9px] text-zinc-400">
-        {horizonLabel} · n = {samples.length.toLocaleString()} windows · histogram capped at P75×2.5 · implied = 0.8×ATM straddle
+        {horizonLabel} · n = {samples.length.toLocaleString()} windows · histogram capped at P75×2.5 · implied = 0.8×ATM straddle{tcnMovePct !== null ? ' · TCN = 0.8×σ_TCN(T)√(T/252)' : ''}
       </p>
     </div>
   );

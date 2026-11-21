@@ -1,10 +1,12 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
   Circle,
+  Cpu,
+  RefreshCw,
   Scale,
   Sigma,
   TrendingDown,
@@ -44,6 +46,12 @@ import { IvRvSpreadChart, type IvRvSpreadPoint } from '@/components/charts/IvRvS
 import { ExpectedMoveConeChart } from '@/components/charts/ExpectedMoveConeChart';
 import { ReconciliationLog } from './ReconciliationLog';
 import { RegimeTimeline, regimeNames } from '@/components/charts/RegimeTimeline';
+import { useTcnVolatility } from '@/hooks/useTcnVolatility';
+import { evaluateTcnConfluence } from '@/lib/tcn-multi-domain';
+import {
+  getLatestCachedTcnArtifactByTicker,
+  type TcnDecompositionForecast,
+} from '@/lib/tcn-attention';
 import type { ChainPayload, IvHistoryEntry } from './types';
 
 interface T8DecisionTabProps {
@@ -324,6 +332,47 @@ export function T8DecisionTab({ chain, bars, ticker, ivHistory, intradayBars, in
   const longGamma = signals.find((s) => s.id === 'long-gamma');
   const entryMet = longGamma?.state === 'met';
 
+  // TCN-Attention multi-horizon (1d / 5d / 22d) Volatility + cached Decomposition confluence
+  const { volForecast: tcnVol, isTraining: tcnVolTraining, retrain: retrainTcnVol } = useTcnVolatility(
+    ticker,
+    bars,
+    { autoRun: true }
+  );
+  const [cachedDecomp, setCachedDecomp] = useState<{ ticker: string; forecast: TcnDecompositionForecast } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      if (cancelled) return;
+      const art = getLatestCachedTcnArtifactByTicker(ticker);
+      setCachedDecomp(art ? { ticker: ticker.toUpperCase(), forecast: art.forecast } : null);
+    }, 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [ticker]);
+
+  const activeDecompForecast =
+    cachedDecomp && cachedDecomp.ticker === ticker.toUpperCase() ? cachedDecomp.forecast : null;
+
+  const tcnOrientation: 'short-premium' | 'long-gamma' | 'neutral' = entryMet
+    ? 'long-gamma'
+    : iv30 !== null && rv20 !== null && iv30 - rv20 >= 0.02
+      ? 'short-premium'
+      : 'neutral';
+
+  const tcnConfluence = useMemo(
+    () =>
+      evaluateTcnConfluence({
+        iv30,
+        rv20,
+        volForecast: tcnVol,
+        decompForecast: activeDecompForecast,
+        primaryOrientation: tcnOrientation,
+      }),
+    [iv30, rv20, tcnVol, activeDecompForecast, tcnOrientation]
+  );
+
   // Series for the breakeven chart — RV windows vs IV30 and 1.25×IV30
   const breakevenSeries = useMemo(() => rolling.filter((s) => s.window === 5 || s.window === 10 || s.window === 30), [rolling]);
 
@@ -370,6 +419,119 @@ export function T8DecisionTab({ chain, bars, ticker, ivHistory, intradayBars, in
         <p className="mt-2 font-mono text-[9px] uppercase tracking-[0.16em] text-zinc-500 dark:text-zinc-500">
           note — RV &gt; IV ⇒ the gap is in the front; the back already realized {pct(baseline)}. RV is √252, IV is √365 — annualizations of the same total variance, so they are compared directly and never rescaled; ANN VOL (250d) is shown nowhere on this tab on purpose.
         </p>
+      </div>
+
+      {/* ── 1a ── TCN-Attention Multi-Horizon VRP & Signal Confluence ─────────── */}
+      <div className="panel p-5">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Cpu className="h-3.5 w-3.5 text-gold-600 dark:text-gold-400" />
+              <h3 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+                TCN-Attention Forward VRP &amp; Signal Confluence
+              </h3>
+              <span
+                className={`rounded border px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-[0.16em] ${
+                  tcnConfluence.alignment === 'ALIGNED'
+                    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                    : tcnConfluence.alignment === 'DIVERGENT'
+                      ? 'border-rose-500/40 bg-rose-500/10 text-rose-600 dark:text-rose-400'
+                      : tcnConfluence.alignment === 'MIXED'
+                        ? 'border-gold-500/40 bg-gold-500/10 text-gold-700 dark:text-gold-300'
+                        : 'border-[var(--hairline)] bg-[var(--bg-inset)] text-zinc-500'
+                }`}
+              >
+                {tcnConfluence.alignment}
+              </span>
+              {tcnConfluence.volRegimeRead !== 'UNAVAILABLE' && (
+                <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-zinc-500 dark:text-zinc-400">
+                  · {tcnConfluence.volRegimeRead}
+                </span>
+              )}
+            </div>
+            <p className="mt-0.5 max-w-2xl text-[11px] leading-snug text-zinc-500 dark:text-zinc-400">
+              Forward realized volatility projected by the shared dilated-causal TCN-Attention engine (1d · 5d · 22d QLIKE head) paired directly with live IV30 and any cached Decomposition price signal for {ticker}.
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {tcnVol && (
+              <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-zinc-400">
+                {tcnVol.cacheHit ? 'cached' : `${tcnVol.trainingDurationMs}ms`}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={retrainTcnVol}
+              disabled={tcnVolTraining || bars.length < 70}
+              className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--hairline)] bg-[var(--bg-inset)] px-2.5 py-1 font-mono text-[9.5px] font-semibold uppercase tracking-wider text-zinc-700 hover:border-gold-500/40 hover:text-gold-700 disabled:opacity-50 dark:text-zinc-200 dark:hover:text-gold-300"
+            >
+              <RefreshCw className={`h-3 w-3 ${tcnVolTraining ? 'animate-spin' : ''}`} />
+              {tcnVolTraining ? 'Training…' : 'Retrain'}
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+          <Tile
+            label="TCN RV 1d"
+            value={pct(tcnConfluence.tcnRv1d)}
+            sub={tcnVol ? `99% ${pct(tcnVol.horizons[1].lower99Vol, 0)}–${pct(tcnVol.horizons[1].upper99Vol, 0)}` : 'needs ≥70 bars'}
+          />
+          <Tile
+            label="TCN RV 5d"
+            value={pct(tcnConfluence.tcnRv5d)}
+            sub={tcnVol ? `99% ${pct(tcnVol.horizons[5].lower99Vol, 0)}–${pct(tcnVol.horizons[5].upper99Vol, 0)}` : 'weekly anchor'}
+          />
+          <Tile
+            label="TCN RV 22d"
+            value={pct(tcnConfluence.tcnRv22d)}
+            sub={tcnVol ? `OOS QLIKE ${tcnVol.horizons[22].holdoutQlike.toFixed(3)}` : 'monthly anchor'}
+          />
+          <Tile
+            label="IV30 − TCN RV22"
+            value={signedPct(tcnConfluence.forwardVrp22)}
+            sub={
+              tcnConfluence.forwardVrp22 !== null
+                ? 'direct √365 vs √252 VRP'
+                : 'needs live chain + TCN'
+            }
+            tone={tcnConfluence.forwardVrp22 !== null ? 'gold' : 'default'}
+          />
+          <Tile
+            label="TCN 5d − 22d"
+            value={signedPct(tcnConfluence.tcnVolSlope)}
+            sub={
+              tcnConfluence.tcnVolSlope === null
+                ? 'term curve'
+                : tcnConfluence.tcnVolSlope > 0.01
+                  ? 'backwardation'
+                  : tcnConfluence.tcnVolSlope < -0.01
+                    ? 'contango'
+                    : 'flat curve'
+            }
+          />
+          <Tile
+            label="Decomp t+1 Tilt"
+            value={
+              tcnConfluence.priceTiltPct !== null
+                ? `${tcnConfluence.priceTiltPct >= 0 ? '+' : ''}${tcnConfluence.priceTiltPct.toFixed(2)}%`
+                : '—'
+            }
+            sub={
+              tcnConfluence.hasDecompArtifact
+                ? `${tcnConfluence.cyclicalSnrRegime ?? 'SNR n/a'}${tcnConfluence.backtestSharpe30d !== null ? ` · Sh ${tcnConfluence.backtestSharpe30d.toFixed(2)}` : ''}`
+                : 'run Analysis → Decomp'
+            }
+          />
+        </div>
+
+        {tcnConfluence.rationale.length > 0 && (
+          <ul className="mt-2.5 space-y-0.5 border-t border-[var(--hairline)] pt-2 font-mono text-[9.5px] leading-snug text-zinc-500 dark:text-zinc-400">
+            {tcnConfluence.rationale.map((line) => (
+              <li key={line}>• {line}</li>
+            ))}
+          </ul>
+        )}
       </div>
 
       {/* ── 1b ── The variance budget: what of this is harvestable ─────────── */}

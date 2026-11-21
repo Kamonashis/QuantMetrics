@@ -392,3 +392,176 @@ export function crisisProb(fit: HmmFit, t: number): number {
   const K = fit.k;
   return fit.posteriors[t]?.[K - 1] ?? 0;
 }
+
+export type HmmRegimeLabel = 'Calm' | 'Watchful' | 'Crisis';
+export const HMM_REGIME_LABELS: readonly HmmRegimeLabel[] = ['Calm', 'Watchful', 'Crisis'] as const;
+
+export interface CausalHmmSummary {
+  /** Dominant current causal regime state (0 = Calm, 1 = Watchful, 2 = Crisis) */
+  dominantState: 0 | 1 | 2;
+  dominantLabel: HmmRegimeLabel;
+  /** Strictly causal forward-filtered probabilities [P(Calm), P(Watchful), P(Crisis)] at latest bar */
+  probs: [number, number, number];
+  /** Number of training-prefix observations used to fit HMM parameters (zero holdout leakage) */
+  trainSampleCount: number;
+  converged: boolean;
+}
+
+export interface CausalHmmResult {
+  fit: HmmFit;
+  /** Strictly causal forward-filtered posteriors [T][3], each row sums to 1 */
+  filteredPosteriors: number[][];
+  summary: CausalHmmSummary;
+}
+
+/**
+ * Builds canonical 3-column strictly causal volatility-regime features
+ * [r_t, |r_t|, log(varProxy_t)] matching QuantMetrics' HMM convention.
+ * When OHLC variance proxies are not supplied, blends r_t^2 with a causal
+ * short-memory EWMA variance so flat zero-return sessions do not produce log(0) outliers.
+ */
+export function buildCausalReturnVolFeatures(
+  returns: number[],
+  varProxies?: number[]
+): number[][] {
+  const n = returns.length;
+  const out: number[][] = new Array(n);
+  const lambda = 0.72;
+  let ewmaVar = n > 0 ? Math.max(1e-6, (returns[0] || 0) * (returns[0] || 0)) : 1e-4;
+
+  for (let t = 0; t < n; t++) {
+    const r = Number.isFinite(returns[t]) ? returns[t] : 0;
+    const r2 = r * r;
+    ewmaVar = t === 0 ? Math.max(1e-6, r2) : lambda * ewmaVar + (1 - lambda) * r2;
+    const supplied = varProxies?.[t];
+    const v =
+      supplied !== undefined && Number.isFinite(supplied) && supplied > 0
+        ? Math.max(1e-8, supplied)
+        : Math.max(1e-8, 0.5 * r2 + 0.5 * ewmaVar);
+    out[t] = [r, Math.abs(r), Math.log(v)];
+  }
+  return out;
+}
+
+/**
+ * Pure log-domain forward filter (alpha_t recursion ONLY, zero backward pass).
+ * Evaluates P(S_t = k | x_{0..t}; theta) in original feature units using fixed
+ * parameters fitted on a training prefix — guarantees zero look-ahead bias.
+ */
+export function filterGaussianHmmForward(
+  features: number[][],
+  transition: number[][],
+  stateMeans: number[][],
+  stateStdDevs: number[][],
+  initialPrior: number[]
+): number[][] {
+  const T = features.length;
+  const K = stateMeans.length;
+  if (T === 0 || K === 0) return [];
+
+  const safeSd = stateStdDevs.map((row) => row.map((v) => Math.max(1e-6, Number.isFinite(v) ? v : 1)));
+  const logA = transition.map((row) => {
+    const sum = row.reduce((a, b) => a + (Number.isFinite(b) && b > 0 ? b : 0), 0);
+    return row.map((v) => {
+      const p = sum > 0 ? (Number.isFinite(v) && v > 0 ? v / sum : 0) : 1 / K;
+      return Math.log(Math.max(p, 1e-300));
+    });
+  });
+  const priorSum = initialPrior.reduce((a, b) => a + (Number.isFinite(b) && b > 0 ? b : 0), 0);
+  const logPrior = initialPrior.map((v) => {
+    const p = priorSum > 0 ? (Number.isFinite(v) && v > 0 ? v / priorSum : 0) : 1 / K;
+    return Math.log(Math.max(p, 1e-300));
+  });
+
+  const filtered: number[][] = new Array(T);
+  let prevLogAlpha = new Array<number>(K);
+
+  // t = 0
+  {
+    const a0 = new Array<number>(K);
+    for (let k = 0; k < K; k++) {
+      a0[k] = logPrior[k] + logEmission(features[0], stateMeans[k], safeSd[k]);
+    }
+    const c0 = logSumExp(a0);
+    for (let k = 0; k < K; k++) prevLogAlpha[k] = a0[k] - c0;
+    filtered[0] = prevLogAlpha.map((v) => Math.exp(v));
+  }
+
+  // t = 1 .. T - 1 (strictly causal recursion)
+  const terms = new Array<number>(K);
+  for (let t = 1; t < T; t++) {
+    const at = new Array<number>(K);
+    const x = features[t];
+    for (let j = 0; j < K; j++) {
+      for (let i = 0; i < K; i++) {
+        terms[i] = prevLogAlpha[i] + logA[i][j];
+      }
+      at[j] = logEmission(x, stateMeans[j], safeSd[j]) + logSumExp(terms);
+    }
+    const ct = logSumExp(at);
+    const nextLogAlpha = new Array<number>(K);
+    for (let j = 0; j < K; j++) nextLogAlpha[j] = at[j] - ct;
+    filtered[t] = nextLogAlpha.map((v) => Math.exp(v));
+    prevLogAlpha = nextLogAlpha;
+  }
+
+  return filtered;
+}
+
+/**
+ * Fits a 3-state Gaussian HMM strictly on the training prefix features[0 .. trainEndIdx - 1]
+ * (states ordered Calm → Watchful → Crisis by rankFeature mean) and computes strictly causal
+ * forward-filtered regime probabilities across all rows 0 .. features.length - 1.
+ *
+ * Returns null if the training slice is too short (< 30 bars) or fails to fit cleanly.
+ */
+export function fitAndFilterCausalHmm(
+  features: number[][],
+  trainEndIdx: number,
+  opts: HmmFitOptions = {}
+): CausalHmmResult | null {
+  if (!features || features.length < 30) return null;
+  const end = Math.min(features.length, Math.max(0, Math.floor(trainEndIdx)));
+  if (end < 30) return null;
+
+  const trainSlice = features.slice(0, end);
+  const rankFeature = opts.rankFeature ?? Math.max(0, (features[0]?.length ?? 1) - 1);
+  const fit = fitGaussianHmm(trainSlice, {
+    ...opts,
+    k: 3,
+    rankFeature,
+  });
+  if (!fit || fit.k !== 3) return null;
+
+  const filteredPosteriors = filterGaussianHmmForward(
+    features,
+    fit.transition,
+    fit.stateMeans,
+    fit.stateStdDevs,
+    fit.stationary
+  );
+  if (filteredPosteriors.length !== features.length) return null;
+
+  const lastRow = filteredPosteriors[filteredPosteriors.length - 1] ?? [1 / 3, 1 / 3, 1 / 3];
+  const probs: [number, number, number] = [
+    lastRow[0] ?? 1 / 3,
+    lastRow[1] ?? 1 / 3,
+    lastRow[2] ?? 1 / 3,
+  ];
+  let dominantState: 0 | 1 | 2 = 0;
+  if (probs[1] >= probs[0] && probs[1] >= probs[2]) dominantState = 1;
+  else if (probs[2] >= probs[0] && probs[2] >= probs[1]) dominantState = 2;
+
+  return {
+    fit,
+    filteredPosteriors,
+    summary: {
+      dominantState,
+      dominantLabel: HMM_REGIME_LABELS[dominantState],
+      probs,
+      trainSampleCount: end,
+      converged: fit.converged,
+    },
+  };
+}
+

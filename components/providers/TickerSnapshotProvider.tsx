@@ -40,6 +40,8 @@ export interface TickerSnapshotValue {
   earnings: { ticker: string; date: string; isEstimate: boolean; sessions: number } | null;
   /** All cached daily bars for cross-sectional reads. */
   allStockBars: Record<string, PriceBar[]>;
+  /** Live streamed latest quotes by symbol. */
+  latestQuotes: Record<string, { price: number; changePct: number; asOf: string }>;
   /** One combined watchlist scan shared by the board and the workstation. */
   watchRows: WatchRow[];
   scanWatchlist: (force?: boolean) => Promise<void>;
@@ -55,12 +57,15 @@ export function useTickerSnapshot(): TickerSnapshotValue {
   return ctx;
 }
 
+const EMPTY_QUOTES: Record<string, { price: number; changePct: number; asOf: string }> = {};
+
 export function TickerSnapshotProvider({
   ticker,
   bars,
   barsSource = null,
   intradaySource = null,
   allStockBars = {},
+  latestQuotes = EMPTY_QUOTES,
   children,
 }: {
   ticker: string;
@@ -68,6 +73,7 @@ export function TickerSnapshotProvider({
   barsSource?: string | null;
   intradaySource?: string | null;
   allStockBars?: Record<string, PriceBar[]>;
+  latestQuotes?: Record<string, { price: number; changePct: number; asOf: string }>;
   children: React.ReactNode;
 }) {
   const [chain, setChain] = useState<ChainPayload | null>(null);
@@ -158,9 +164,9 @@ export function TickerSnapshotProvider({
   const value = useMemo<TickerSnapshotValue>(() => ({
     ticker, chain, indices, ivHistory, panel, fnoPanel, fnoLoading, chainLoading, refresh,
     rvLadder, rvSeries, garchFit, rv20, vix, curve, session,
-    earnings, allStockBars, watchRows: watch.rows, scanWatchlist: watch.scan,
+    earnings, allStockBars, latestQuotes, watchRows: watch.rows, scanWatchlist: watch.scan,
     barsSource, intradaySource,
-  }), [ticker, chain, indices, ivHistory, panel, fnoPanel, fnoLoading, chainLoading, refresh, rvLadder, rvSeries, garchFit, rv20, vix, curve, session, earnings, allStockBars, watch.rows, watch.scan, barsSource, intradaySource]);
+  }), [ticker, chain, indices, ivHistory, panel, fnoPanel, fnoLoading, chainLoading, refresh, rvLadder, rvSeries, garchFit, rv20, vix, curve, session, earnings, allStockBars, latestQuotes, watch.rows, watch.scan, barsSource, intradaySource]);
 
   return <SnapshotContext.Provider value={value}>{children}</SnapshotContext.Provider>;
 }

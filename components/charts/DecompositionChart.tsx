@@ -5,12 +5,17 @@ import type { DecompositionResult, AdfTestResult } from '@/lib/quant-engine';
 import {
   DEFAULT_TCN_CONFIG,
   MIN_BARS_FOR_TCN,
+  buildTcnCacheKey,
+  buildTcnDataSignature,
+  buildTcnSensitivityCacheKey,
+  getCachedTcnArtifact,
+  getCachedTcnSensitivity,
+  getLatestCachedTcnArtifactForData,
+  hydrateTcnCacheFromSessionStorage,
   runTcnDecompositionForecast,
   runTcnLookbackSensitivitySweep,
   type SensitivityStep,
   type TcnAttentionConfig,
-  type TcnDecompositionForecast,
-  type TcnSensitivityResult,
   type TcnTrainingProgress,
 } from '@/lib/tcn-attention';
 import {
@@ -35,23 +40,59 @@ interface NextDayPointOverlay {
   dateLabel: string;
 }
 
+const persistedChartUiState: {
+  activeComponent: ComponentFilter;
+  tcnConfig: TcnAttentionConfig;
+  sensitivityEnabled: boolean;
+  sensitivityStep: SensitivityStep;
+} = {
+  activeComponent: 'all',
+  tcnConfig: { ...DEFAULT_TCN_CONFIG },
+  sensitivityEnabled: false,
+  sensitivityStep: 4,
+};
+
 export function DecompositionChart({
   ticker = 'ASSET',
   decomposition,
   adfTest,
 }: DecompositionChartProps) {
-  const [activeComponent, setActiveComponent] = useState<ComponentFilter>('all');
-  const [tcnConfig, setTcnConfig] = useState<TcnAttentionConfig>(() => ({
-    ...DEFAULT_TCN_CONFIG,
+  const [activeComponent, setActiveComponentState] = useState<ComponentFilter>(
+    () => persistedChartUiState.activeComponent
+  );
+  const [tcnConfig, setTcnConfigState] = useState<TcnAttentionConfig>(() => ({
+    ...persistedChartUiState.tcnConfig,
+    dilations: [...persistedChartUiState.tcnConfig.dilations],
   }));
-  const [forecast, setForecast] = useState<TcnDecompositionForecast | null>(null);
-  const [trainedSignature, setTrainedSignature] = useState<string | null>(null);
-  const [sensitivityEnabled, setSensitivityEnabled] = useState<boolean>(false);
-  const [sensitivityStep, setSensitivityStep] = useState<SensitivityStep>(4);
-  const [sensitivityResult, setSensitivityResult] = useState<TcnSensitivityResult | null>(null);
-  const [sensitivitySignature, setSensitivitySignature] = useState<string | null>(null);
+  const [sensitivityEnabled, setSensitivityEnabledState] = useState<boolean>(
+    () => persistedChartUiState.sensitivityEnabled
+  );
+  const [sensitivityStep, setSensitivityStepState] = useState<SensitivityStep>(
+    () => persistedChartUiState.sensitivityStep
+  );
+  const [cacheRevision, setCacheRevision] = useState<number>(0);
   const [isTraining, setIsTraining] = useState<boolean>(false);
   const [progress, setProgress] = useState<TcnTrainingProgress | null>(null);
+
+  const setActiveComponent = useCallback((next: ComponentFilter) => {
+    persistedChartUiState.activeComponent = next;
+    setActiveComponentState(next);
+  }, []);
+
+  const setTcnConfig = useCallback((next: TcnAttentionConfig) => {
+    persistedChartUiState.tcnConfig = { ...next, dilations: [...next.dilations] };
+    setTcnConfigState(next);
+  }, []);
+
+  const setSensitivityEnabled = useCallback((enabled: boolean) => {
+    persistedChartUiState.sensitivityEnabled = enabled;
+    setSensitivityEnabledState(enabled);
+  }, []);
+
+  const setSensitivityStep = useCallback((step: SensitivityStep) => {
+    persistedChartUiState.sensitivityStep = step;
+    setSensitivityStepState(step);
+  }, []);
 
   const runIdRef = useRef(0);
   const tcnConfigRef = useRef<TcnAttentionConfig>(tcnConfig);
@@ -83,37 +124,69 @@ export function DecompositionChart({
   } = decomposition;
   const n = dates.length;
 
-  const dataSignature = `${ticker}|${model}|${period}|${cycleMinPeriod}-${cycleMaxPeriod}|${n}|${dates[n - 1] ?? ''}`;
-  const fullSignature = `${dataSignature}|${tcnConfig.lookback}|${tcnConfig.dilations.join(',')}|${tcnConfig.kernelSize}|${tcnConfig.numHeads}|${tcnConfig.hiddenChannels}|${tcnConfig.epochs}|${tcnConfig.learningRate}`;
-  const fullSensitivitySignature = `${fullSignature}|step:${sensitivityStep}`;
-  const isStale = trainedSignature !== null && trainedSignature !== fullSignature;
-  const isSensitivityStale =
-    sensitivityEnabled && sensitivitySignature !== fullSensitivitySignature;
+  const dataSignature = buildTcnDataSignature(ticker, decomposition);
+  const fullCacheKey = buildTcnCacheKey(ticker, decomposition, tcnConfig);
+  const fullSensitivityKey = buildTcnSensitivityCacheKey(
+    ticker,
+    decomposition,
+    tcnConfig,
+    sensitivityStep
+  );
+
+  // Read cached model artifacts directly; cacheRevision triggers re-reads after async training/hydration.
+  const exactCachedArtifact = cacheRevision >= 0 ? getCachedTcnArtifact(fullCacheKey) : null;
+  const fallbackCachedArtifact =
+    exactCachedArtifact ?? getLatestCachedTcnArtifactForData(dataSignature);
+  const forecast = fallbackCachedArtifact?.forecast ?? null;
+  const exactCachedSweep =
+    cacheRevision >= 0 ? getCachedTcnSensitivity(fullSensitivityKey) : null;
+  const sensitivityResult = exactCachedSweep?.result ?? null;
+
+  const isStale = forecast !== null && exactCachedArtifact === null;
+  const isSensitivityStale = sensitivityEnabled && exactCachedSweep === null;
 
   const executeTraining = useCallback(
     async (
       cfg: TcnAttentionConfig,
       runSweep: boolean,
-      step: SensitivityStep
+      step: SensitivityStep,
+      forceRetrain: boolean = false
     ) => {
       const decomp = decompositionRef.current;
       const sym = tickerRef.current;
       if (decomp.observed.length < MIN_BARS_FOR_TCN) {
-        setForecast(null);
-        setSensitivityResult(null);
         setIsTraining(false);
         setProgress(null);
         return;
+      }
+
+      // Fast path: if not explicitly forcing a retrain and target is already cached, return immediately.
+      if (!forceRetrain) {
+        if (runSweep) {
+          const sweepKey = buildTcnSensitivityCacheKey(sym, decomp, cfg, step);
+          if (getCachedTcnSensitivity(sweepKey)) {
+            setCacheRevision((v) => v + 1);
+            setIsTraining(false);
+            setProgress(null);
+            return;
+          }
+        } else {
+          const key = buildTcnCacheKey(sym, decomp, cfg);
+          if (getCachedTcnArtifact(key)) {
+            setCacheRevision((v) => v + 1);
+            setIsTraining(false);
+            setProgress(null);
+            return;
+          }
+        }
       }
 
       const myRunId = ++runIdRef.current;
       setIsTraining(true);
       setProgress(null);
 
-      const sig = `${sym}|${decomp.model}|${decomp.period}|${decomp.cycleMinPeriod}-${decomp.cycleMaxPeriod}|${decomp.dates.length}|${decomp.dates[decomp.dates.length - 1] ?? ''}|${cfg.lookback}|${cfg.dilations.join(',')}|${cfg.kernelSize}|${cfg.numHeads}|${cfg.hiddenChannels}|${cfg.epochs}|${cfg.learningRate}`;
-
       if (runSweep) {
-        const sweep = await runTcnLookbackSensitivitySweep(sym, decomp, cfg, step, {
+        await runTcnLookbackSensitivitySweep(sym, decomp, cfg, step, {
           onProgress: (p) => {
             if (runIdRef.current === myRunId) {
               setProgress(p);
@@ -124,22 +197,19 @@ export function DecompositionChart({
               setTimeout(resolve, 0);
             }),
           isCancelled: () => runIdRef.current !== myRunId,
+          useCache: true,
+          forceRetrain,
         });
 
         if (runIdRef.current === myRunId) {
-          if (sweep) {
-            setForecast(sweep.baseForecast);
-            setTrainedSignature(sig);
-            setSensitivityResult(sweep);
-            setSensitivitySignature(`${sig}|step:${step}`);
-          }
+          setCacheRevision((v) => v + 1);
           setIsTraining(false);
           setProgress(null);
         }
         return;
       }
 
-      const result = await runTcnDecompositionForecast(sym, decomp, cfg, {
+      await runTcnDecompositionForecast(sym, decomp, cfg, {
         onProgress: (p) => {
           if (runIdRef.current === myRunId) {
             setProgress(p);
@@ -150,11 +220,12 @@ export function DecompositionChart({
             setTimeout(resolve, 0);
           }),
         isCancelled: () => runIdRef.current !== myRunId,
+        useCache: true,
+        forceRetrain,
       });
 
       if (runIdRef.current === myRunId) {
-        setForecast(result);
-        setTrainedSignature(result ? sig : null);
+        setCacheRevision((v) => v + 1);
         setIsTraining(false);
         setProgress(null);
       }
@@ -162,13 +233,25 @@ export function DecompositionChart({
     []
   );
 
-  // Auto-train the single base lookback window on mount and whenever ticker / decomposition changes.
-  // Sensitivity Analysis sweeps are intentionally triggered only on explicit Train/Retrain click.
+  // Hydrate persisted session cache post-mount and only auto-train when the current
+  // ticker/decomposition/config pair is missing from the model weights & predictions cache.
   useEffect(() => {
     if (n < MIN_BARS_FOR_TCN) return;
     const timer = setTimeout(() => {
-      void executeTraining(tcnConfigRef.current, false, 4);
-    }, 30);
+      const hydrated = hydrateTcnCacheFromSessionStorage();
+      if (hydrated) {
+        setCacheRevision((v) => v + 1);
+      }
+      const key = buildTcnCacheKey(
+        tickerRef.current,
+        decompositionRef.current,
+        tcnConfigRef.current
+      );
+      if (getCachedTcnArtifact(key)) {
+        return;
+      }
+      void executeTraining(tcnConfigRef.current, false, 4, false);
+    }, 15);
     return () => {
       clearTimeout(timer);
       runIdRef.current += 1;
@@ -569,7 +652,10 @@ export function DecompositionChart({
         progress={progress}
         isStale={isStale}
         onTrain={() => {
-          void executeTraining(tcnConfig, sensitivityEnabled, sensitivityStep);
+          const shouldForceRetrain = sensitivityEnabled
+            ? exactCachedSweep !== null
+            : exactCachedArtifact !== null;
+          void executeTraining(tcnConfig, sensitivityEnabled, sensitivityStep, shouldForceRetrain);
         }}
       />
 

@@ -8,7 +8,14 @@ import {
   generateRealisticStockHistory,
   generateRealisticIntradayHistory,
   KNOWN_TICKERS,
+  type LiveQuoteTick,
 } from '@/lib/market-service';
+import {
+  buildStreamTickerList,
+  isEndDateUpToPresent,
+  reconcileBarsWithLiveTick,
+} from '@/lib/market-cache';
+import { useMarketStream } from '@/hooks/use-market-stream';
 import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
 import { HomeView } from '@/components/views/HomeView';
@@ -20,6 +27,13 @@ import { RegressionView } from '@/components/views/RegressionView';
 
 type AppView = 'now' | 'home' | 'analysis' | 'modeling' | 'correlation' | 'regression' | 'volatility' | 'fno';
 const VALID_VIEWS: AppView[] = ['now', 'home', 'analysis', 'modeling', 'correlation', 'regression', 'volatility', 'fno'];
+const DEFAULT_UNIVERSE = ['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'TSLA', 'SPY', 'QQQ', 'AMZN', 'META', 'JPM'] as const;
+
+interface LiveQuoteEntry {
+  price: number;
+  changePct: number;
+  asOf: string;
+}
 
 export default function App() {
   // Navigation — default landing page is Home (Edge remains available via the nav).
@@ -134,18 +148,22 @@ export default function App() {
   // Market Data In-Memory Cache with lazy instant initialization (defaulting to 10 years of history)
   const [stockBarsCache, setStockBarsCache] = useState<{ [ticker: string]: PriceBar[] }>(() => {
     const initialCache: { [ticker: string]: PriceBar[] } = {};
-    const defaultSymbols = ['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'TSLA', 'SPY', 'QQQ', 'AMZN', 'META', 'JPM'];
-    defaultSymbols.forEach((sym) => {
+    DEFAULT_UNIVERSE.forEach((sym) => {
       initialCache[sym] = generateRealisticStockHistory(sym, 2600);
     });
     return initialCache;
   });
 
+  // Dedicated latest live quotes map so TickerTape & Preset Universe always display
+  // the latest live market prices even if the user slices endDate to a historical date.
+  const [latestQuotes, setLatestQuotes] = useState<Record<string, LiveQuoteEntry>>({});
+  const [initialLiveFetchDone, setInitialLiveFetchDone] = useState<boolean>(false);
+  const tickerSeqRef = useRef<Record<string, number>>({});
+
   // 1-Minute Intraday Data In-Memory Cache (5-7 trading days)
   const [intradayBarsCache, setIntradayBarsCache] = useState<{ [ticker: string]: IntradayBar[] }>(() => {
     const initialCache: { [ticker: string]: IntradayBar[] } = {};
-    const defaultSymbols = ['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'TSLA', 'SPY', 'QQQ', 'AMZN', 'META', 'JPM'];
-    defaultSymbols.forEach((sym) => {
+    DEFAULT_UNIVERSE.forEach((sym) => {
       initialCache[sym] = generateRealisticIntradayHistory(sym, 7);
     });
     return initialCache;
@@ -153,7 +171,7 @@ export default function App() {
   // Source per ticker for the intraday cache — the seeded default is synthetic, always labelled as such.
   const [intradaySourceCache, setIntradaySourceCache] = useState<{ [ticker: string]: string }>(() => {
     const init: { [ticker: string]: string } = {};
-    ['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'TSLA', 'SPY', 'QQQ', 'AMZN', 'META', 'JPM'].forEach((s) => {
+    DEFAULT_UNIVERSE.forEach((s) => {
       init[s] = 'synthetic_gbm';
     });
     return init;
@@ -162,7 +180,7 @@ export default function App() {
   // Source per ticker for the daily-bar cache — seeded as synthetic until a live fetch lands.
   const [stockSourceCache, setStockSourceCache] = useState<{ [ticker: string]: string }>(() => {
     const init: { [ticker: string]: string } = {};
-    ['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'TSLA', 'SPY', 'QQQ', 'AMZN', 'META', 'JPM'].forEach((s) => {
+    DEFAULT_UNIVERSE.forEach((s) => {
       init[s] = 'synthetic_gbm';
     });
     return init;
@@ -170,8 +188,7 @@ export default function App() {
 
   const [companyNames, setCompanyNames] = useState<{ [ticker: string]: string }>(() => {
     const initialNames: { [ticker: string]: string } = {};
-    const defaultSymbols = ['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'TSLA', 'SPY', 'QQQ', 'AMZN', 'META', 'JPM'];
-    defaultSymbols.forEach((sym) => {
+    DEFAULT_UNIVERSE.forEach((sym) => {
       initialNames[sym] = KNOWN_TICKERS[sym]?.name || `${sym} Equity`;
     });
     return initialNames;
@@ -185,17 +202,27 @@ export default function App() {
       tickersToFetch: string[],
       customRange: string = '10y',
       reqStartDate?: string,
-      reqEndDate?: string
+      reqEndDate?: string,
+      options?: { omitEndDate?: boolean; skipIntraday?: boolean; quotesOnly?: boolean }
     ) => {
       const syms = tickersToFetch
         .map((t) => t.trim().toUpperCase())
         .filter((t) => t.length > 0);
       if (syms.length === 0) return;
 
-      setIsLoading(true);
+      const reqSeqBySym: Record<string, number> = {};
+      if (!options?.quotesOnly) {
+        syms.forEach((sym) => {
+          const nextSeq = (tickerSeqRef.current[sym] ?? 0) + 1;
+          tickerSeqRef.current[sym] = nextSeq;
+          reqSeqBySym[sym] = nextSeq;
+        });
+      }
+
+      if (!options?.quotesOnly) setIsLoading(true);
       try {
-        const effectiveStart = reqStartDate || startDate;
-        const effectiveEnd = reqEndDate || endDate;
+        const effectiveStart = reqStartDate ?? startDate;
+        const effectiveEnd = options?.omitEndDate ? undefined : (reqEndDate ?? endDate);
 
         let rangeParam = customRange;
         if (effectiveStart) {
@@ -213,52 +240,74 @@ export default function App() {
         if (effectiveStart) params.set('startDate', effectiveStart);
         if (effectiveEnd) params.set('endDate', effectiveEnd);
 
-        // 1. Fetch Daily Data
-        const res = await fetch(`/api/market-data?${params.toString()}`);
+        // 1. Fetch Daily Data (no-store so browser never returns stale cached quotes)
+        const res = await fetch(`/api/market-data?${params.toString()}`, { cache: 'no-store' });
         if (res.ok) {
           const json = await res.json();
           if (json.success && json.data) {
-            setStockBarsCache((prev) => {
+            type ApiEntry = {
+              bars: PriceBar[];
+              name: string;
+              source?: string;
+              latestQuote?: { price: number; prevClose: number; changePct: number; asOf: string };
+            };
+            const entries = Object.entries(json.data as Record<string, ApiEntry>);
+
+            setLatestQuotes((prev) => {
               const updated = { ...prev };
-              for (const [sym, payload] of Object.entries(
-                json.data as Record<string, { bars: PriceBar[]; name: string; source?: string }>
-              )) {
-                if (payload.bars && payload.bars.length > 0) {
-                  updated[sym] = payload.bars;
+              for (const [sym, payload] of entries) {
+                if (payload.source === 'live_market' && payload.latestQuote) {
+                  updated[sym] = {
+                    price: payload.latestQuote.price,
+                    changePct: payload.latestQuote.changePct,
+                    asOf: payload.latestQuote.asOf,
+                  };
                 }
               }
               return updated;
             });
-            setStockSourceCache((prev) => {
-              const updated = { ...prev };
-              for (const [sym, payload] of Object.entries(
-                json.data as Record<string, { bars: PriceBar[]; name: string; source?: string }>
-              )) {
-                if (payload.source && payload.bars && payload.bars.length > 0) {
-                  updated[sym] = payload.source;
+
+            if (!options?.quotesOnly) {
+              const isLatestForSym = (sym: string) =>
+                reqSeqBySym[sym] === undefined || reqSeqBySym[sym] === tickerSeqRef.current[sym];
+
+              setStockBarsCache((prev) => {
+                const updated = { ...prev };
+                for (const [sym, payload] of entries) {
+                  if (isLatestForSym(sym) && payload.bars && payload.bars.length > 0) {
+                    updated[sym] = payload.bars;
+                  }
                 }
-              }
-              return updated;
-            });
-            setCompanyNames((prev) => {
-              const updated = { ...prev };
-              for (const [sym, payload] of Object.entries(
-                json.data as Record<string, { bars: PriceBar[]; name: string; source?: string }>
-              )) {
-                if (payload.name) {
-                  updated[sym] = payload.name;
+                return updated;
+              });
+              setStockSourceCache((prev) => {
+                const updated = { ...prev };
+                for (const [sym, payload] of entries) {
+                  if (isLatestForSym(sym) && payload.source && payload.bars && payload.bars.length > 0) {
+                    updated[sym] = payload.source;
+                  }
                 }
-              }
-              return updated;
-            });
+                return updated;
+              });
+              setCompanyNames((prev) => {
+                const updated = { ...prev };
+                for (const [sym, payload] of entries) {
+                  if (isLatestForSym(sym) && payload.name) {
+                    updated[sym] = payload.name;
+                  }
+                }
+                return updated;
+              });
+            }
           }
         }
 
         // 2. Fetch 1-Minute Intraday Data for primary ticker
-        const primarySym = syms[0];
+        const primarySym = options?.skipIntraday ? null : syms[0];
         if (primarySym) {
           const intraRes = await fetch(
-            `/api/market-data?ticker=${encodeURIComponent(primarySym)}&interval=1m&range=7d`
+            `/api/market-data?ticker=${encodeURIComponent(primarySym)}&interval=1m&range=7d`,
+            { cache: 'no-store' }
           );
           if (intraRes.ok) {
             const intraJson = await intraRes.json();
@@ -309,7 +358,7 @@ export default function App() {
           return updated;
         });
       } finally {
-        setIsLoading(false);
+        if (!options?.quotesOnly) setIsLoading(false);
       }
     },
     [startDate, endDate]
@@ -337,13 +386,163 @@ export default function App() {
     return () => window.removeEventListener('popstate', onPopState);
   }, [fetchTickers]);
 
-  // Automatically fetch fresh live market data on initial load
+  // Automatically fetch full historical bars for all 10 universe symbols on mount
+  // (omitting endDate so Yahoo returns up to the latest live price, avoiding the stale SSR
+  // placeholder endDate race). Ongoing live updates arrive via the SSE stream below.
+  const fetchTickersRef = useRef(fetchTickers);
+  const endDateRef = useRef(endDate);
+  const stockSourceRef = useRef(stockSourceCache);
   useEffect(() => {
-    const timer = setTimeout(() => {
-      fetchTickers(['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'TSLA', 'SPY']);
-    }, 0);
-    return () => clearTimeout(timer);
+    fetchTickersRef.current = fetchTickers;
   }, [fetchTickers]);
+  useEffect(() => {
+    endDateRef.current = endDate;
+  }, [endDate]);
+  useEffect(() => {
+    stockSourceRef.current = stockSourceCache;
+  }, [stockSourceCache]);
+
+  useEffect(() => {
+    let active = true;
+    const timer = setTimeout(() => {
+      void fetchTickersRef
+        .current([...DEFAULT_UNIVERSE], '10y', oneYearAgoStr, undefined, {
+          omitEndDate: true,
+        })
+        .finally(() => {
+          if (active) setInitialLiveFetchDone(true);
+        });
+    }, 0);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [oneYearAgoStr]);
+
+  // Subscribe to Server-Sent Events live market stream (with visibility-aware pause/resume
+  // and 60s HTTP polling fallback). Every live tick re-validates latestQuotes and patches/appends
+  // into stockBarsCache (when viewing up-to-present) so all views & TickerSnapshotProvider update.
+  const streamTickers = useMemo(
+    () => buildStreamTickerList(DEFAULT_UNIVERSE, activeTicker),
+    [activeTicker]
+  );
+
+  const handleStreamTicks = useCallback(
+    (ticks: LiveQuoteTick[]) => {
+      if (!ticks || ticks.length === 0) return;
+
+      const now = new Date();
+      const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      const allowBarPatch = isEndDateUpToPresent(endDateRef.current, todayIso, todayStr);
+
+      // 1. Propagate to latestQuotes (only allocate a new object if any value changed)
+      setLatestQuotes((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        for (const tick of ticks) {
+          if (tick.source !== 'live_market') continue;
+          const existing = prev[tick.ticker];
+          if (
+            !existing ||
+            existing.price !== tick.price ||
+            existing.changePct !== tick.changePct ||
+            existing.asOf !== tick.asOf
+          ) {
+            next[tick.ticker] = {
+              price: tick.price,
+              changePct: tick.changePct,
+              asOf: tick.asOf,
+            };
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+
+      // 2. Re-validate & propagate latest OHLCV bar into stockBarsCache when viewing present horizon
+      if (allowBarPatch) {
+        setStockBarsCache((prev) => {
+          let changed = false;
+          const next = { ...prev };
+          for (const tick of ticks) {
+            const res = reconcileBarsWithLiveTick(prev[tick.ticker], tick, {
+              allowPatchOrAppend: true,
+              existingSource: stockSourceRef.current[tick.ticker],
+            });
+            if (res.changed && res.bars) {
+              next[tick.ticker] = res.bars;
+              changed = true;
+            }
+          }
+          return changed ? next : prev;
+        });
+      }
+
+      // 3. Keep company names populated for streamed symbols
+      setCompanyNames((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        for (const tick of ticks) {
+          if (tick.source === 'live_market' && tick.name && !prev[tick.ticker]) {
+            next[tick.ticker] = tick.name;
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+
+      setInitialLiveFetchDone(true);
+    },
+    [todayStr]
+  );
+
+  useMarketStream({
+    tickers: streamTickers,
+    intervalMs: 30_000,
+    fallbackPollMs: 60_000,
+    onTicks: handleStreamTicks,
+  });
+
+  // Re-validate 1-minute intraday bars every 60s when viewing intraday resolution
+  useEffect(() => {
+    if (resolution !== 'intraday' || typeof window === 'undefined') return;
+    let active = true;
+
+    const refreshIntraday = async () => {
+      if (!active || document.visibilityState === 'hidden') return;
+      try {
+        const res = await fetch(
+          `/api/market-data?ticker=${encodeURIComponent(activeTicker)}&interval=1m&range=7d`,
+          { cache: 'no-store' }
+        );
+        if (!res.ok || !active) return;
+        const json = await res.json();
+        const payload = json?.data?.[activeTicker];
+        if (json?.success && payload?.intradayBars?.length > 0 && active) {
+          setIntradayBarsCache((prev) => ({
+            ...prev,
+            [activeTicker]: payload.intradayBars,
+          }));
+          setIntradaySourceCache((prev) => ({
+            ...prev,
+            [activeTicker]: typeof payload.source === 'string' ? payload.source : 'synthetic_gbm',
+          }));
+        }
+      } catch {
+        // Keep existing cached intraday bars on transient error
+      }
+    };
+
+    const intervalId = setInterval(() => {
+      void refreshIntraday();
+    }, 60_000);
+
+    return () => {
+      active = false;
+      clearInterval(intervalId);
+    };
+  }, [activeTicker, resolution]);
 
   // Handle start date changes: automatically query earlier historical periods if date exceeds current cache
   const handleStartDateChange = useCallback(
@@ -375,23 +574,44 @@ export default function App() {
     [fetchTickers]
   );
 
-  // Build the ticker tape from whatever market data is currently cached
-  const tapeItems = useMemo(
-    () =>
-      Object.entries(stockBarsCache)
-        .filter(([, bars]) => bars && bars.length >= 2)
-        .map(([symbol, bars]) => {
-          const last = bars[bars.length - 1].close;
-          const prev = bars[bars.length - 2].close;
+  // Build the ticker tape prioritizing the latest live quotes so TickerTape & Preset Universe
+  // always display up-to-date market prices (and avoid flashing synthetic seed numbers on load).
+  const tapeItems = useMemo(() => {
+    const orderedSymbols: string[] = [...DEFAULT_UNIVERSE];
+    for (const sym of Object.keys(stockBarsCache)) {
+      if (!orderedSymbols.includes(sym)) orderedSymbols.push(sym);
+    }
+
+    return orderedSymbols
+      .filter((sym) => {
+        const bars = stockBarsCache[sym];
+        return Boolean(latestQuotes[sym] || (bars && bars.length >= 2));
+      })
+      .map((symbol) => {
+        const live = latestQuotes[symbol];
+        if (live) {
           return {
             symbol,
-            price: last,
-            changePct: prev > 0 ? ((last - prev) / prev) * 100 : 0,
+            price: live.price,
+            changePct: live.changePct,
+            asOf: live.asOf,
+            pending: false,
           };
-        })
-        .slice(0, 12),
-    [stockBarsCache]
-  );
+        }
+        const bars = stockBarsCache[symbol];
+        const last = bars[bars.length - 1].close;
+        const prev = bars[bars.length - 2].close;
+        const isLiveSource = stockSourceCache[symbol] === 'live_market';
+        return {
+          symbol,
+          price: last,
+          changePct: prev > 0 ? ((last - prev) / prev) * 100 : 0,
+          asOf: bars[bars.length - 1].date,
+          pending: !initialLiveFetchDone && !isLiveSource,
+        };
+      })
+      .slice(0, 12);
+  }, [stockBarsCache, stockSourceCache, latestQuotes, initialLiveFetchDone]);
 
   // Active ticker bars
   const currentBars =
@@ -406,11 +626,13 @@ export default function App() {
     KNOWN_TICKERS[activeTicker]?.name ||
     `${activeTicker} Equity`;
   const currentQuote = useMemo(() => {
+    const live = latestQuotes[activeTicker];
+    if (live) return { price: live.price, changePct: live.changePct };
     if (currentBars.length < 2) return { price: null as number | null, changePct: null as number | null };
     const last = currentBars[currentBars.length - 1].close;
     const prev = currentBars[currentBars.length - 2].close;
     return { price: last, changePct: prev > 0 ? ((last - prev) / prev) * 100 : null };
-  }, [currentBars]);
+  }, [activeTicker, latestQuotes, currentBars]);
 
   return (
     <TickerSnapshotProvider
@@ -419,6 +641,7 @@ export default function App() {
       barsSource={currentBarsSource}
       intradaySource={currentIntradaySource}
       allStockBars={stockBarsCache}
+      latestQuotes={latestQuotes}
     >
     <div className="min-h-dvh bg-[#F5F4F1] dark:bg-[#08080A] text-zinc-900 dark:text-[#ECECF1] flex flex-col font-sans transition-colors pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))] md:pb-0">
       {/* Top Navigation */}

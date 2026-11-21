@@ -19,6 +19,8 @@ import {
 } from '@/lib/vol-analytics';
 import type { ChainPayload, IndicesPayload, IvHistoryEntry } from './types';
 import { ForecastTrustCard } from '@/components/ui/ForecastTrustCard';
+import { useTcnVolatility } from '@/hooks/useTcnVolatility';
+import { RotateCcw, Sparkles } from 'lucide-react';
 
 const f4 = (v: number | null, d = 4) => (v === null || !isFinite(v) ? '—' : v.toFixed(d));
 
@@ -36,6 +38,7 @@ export function T4ForecastTab({
   ivHistory: IvHistoryEntry[];
 }) {
   const [horizon, setHorizon] = useState<1 | 5 | 22>(22);
+  const { volForecast: tcnVol, isTraining: tcnTraining, retrain: retrainTcn } = useTcnVolatility(ticker, bars, { autoRun: true });
 
   const closes = useMemo(() => (bars ?? []).map((b) => b.close), [bars]);
   const dates = useMemo(() => (bars ?? []).slice(1).map((b) => b.date), [bars]);
@@ -185,6 +188,18 @@ export function T4ForecastTab({
           return s;
         },
       },
+      ...(tcnVol
+        ? {
+            tcn: {
+              name: 'TCN-Attention',
+              sub: `OOS holdout · h=${horizon}d QLIKE head (n=${tcnVol.horizons[horizon].holdoutCount})`,
+              fv: (i: number, h: number) => {
+                const v = tcnVol.oosDailyVarianceByHorizon[horizon][i];
+                return v !== undefined && isFinite(v) && v > 0 ? v * h : null;
+              },
+            },
+          }
+        : {}),
     };
 
     const results: Record<string, { qlike: number[]; mse: number[]; dmVsIv?: number; dmVsGarch?: number }> = {};
@@ -248,6 +263,7 @@ export function T4ForecastTab({
       return r ? r.dm : null;
     };
     const dmIvGarch = ivUsable ? dm(results.iv.qlike, results.garch.qlike) : null;
+    const dmTcnIv = ivUsable && results.tcn ? dm(results.tcn.qlike, results.iv.qlike) : null;
     const dmBlendGarch = blendLoss.length > 0 ? dm(blendLoss, results.garch.qlike) : null;
 
     const mean = (arr: number[]) => {
@@ -266,12 +282,13 @@ export function T4ForecastTab({
       blend: blendLoss.length > 0 ? mean(blendLoss) : null,
       weights,
       dmIvGarch,
+      dmTcnIv,
       dmBlendGarch,
       ivUsable,
       n: n,
       ivCount: (() => { let c = 0; for (const v of ivDailyVarAligned) if (isFinite(v)) c++; return c; })(),
     };
-  }, [returns, garchFit, ewma, harForecasts, horizon, ivByDate, dates, ivDailyVarAligned]);
+  }, [returns, garchFit, ewma, harForecasts, horizon, ivByDate, dates, ivDailyVarAligned, tcnVol]);
 
   // ---- Mincer–Zarnowitz ------------------------------------------------------
   const mz = useMemo(() => {
@@ -364,7 +381,13 @@ export function T4ForecastTab({
                     </td>
                     <td className="py-1.5 pr-3 text-right font-mono tabular-nums text-zinc-800 dark:text-zinc-100">{f4(m.mse, 4)}</td>
                     <td className="py-1.5 text-right font-mono tabular-nums text-zinc-500">
-                      {m.key === 'iv' ? '—' : m.key === 'garch' && race.dmIvGarch !== null ? f4(race.dmIvGarch, 2) : '—'}
+                      {m.key === 'iv'
+                        ? '—'
+                        : m.key === 'garch' && race.dmIvGarch !== null
+                          ? f4(race.dmIvGarch, 2)
+                          : m.key === 'tcn' && race.dmTcnIv !== null
+                            ? f4(race.dmTcnIv, 2)
+                            : '—'}
                     </td>
                   </tr>
                 ))}
@@ -399,8 +422,58 @@ export function T4ForecastTab({
             </table>
           </div>
         )}
+
+        {/* TCN-Attention Multi-Horizon (1d / 5d / 22d) Live Forecast Strip */}
+        <div className="mt-4 border-t border-[var(--hairline)] pt-3">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-gold-700 dark:text-gold-300">
+              <Sparkles className="h-3.5 w-3.5" />
+              <span>TCN-Attention Multi-Horizon Forward RV (1d · 5d · 22d)</span>
+              {tcnVol && (
+                <span className="text-zinc-400">
+                  · {tcnVol.cacheHit ? 'cached' : `${tcnVol.trainingDurationMs}ms`}
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={retrainTcn}
+              disabled={tcnTraining}
+              className="inline-flex cursor-pointer items-center gap-1 rounded border border-[var(--hairline)] bg-[var(--bg-inset)] px-2 py-0.5 font-mono text-[9.5px] text-zinc-600 hover:border-gold-500/50 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white disabled:opacity-50"
+            >
+              <RotateCcw className={`h-3 w-3 ${tcnTraining ? 'animate-spin' : ''}`} />
+              {tcnTraining ? 'Training…' : 'Retrain'}
+            </button>
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            {([1, 5, 22] as const).map((h) => {
+              const hz = tcnVol?.horizons[h];
+              const isSelected = horizon === h;
+              return (
+                <div
+                  key={h}
+                  className={`panel-inset p-2.5 border ${isSelected ? 'border-gold-500/40' : 'border-[var(--hairline)]'}`}
+                >
+                  <div className="flex items-center justify-between font-mono text-[9.5px] uppercase tracking-wider text-zinc-400">
+                    <span>h = {h}d ahead</span>
+                    <span className="text-zinc-500">OOS n={hz?.holdoutCount ?? 0}</span>
+                  </div>
+                  <div className="mt-1 flex items-baseline justify-between font-mono tabular-nums">
+                    <span className="text-base font-bold text-zinc-900 dark:text-zinc-100">
+                      {hz ? `${(hz.annualizedVol * 100).toFixed(1)}%` : tcnTraining ? '…' : '—'}
+                    </span>
+                    <span className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                      {hz ? `99% [${(hz.lower99Vol * 100).toFixed(1)}–${(hz.upper99Vol * 100).toFixed(1)}%]` : '—'}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
         <p className="mt-2 font-mono text-[9px] leading-relaxed text-zinc-400">
-          In-sample-fit evaluation over aligned windows; DM = mean(QLIKE_A − QLIKE_B)/√(LRV/T), Newey–West LRV. QLIKE penalizes under-prediction asymmetrically; MSE on log-RV controls tail inflation.
+          Baseline models (GARCH/EWMA/HAR) are in-sample fits; TCN-Attention is scored strictly out-of-sample on the trailing chronological holdout split. DM = mean(QLIKE_A − QLIKE_B)/√(LRV/T), Newey–West LRV. QLIKE penalizes under-prediction asymmetrically; MSE on log-RV controls tail inflation.
         </p>
       </div>
 

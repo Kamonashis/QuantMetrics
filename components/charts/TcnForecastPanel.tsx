@@ -1,16 +1,19 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import type { DecompositionResult } from '@/lib/quant-engine';
 import {
   DEFAULT_TCN_CONFIG,
   MIN_BARS_FOR_TCN,
+  computeHistoricalBacktest,
   computeParameterCount,
   computeReceptiveField,
   generateLookbackSweepGrid,
   sanitizeTcnConfig,
+  type BacktestCostBps,
   type ComponentForecast,
   type DecompositionComponentKey,
+  type HistoricalBacktestResult,
   type SensitivityStep,
   type TcnAttentionConfig,
   type TcnDecompositionForecast,
@@ -19,6 +22,14 @@ import {
 } from '@/lib/tcn-attention';
 import { TcnAttentionEquation } from '@/components/math/MathEquations';
 import { ShimmerButton } from '@/components/ui/ShimmerButton';
+import {
+  buildRegimeBandSpans,
+  getHmmRegimeToken,
+} from '@/lib/hmm-regime-overlay';
+import {
+  HmmRegimeOverlayToggle,
+  HmmRegimeScorecard,
+} from '@/components/charts/HmmRegimeOverlayControls';
 import {
   Brain,
   Play,
@@ -32,6 +43,8 @@ import {
   AlertTriangle,
   ShieldCheck,
   SlidersHorizontal,
+  Radio,
+  History,
 } from 'lucide-react';
 
 interface TcnForecastPanelProps {
@@ -70,6 +83,8 @@ const DILATION_PRESETS: { label: string; value: string; dilations: number[] }[] 
   { label: '1, 2, 4, 8 (Wide)', value: '1,2,4,8', dilations: [1, 2, 4, 8] },
   { label: '1, 2, 4, 8, 16 (Deep)', value: '1,2,4,8,16', dilations: [1, 2, 4, 8, 16] },
 ];
+
+const BACKTEST_COST_OPTIONS: BacktestCostBps[] = [0, 5, 10, 25];
 
 function formatComponentValue(
   key: DecompositionComponentKey,
@@ -817,6 +832,513 @@ function LookbackSensitivityChart({
   );
 }
 
+/** Pure SVG 30-Day Signal-Weighted Cumulative P&L vs Buy & Hold Chart with Conviction Bars */
+function HistoricalBacktestChart({
+  backtest,
+}: {
+  backtest: HistoricalBacktestResult;
+}) {
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const [showRegimeOverlay, setShowRegimeOverlay] = useState(true);
+  const gradId = useId();
+  const { days, costBps, regimeBreakdown } = backtest;
+  const n = days.length;
+  if (n < 2) return null;
+
+  const hasHmmRegimes = days.some(
+    (d) => d.hmmState === 0 || d.hmmState === 1 || d.hmmState === 2
+  );
+  const regimeBandSpans = hasHmmRegimes
+    ? buildRegimeBandSpans(days.map((d) => d.hmmState))
+    : [];
+
+  const activeIdx = hoverIdx !== null && hoverIdx < n ? hoverIdx : n - 1;
+  const activeDay = days[activeIdx];
+  const isHovering = hoverIdx !== null && hoverIdx < n;
+
+  // Include implicit Day 0 baseline (0.0%) so both curves start cleanly from 0%
+  const stratSeries = [0, ...days.map((d) => d.strategyCumPct)];
+  const benchSeries = [0, ...days.map((d) => d.benchmarkCumPct)];
+
+  let minY = 0;
+  let maxY = 0;
+  for (const v of stratSeries) {
+    if (v < minY) minY = v;
+    if (v > maxY) maxY = v;
+  }
+  for (const v of benchSeries) {
+    if (v < minY) minY = v;
+    if (v > maxY) maxY = v;
+  }
+  const rawSpan = maxY - minY;
+  const padY = Math.max(rawSpan * 0.16, 0.4);
+  const domMin = minY - padY;
+  const domMax = maxY + padY;
+  const spanY = Math.max(domMax - domMin, 1e-6);
+
+  const w = 720;
+  const h = 228;
+  const padL = 54;
+  const padR = 18;
+  const padT = 14;
+  const pnlH = 142;
+  const barTop = padT + pnlH + 14;
+  const barH = 32;
+  const barMid = barTop + barH / 2;
+  const chartW = w - padL - padR;
+
+  const toX = (ptIdx: number) => padL + (ptIdx / n) * chartW;
+  const toY = (pct: number) => padT + pnlH - ((pct - domMin) / spanY) * pnlH;
+
+  const zeroY = toY(0);
+  const stratPath = stratSeries
+    .map((v, i) => `${i === 0 ? 'M' : 'L'} ${toX(i).toFixed(1)} ${toY(v).toFixed(1)}`)
+    .join(' ');
+  const benchPath = benchSeries
+    .map((v, i) => `${i === 0 ? 'M' : 'L'} ${toX(i).toFixed(1)} ${toY(v).toFixed(1)}`)
+    .join(' ');
+  const areaPath = `${stratPath} L ${toX(n).toFixed(1)} ${zeroY.toFixed(1)} L ${toX(0).toFixed(1)} ${zeroY.toFixed(1)} Z`;
+
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((f) => domMin + f * spanY);
+  const slotW = chartW / n;
+  const barW = Math.max(3, Math.min(12, slotW * 0.58));
+
+  const xTickIndices = Array.from(
+    new Set([0, Math.floor((n - 1) / 3), Math.floor(((n - 1) * 2) / 3), n - 1])
+  );
+
+  const activeWeightPct = activeDay.weight * 100;
+  const weightDirLabel =
+    activeWeightPct > 0.5 ? 'Long' : activeWeightPct < -0.5 ? 'Short' : 'Flat';
+
+  const activeRegimeTok =
+    activeDay.hmmState !== undefined ? getHmmRegimeToken(activeDay.hmmState) : null;
+
+  return (
+    <div className="space-y-2.5">
+      {hasHmmRegimes && (
+        <HmmRegimeOverlayToggle
+          enabled={showRegimeOverlay}
+          onToggle={() => setShowRegimeOverlay((v) => !v)}
+          caption="origin t−1 regime"
+        />
+      )}
+
+      {/* Interactive Session Readout Strip */}
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono tabular-nums text-zinc-500 dark:text-zinc-400">
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+          <span>
+            <strong className="text-zinc-900 dark:text-zinc-100">{activeDay.date}</strong>
+            {!isHovering && <span className="ml-1 text-[10px] text-zinc-400">(latest)</span>}
+          </span>
+          {activeRegimeTok && (
+            <>
+              <span>·</span>
+              <span className="inline-flex items-center gap-1.5">
+                <span
+                  className="w-2 h-2 rounded-full shrink-0"
+                  style={{ backgroundColor: activeRegimeTok.color }}
+                />
+                <strong className={activeRegimeTok.textClass}>
+                  {activeRegimeTok.label}
+                  {activeDay.hmmProb !== undefined
+                    ? ` (${Math.round(activeDay.hmmProb * 100)}%)`
+                    : ''}
+                </strong>
+              </span>
+            </>
+          )}
+          <span>·</span>
+          <span>
+            Pred r̂{' '}
+            <strong className={activeDay.predictedReturn >= 0 ? 'text-[#3fb27f]' : 'text-[#e0655f]'}>
+              {formatSignedPct(activeDay.predictedReturn * 100)}
+            </strong>
+          </span>
+          <span>·</span>
+          <span>
+            Actual r{' '}
+            <strong className={activeDay.actualReturn >= 0 ? 'text-[#3fb27f]' : 'text-[#e0655f]'}>
+              {formatSignedPct(activeDay.actualReturn * 100)}
+            </strong>
+          </span>
+          <span>·</span>
+          <span>
+            Weight w<sub>t</sub>{' '}
+            <strong
+              className={
+                activeWeightPct > 0.5
+                  ? 'text-[#3fb27f]'
+                  : activeWeightPct < -0.5
+                  ? 'text-[#e0655f]'
+                  : 'text-zinc-600 dark:text-zinc-300'
+              }
+            >
+              {activeWeightPct >= 0 ? '+' : ''}
+              {activeWeightPct.toFixed(0)}% {weightDirLabel}
+            </strong>
+          </span>
+          <span>·</span>
+          <span>
+            Day Net{' '}
+            <strong className={activeDay.netReturn >= 0 ? 'text-[#3fb27f]' : 'text-[#e0655f]'}>
+              {formatSignedPct(activeDay.netReturn * 100)}
+            </strong>
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2.5">
+          <span>
+            Strat{' '}
+            <strong className="text-gold-600 dark:text-gold-400">
+              {formatSignedPct(activeDay.strategyCumPct)}
+            </strong>
+          </span>
+          <span>·</span>
+          <span>
+            B&amp;H{' '}
+            <strong className="text-zinc-700 dark:text-zinc-300">
+              {formatSignedPct(activeDay.benchmarkCumPct)}
+            </strong>
+          </span>
+        </div>
+      </div>
+
+      {/* Dual-Band Pure SVG: Cumulative P&L Curves + Daily Conviction Weight Bars */}
+      <svg
+        viewBox={`0 0 ${w} ${h}`}
+        className="block w-full h-[228px] select-none"
+        role="img"
+        aria-label={`Historical backtest cumulative P&L over the last ${n} trading days at ${costBps} bps transaction cost`}
+        onMouseLeave={() => setHoverIdx(null)}
+      >
+        <defs>
+          <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#DEC084" stopOpacity="0.22" />
+            <stop offset="100%" stopColor="#DEC084" stopOpacity="0.02" />
+          </linearGradient>
+        </defs>
+
+        {/* Causal HMM Volatility Regime Background Bands (run-length merged) */}
+        {hasHmmRegimes && regimeBandSpans.length > 0 && (
+          <g
+            style={{
+              opacity: showRegimeOverlay ? 1 : 0,
+              transition: 'opacity 150ms ease',
+            }}
+          >
+            {regimeBandSpans.map((span) => {
+              const tok = getHmmRegimeToken(span.state);
+              const x0 = span.startIdx === 0 ? padL : toX(span.startIdx + 0.5);
+              const x1 = span.endIdx === n - 1 ? w - padR : toX(span.endIdx + 1.5);
+              return (
+                <rect
+                  key={`bt-band-${span.startIdx}-${span.endIdx}-${span.state}`}
+                  x={x0}
+                  y={padT}
+                  width={Math.max(1, x1 - x0)}
+                  height={pnlH}
+                  fill={`rgba(${tok.rgb}, 0.12)`}
+                />
+              );
+            })}
+          </g>
+        )}
+
+        {/* Horizontal Gridlines & % Axis */}
+        {yTicks.map((val, idx) => {
+          const y = toY(val);
+          return (
+            <g key={idx}>
+              <line
+                x1={padL}
+                y1={y}
+                x2={w - padR}
+                y2={y}
+                stroke="currentColor"
+                className="text-zinc-200 dark:text-zinc-800/80"
+                strokeDasharray="2 3"
+                strokeWidth={0.75}
+              />
+              <text
+                x={padL - 7}
+                y={y + 3}
+                textAnchor="end"
+                className="text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
+              >
+                {val >= 0 ? '+' : ''}
+                {val.toFixed(1)}%
+              </text>
+            </g>
+          );
+        })}
+
+        {/* 0.0% P&L Baseline */}
+        <line
+          x1={padL}
+          y1={zeroY}
+          x2={w - padR}
+          y2={zeroY}
+          stroke="currentColor"
+          className="text-zinc-400 dark:text-zinc-600"
+          strokeWidth={1}
+          opacity={0.75}
+        />
+
+        {/* Strategy Net Area Fill */}
+        <path d={areaPath} fill={`url(#${gradId})`} />
+
+        {/* Buy & Hold Benchmark Curve (dashed zinc) */}
+        <path
+          d={benchPath}
+          fill="none"
+          stroke="#71717a"
+          strokeDasharray="4 3"
+          strokeWidth={1.5}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+
+        {/* TCN Strategy Net Cumulative P&L Curve (champagne gold) */}
+        <path
+          d={stratPath}
+          fill="none"
+          stroke="#DEC084"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+
+        {/* Color-coded Daily OOS Prediction Points by Origin HMM Regime */}
+        {hasHmmRegimes && (
+          <g
+            style={{
+              opacity: showRegimeOverlay ? 1 : 0,
+              transition: 'opacity 150ms ease',
+            }}
+          >
+            {days.map((d, i) => {
+              if (d.hmmState === undefined) return null;
+              const tok = getHmmRegimeToken(d.hmmState);
+              const isAct = i === activeIdx;
+              return (
+                <circle
+                  key={`bt-pt-${d.date}-${i}`}
+                  cx={toX(i + 1)}
+                  cy={toY(d.strategyCumPct)}
+                  r={isAct ? 4.8 : 2.8}
+                  fill={tok.color}
+                  stroke="#08080a"
+                  strokeWidth={isAct ? 1.4 : 0.9}
+                />
+              );
+            })}
+          </g>
+        )}
+
+        {/* Lower Strip Divider & Conviction Weight Baseline */}
+        <line
+          x1={padL}
+          y1={barTop - 4}
+          x2={w - padR}
+          y2={barTop - 4}
+          stroke="currentColor"
+          className="text-zinc-200 dark:text-zinc-800"
+          strokeWidth={0.75}
+        />
+        <line
+          x1={padL}
+          y1={barMid}
+          x2={w - padR}
+          y2={barMid}
+          stroke="currentColor"
+          className="text-zinc-300 dark:text-zinc-700"
+          strokeWidth={0.75}
+        />
+        <text
+          x={padL - 7}
+          y={barMid + 3}
+          textAnchor="end"
+          className="text-[8.5px] font-mono fill-zinc-500 dark:fill-zinc-400"
+        >
+          w_t
+        </text>
+
+        {/* Signed Daily Conviction Weight Bars */}
+        {days.map((d, i) => {
+          const cx = toX(i + 1);
+          const halfMax = barH / 2 - 2;
+          const hVal = Math.max(1.5, Math.abs(d.weight) * halfMax);
+          const yRect = d.weight >= 0 ? barMid - hVal : barMid;
+          const isAct = i === activeIdx;
+          return (
+            <rect
+              key={d.date + i}
+              x={cx - barW / 2}
+              y={yRect}
+              width={barW}
+              height={hVal}
+              rx={1}
+              fill={d.weight >= 0 ? '#3fb27f' : '#e0655f'}
+              fillOpacity={isAct ? 0.95 : 0.45}
+            />
+          );
+        })}
+
+        {/* Active / Hovered Day Crosshair & Markers */}
+        <line
+          x1={toX(activeIdx + 1)}
+          y1={padT}
+          x2={toX(activeIdx + 1)}
+          y2={barTop + barH}
+          stroke="#DEC084"
+          strokeOpacity={isHovering ? 0.7 : 0.35}
+          strokeDasharray="2 2"
+          strokeWidth={1}
+        />
+        <circle
+          cx={toX(activeIdx + 1)}
+          cy={toY(activeDay.benchmarkCumPct)}
+          r={3.5}
+          fill="#71717a"
+          stroke="#08080a"
+          strokeWidth={1.2}
+        />
+        <circle
+          cx={toX(activeIdx + 1)}
+          cy={toY(activeDay.strategyCumPct)}
+          r={4.5}
+          fill={showRegimeOverlay && activeRegimeTok ? activeRegimeTok.color : '#DEC084'}
+          stroke="#08080a"
+          strokeWidth={1.4}
+        />
+
+        {/* Interactive Hover Hit Columns */}
+        {days.map((d, i) => {
+          const cx = toX(i + 1);
+          return (
+            <rect
+              key={`hit-${d.date}-${i}`}
+              x={cx - slotW / 2}
+              y={padT}
+              width={slotW}
+              height={barTop + barH - padT}
+              fill="transparent"
+              className="cursor-crosshair"
+              onMouseEnter={() => setHoverIdx(i)}
+            />
+          );
+        })}
+
+        {/* X-Axis Date Labels */}
+        {xTickIndices.map((idx) => {
+          const x = toX(idx + 1);
+          const rawDate = days[idx].date;
+          const shortDate = rawDate.length >= 10 ? rawDate.slice(5) : rawDate;
+          return (
+            <text
+              key={idx}
+              x={x}
+              y={h - 5}
+              textAnchor={idx === 0 ? 'start' : idx === n - 1 ? 'end' : 'middle'}
+              className="text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
+            >
+              {shortDate}
+            </text>
+          );
+        })}
+      </svg>
+
+      {/* Legend Strip */}
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono text-zinc-500 dark:text-zinc-400">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="inline-flex items-center gap-1.5">
+            <span className="w-3 h-0.5 bg-[#DEC084] inline-block" />
+            TCN Signal-Weighted Net ({costBps} bps)
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="w-3 border-t border-dashed border-[#71717a] inline-block" />
+            Buy &amp; Hold Benchmark
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-xs bg-[#3fb27f]/70 inline-block" />
+            Long / <span className="w-2 h-2 rounded-xs bg-[#e0655f]/70 inline-block" /> Short weight w
+            <sub>t</sub>
+          </span>
+        </div>
+        <span>Hover chart to inspect daily signals &amp; HMM regime</span>
+      </div>
+
+      {/* Per-Regime 30-Day Backtest Accuracy Scorecard */}
+      {hasHmmRegimes && regimeBreakdown.length > 0 && (
+        <HmmRegimeScorecard
+          title={`30-Day Backtest Performance by Causal HMM Regime (${costBps} bps)`}
+          subtitle="Stratified by dominant HMM regime at t−1 prediction origin"
+          columns={[
+            { key: 'hit', label: 'Dir Hit Rate' },
+            { key: 'rmse', label: 'Price RMSE' },
+            { key: 'meanNet', label: 'Mean Net / Day' },
+            { key: 'cumNet', label: 'Cum Net P&L' },
+          ]}
+          rows={regimeBreakdown.map((r) => ({
+            state: r.state,
+            count: r.count,
+            cells: {
+              hit:
+                r.directionalHitRatePct !== null
+                  ? `${r.directionalHitRatePct.toFixed(0)}%`
+                  : '—',
+              rmse: r.rmseDollar !== null ? `$${r.rmseDollar.toFixed(2)}` : '—',
+              meanNet:
+                r.meanNetReturnPct !== null ? (
+                  <span
+                    className={
+                      r.meanNetReturnPct >= 0
+                        ? 'text-emerald-600 dark:text-emerald-400'
+                        : 'text-rose-600 dark:text-rose-400'
+                    }
+                  >
+                    {r.meanNetReturnPct >= 0 ? '+' : ''}
+                    {r.meanNetReturnPct.toFixed(2)}%
+                  </span>
+                ) : (
+                  '—'
+                ),
+              cumNet:
+                r.cumNetReturnPct !== null ? (
+                  <span
+                    className={
+                      r.cumNetReturnPct >= 0
+                        ? 'text-emerald-600 dark:text-emerald-400 font-semibold'
+                        : 'text-rose-600 dark:text-rose-400 font-semibold'
+                    }
+                  >
+                    {r.cumNetReturnPct >= 0 ? '+' : ''}
+                    {r.cumNetReturnPct.toFixed(2)}%
+                  </span>
+                ) : (
+                  '—'
+                ),
+            },
+          }))}
+        />
+      )}
+    </div>
+  );
+}
+
+const persistedPanelUiState: {
+  diagComponent: DecompositionComponentKey;
+  diagHead: 'mean' | number;
+  backtestVisible: boolean;
+  backtestCostBps: BacktestCostBps;
+} = {
+  diagComponent: 'trend',
+  diagHead: 'mean',
+  backtestVisible: true,
+  backtestCostBps: 0,
+};
+
 export function TcnForecastPanel({
   ticker,
   decomposition,
@@ -834,10 +1356,30 @@ export function TcnForecastPanel({
   isStale,
   onTrain,
 }: TcnForecastPanelProps) {
-  const [diagComponent, setDiagComponent] = useState<DecompositionComponentKey>('trend');
-  const [diagHead, setDiagHead] = useState<'mean' | number>('mean');
+  const [diagComponent, setDiagComponent] = useState<DecompositionComponentKey>(
+    () => persistedPanelUiState.diagComponent
+  );
+  const [diagHead, setDiagHead] = useState<'mean' | number>(
+    () => persistedPanelUiState.diagHead
+  );
+  const [backtestVisible, setBacktestVisible] = useState<boolean>(
+    () => persistedPanelUiState.backtestVisible
+  );
+  const [backtestCostBps, setBacktestCostBps] = useState<BacktestCostBps>(
+    () => persistedPanelUiState.backtestCostBps
+  );
+
+  useEffect(() => {
+    persistedPanelUiState.diagComponent = diagComponent;
+    persistedPanelUiState.diagHead = diagHead;
+    persistedPanelUiState.backtestVisible = backtestVisible;
+    persistedPanelUiState.backtestCostBps = backtestCostBps;
+  }, [diagComponent, diagHead, backtestVisible, backtestCostBps]);
 
   const nObs = decomposition.observed.length;
+  const backtest = forecast
+    ? computeHistoricalBacktest(forecast.backtestSignals, backtestCostBps)
+    : null;
   const effectiveConfig = sanitizeTcnConfig(config, Math.max(nObs, MIN_BARS_FOR_TCN));
   const receptiveField = computeReceptiveField(effectiveConfig.dilations, effectiveConfig.kernelSize);
   const paramCount = computeParameterCount(effectiveConfig);
@@ -902,7 +1444,10 @@ export function TcnForecastPanel({
               TCN + Multi-Head Self-Attention Next-Day Component Forecast
             </h4>
             <span className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400 tabular-nums">
-              · RF {receptiveField}d · {paramCount.toLocaleString()} params/comp · {effectiveConfig.numHeads}H
+              · RF {receptiveField}d · {paramCount.toLocaleString()} params/comp · {effectiveConfig.numHeads}H · 6ch (+HMM)
+              {forecast?.hmmRegime
+                ? ` · HMM ${forecast.hmmRegime.dominantLabel} (${Math.round(forecast.hmmRegime.probs[0] * 100)}/${Math.round(forecast.hmmRegime.probs[1] * 100)}/${Math.round(forecast.hmmRegime.probs[2] * 100)}%)`
+                : ''}
             </span>
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500 dark:text-zinc-400">
@@ -1424,6 +1969,23 @@ export function TcnForecastPanel({
                 </span>
                 <span>·</span>
                 <span>
+                  SNR{' '}
+                  <strong
+                    className={
+                      forecast.signalToNoise.regime === 'Strong Signal'
+                        ? 'text-[#3fb27f]'
+                        : forecast.signalToNoise.regime === 'Moderate Signal'
+                        ? 'text-gold-600 dark:text-gold-400'
+                        : 'text-[#e0655f]'
+                    }
+                  >
+                    {forecast.signalToNoise.ratio >= 100
+                      ? '>99×'
+                      : `${forecast.signalToNoise.ratio.toFixed(2)}×`}
+                  </strong>
+                </span>
+                <span>·</span>
+                <span>
                   {forecast.holdoutCount}d holdout · {forecast.trainingDurationMs}ms
                 </span>
               </div>
@@ -1864,6 +2426,359 @@ export function TcnForecastPanel({
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Signal-to-Noise Ratio (SNR) Diagnostic Indicator */}
+          <div className="panel-inset p-4 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                  <Radio className="w-3.5 h-3.5 text-gold-500 shrink-0" />
+                  <span className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+                    Signal-to-Noise Ratio (Cyclical vs. Residuals)
+                  </span>
+                  <span className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400 tabular-nums">
+                    · Var(Ĉ<sub>t</sub>) / Var(I<sub>t</sub>) ·{' '}
+                    {forecast.model === 'multiplicative' ? 'log-factor space' : 'additive $² space'} ·{' '}
+                    {forecast.signalToNoise.sampleCount}d holdout
+                  </span>
+                </div>
+                <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">
+                  Measures variance captured by the TCN-predicted cyclical wave relative to irregular residual noise on out-of-sample dates
+                </p>
+              </div>
+
+              <div
+                className={`inline-flex items-center gap-1.5 font-mono text-xs font-semibold shrink-0 ${
+                  forecast.signalToNoise.regime === 'Strong Signal'
+                    ? 'text-[#3fb27f]'
+                    : forecast.signalToNoise.regime === 'Moderate Signal'
+                    ? 'text-gold-600 dark:text-gold-400'
+                    : 'text-[#e0655f]'
+                }`}
+              >
+                {forecast.signalToNoise.regime === 'Strong Signal' ? (
+                  <Radio className="w-3.5 h-3.5 shrink-0" />
+                ) : forecast.signalToNoise.regime === 'Moderate Signal' ? (
+                  <Activity className="w-3.5 h-3.5 shrink-0" />
+                ) : (
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                )}
+                <span>{forecast.signalToNoise.regime}</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-center pt-2.5 border-t border-zinc-200/70 dark:border-zinc-800/70 font-mono tabular-nums">
+              {/* Ratio & Decibels */}
+              <div className="sm:col-span-3">
+                <div className="text-[10px] uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                  Cyclical SNR
+                </div>
+                <div
+                  className={`mt-1 text-xl font-bold ${
+                    forecast.signalToNoise.regime === 'Strong Signal'
+                      ? 'text-[#3fb27f]'
+                      : forecast.signalToNoise.regime === 'Moderate Signal'
+                      ? 'text-gold-600 dark:text-gold-400'
+                      : 'text-[#e0655f]'
+                  }`}
+                >
+                  {forecast.signalToNoise.ratio >= 100
+                    ? '>99×'
+                    : `${forecast.signalToNoise.ratio.toFixed(2)}×`}
+                </div>
+                <div className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+                  {forecast.signalToNoise.db >= 0 ? '+' : ''}
+                  {forecast.signalToNoise.db.toFixed(2)} dB (0 dB = 1.0×)
+                </div>
+              </div>
+
+              {/* Signal Variance */}
+              <div className="sm:col-span-2">
+                <div className="text-[10px] uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                  Var(Ĉ<sub>t</sub>) Signal
+                </div>
+                <div className="mt-1 text-sm font-semibold text-gold-600 dark:text-gold-400">
+                  {forecast.model === 'multiplicative'
+                    ? `${(forecast.signalToNoise.signalVariance * 10000).toFixed(2)} bps²`
+                    : `$² ${forecast.signalToNoise.signalVariance.toFixed(3)}`}
+                </div>
+                <div className="mt-0.5 text-[10px] text-zinc-500 dark:text-zinc-400">
+                  σ ={' '}
+                  {forecast.model === 'multiplicative'
+                    ? `${(forecast.signalToNoise.signalStdDev * 100).toFixed(2)}%`
+                    : `$${forecast.signalToNoise.signalStdDev.toFixed(2)}`}
+                </div>
+              </div>
+
+              {/* Residual Noise Variance */}
+              <div className="sm:col-span-2">
+                <div className="text-[10px] uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                  Var(I<sub>t</sub>) Residual
+                </div>
+                <div className="mt-1 text-sm font-semibold text-[#e0655f]">
+                  {forecast.model === 'multiplicative'
+                    ? `${(forecast.signalToNoise.noiseVariance * 10000).toFixed(2)} bps²`
+                    : `$² ${forecast.signalToNoise.noiseVariance.toFixed(3)}`}
+                </div>
+                <div className="mt-0.5 text-[10px] text-zinc-500 dark:text-zinc-400">
+                  σ ={' '}
+                  {forecast.model === 'multiplicative'
+                    ? `${(forecast.signalToNoise.noiseStdDev * 100).toFixed(2)}%`
+                    : `$${forecast.signalToNoise.noiseStdDev.toFixed(2)}`}
+                </div>
+              </div>
+
+              {/* Signal vs Noise Power Split Meter */}
+              <div className="sm:col-span-5 space-y-1.5">
+                <div className="flex items-center justify-between text-[10px] text-zinc-500 dark:text-zinc-400">
+                  <span>
+                    Cyclical Signal{' '}
+                    <strong className="text-gold-600 dark:text-gold-400">
+                      {forecast.signalToNoise.signalSharePct.toFixed(1)}%
+                    </strong>
+                  </span>
+                  <span>
+                    Residual Noise{' '}
+                    <strong className="text-[#e0655f]">
+                      {(100 - forecast.signalToNoise.signalSharePct).toFixed(1)}%
+                    </strong>
+                  </span>
+                </div>
+                <div className="relative h-2.5 w-full rounded-full bg-[#e0655f]/35 overflow-hidden">
+                  <div
+                    className="h-full bg-[#d4a853] rounded-l-full"
+                    style={{
+                      width: `${Math.max(2, Math.min(98, forecast.signalToNoise.signalSharePct))}%`,
+                    }}
+                  />
+                  {/* 1.0x (0 dB) equilibrium midline */}
+                  <div
+                    className="absolute top-0 bottom-0 left-1/2 w-px bg-zinc-900 dark:bg-zinc-100 opacity-70"
+                    title="1.0× (0 dB) equilibrium"
+                  />
+                </div>
+                <div className="flex items-center justify-between text-[9px] text-zinc-400 dark:text-zinc-500">
+                  <span>Noise-Dominated (&lt;0.75×)</span>
+                  <span>1.0× (0 dB)</span>
+                  <span>Strong (≥2.0×)</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Historical Backtest Overlay (Trailing <= 30 Trading Days, Strictly OOS) */}
+          {backtest && (
+            <div className="panel-inset p-4 space-y-3.5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={backtestVisible}
+                      onClick={() => setBacktestVisible((v) => !v)}
+                      className="inline-flex items-center gap-2 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-400/60 rounded-md py-0.5 whitespace-nowrap shrink-0"
+                    >
+                      <span
+                        className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors duration-150 ${
+                          backtestVisible
+                            ? 'bg-gold-500/25 border-gold-500'
+                            : 'bg-zinc-200 dark:bg-zinc-800 border-zinc-300 dark:border-zinc-700'
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-3.5 w-3.5 rounded-full transition-transform duration-150 ${
+                            backtestVisible
+                              ? 'bg-gold-500 translate-x-[18px]'
+                              : 'bg-zinc-500 dark:bg-zinc-400 translate-x-[2px]'
+                          }`}
+                        />
+                      </span>
+                      <History className="w-3.5 h-3.5 text-gold-500 shrink-0" />
+                      <span className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+                        Historical Backtest ({backtest.summary.tradingDays}D)
+                      </span>
+                    </button>
+
+                    <span className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400 tabular-nums">
+                      · Last {backtest.summary.tradingDays} trading days · strictly OOS · Signal-weighted tanh(r̂/σ)
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">
+                    Compounds daily exposure w<sub>t</sub> ∈ [-1, +1] sized by out-of-sample predicted return magnitude normalized on training-period volatility
+                  </p>
+                </div>
+
+                {backtestVisible ? (
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 dark:text-zinc-400 whitespace-nowrap">
+                      Friction:
+                    </span>
+                    <div
+                      role="group"
+                      aria-label="Transaction cost friction in basis points"
+                      className="inline-flex rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-0.5 text-[10px] font-mono tabular-nums"
+                    >
+                      {BACKTEST_COST_OPTIONS.map((bps) => (
+                        <button
+                          key={bps}
+                          type="button"
+                          onClick={() => setBacktestCostBps(bps)}
+                          className={`px-2 py-0.5 rounded-xs cursor-pointer transition-colors whitespace-nowrap shrink-0 ${
+                            backtestCostBps === bps
+                              ? 'bg-gold-500/20 text-gold-700 dark:text-gold-300 font-bold'
+                              : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
+                          }`}
+                        >
+                          {bps} bps
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="font-mono text-xs tabular-nums text-zinc-600 dark:text-zinc-300 whitespace-nowrap shrink-0">
+                    Net{' '}
+                    <strong
+                      className={
+                        backtest.summary.strategyCumPct >= 0 ? 'text-[#3fb27f]' : 'text-[#e0655f]'
+                      }
+                    >
+                      {formatSignedPct(backtest.summary.strategyCumPct)}
+                    </strong>{' '}
+                    <span className="text-zinc-400">vs B&amp;H</span>{' '}
+                    <span>{formatSignedPct(backtest.summary.benchmarkCumPct)}</span>{' '}
+                    <span className="text-zinc-400">· {backtestCostBps} bps</span>
+                  </div>
+                )}
+              </div>
+
+              {backtestVisible &&
+                (backtest.days.length < 2 ? (
+                  <div className="py-4 px-3 rounded-lg border border-dashed border-zinc-300 dark:border-zinc-700/80 text-xs text-zinc-500 dark:text-zinc-400">
+                    At least 2 strictly out-of-sample holdout trading sessions are required to evaluate cumulative P&amp;L. Expand the date range or reduce Lookback L to accrue a full 30-day holdout window.
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {/* 6-Metric Backtest Performance Strip */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 py-3 border-y border-zinc-200/70 dark:border-zinc-800/70 font-mono tabular-nums">
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                          Strategy P&amp;L
+                        </div>
+                        <div
+                          className={`mt-1 text-sm font-bold inline-flex items-center gap-1 ${
+                            backtest.summary.strategyCumPct > 0
+                              ? 'text-[#3fb27f]'
+                              : backtest.summary.strategyCumPct < 0
+                              ? 'text-[#e0655f]'
+                              : 'text-zinc-700 dark:text-zinc-200'
+                          }`}
+                        >
+                          {backtest.summary.strategyCumPct > 0 ? (
+                            <TrendingUp className="w-3.5 h-3.5 shrink-0" />
+                          ) : backtest.summary.strategyCumPct < 0 ? (
+                            <TrendingDown className="w-3.5 h-3.5 shrink-0" />
+                          ) : (
+                            <Minus className="w-3.5 h-3.5 shrink-0" />
+                          )}
+                          <span>{formatSignedPct(backtest.summary.strategyCumPct)}</span>
+                        </div>
+                        <div className="mt-0.5 text-[10px] text-zinc-500 dark:text-zinc-400">
+                          Gross {formatSignedPct(backtest.summary.grossCumPct)}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                          Excess vs B&amp;H
+                        </div>
+                        <div
+                          className={`mt-1 text-sm font-semibold ${
+                            backtest.summary.excessReturnPct >= 0
+                              ? 'text-[#3fb27f]'
+                              : 'text-[#e0655f]'
+                          }`}
+                        >
+                          {formatSignedPct(backtest.summary.excessReturnPct)}
+                        </div>
+                        <div className="mt-0.5 text-[10px] text-zinc-500 dark:text-zinc-400">
+                          B&amp;H {formatSignedPct(backtest.summary.benchmarkCumPct)}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                          Ann. Sharpe
+                        </div>
+                        <div
+                          className={`mt-1 text-sm font-semibold ${
+                            backtest.summary.annualizedSharpe >= 1
+                              ? 'text-[#3fb27f]'
+                              : backtest.summary.annualizedSharpe >= 0
+                              ? 'text-gold-600 dark:text-gold-400'
+                              : 'text-[#e0655f]'
+                          }`}
+                        >
+                          {backtest.summary.annualizedSharpe.toFixed(2)}
+                        </div>
+                        <div className="mt-0.5 text-[10px] text-zinc-500 dark:text-zinc-400">
+                          PF{' '}
+                          {backtest.summary.profitFactor === null
+                            ? '∞'
+                            : backtest.summary.profitFactor.toFixed(2)}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                          Max Drawdown
+                        </div>
+                        <div className="mt-1 text-sm font-semibold text-[#e0655f]">
+                          {backtest.summary.maxDrawdownPct.toFixed(2)}%
+                        </div>
+                        <div className="mt-0.5 text-[10px] text-zinc-500 dark:text-zinc-400">
+                          Peak-to-trough
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                          Win Rate
+                        </div>
+                        <div
+                          className={`mt-1 text-sm font-semibold ${
+                            backtest.summary.winRatePct >= 50
+                              ? 'text-[#3fb27f]'
+                              : 'text-zinc-900 dark:text-zinc-100'
+                          }`}
+                        >
+                          {backtest.summary.winRatePct.toFixed(1)}%
+                        </div>
+                        <div className="mt-0.5 text-[10px] text-zinc-500 dark:text-zinc-400">
+                          {backtest.summary.winDays}/{backtest.summary.tradingDays} green days
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                          Avg Turnover
+                        </div>
+                        <div className="mt-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                          {(backtest.summary.avgDailyTurnover * 100).toFixed(0)}%/d
+                        </div>
+                        <div className="mt-0.5 text-[10px] text-zinc-500 dark:text-zinc-400">
+                          Drag -{Math.abs(backtest.summary.totalCostDragPct).toFixed(2)}% · |w̄|{' '}
+                          {(backtest.summary.avgAbsWeight * 100).toFixed(0)}%
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Interactive Cumulative P&L vs Buy & Hold SVG Chart */}
+                    <HistoricalBacktestChart backtest={backtest} />
+                  </div>
+                ))}
             </div>
           )}
 

@@ -93,6 +93,8 @@ export type AnalysisSubTabId =
   | 'risk'
   | 'microstructure';
 
+let persistedCycleBand: { min: number; max: number } = { min: 25, max: 126 };
+
 export function AnalysisView({
   intradaySource = null,
   ticker,
@@ -121,7 +123,13 @@ export function AnalysisView({
   const [localTicker, setLocalTicker] = useState(ticker);
   const [activeSubTab, setActiveSubTab] = useState<AnalysisSubTabId>('overview');
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [cycleBand, setCycleBand] = useState<{ min: number; max: number }>({ min: 25, max: 126 });
+  const [cycleBand, setCycleBandState] = useState<{ min: number; max: number }>(
+    () => persistedCycleBand
+  );
+  const setCycleBand = (next: { min: number; max: number }) => {
+    persistedCycleBand = next;
+    setCycleBandState(next);
+  };
 
   // Deep-link: ?tab=dynamics restores the T1–T5 selection (replaceState keeps history clean).
   // Deferred with a 0ms timeout so the setState doesn't cascade synchronously inside the effect.
@@ -732,6 +740,8 @@ export function AnalysisView({
           downsideResult={downsideResult}
           ticker={ticker}
           hmmFit={hmmFit}
+          returns={returns}
+          dates={dates}
         />
       )}
 

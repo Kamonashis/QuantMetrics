@@ -22,6 +22,7 @@ import {
   type OpportunityInputs,
 } from '@/lib/opportunity-engine';
 import { summarizeHitRates, type HitRate, type SignalJournalRecord } from '@/lib/signal-outcomes';
+import { TcnUnifiedDashboard } from '@/components/views/TcnUnifiedDashboard';
 
 type View = 'home' | 'analysis' | 'modeling' | 'volatility' | 'fno' | 'correlation' | 'regression';
 
@@ -267,6 +268,7 @@ export function EdgeView({
 
   const opportunities = useMemo(() => rankOpportunities(evaluateOpportunities(inputs)), [inputs]);
   const visible = filter === 'all' ? opportunities : opportunities.filter((o) => o.family === filter);
+  const topOpportunity = opportunities[0] ?? null;
 
   // Scan + journal are side effects: deferred so the compiler never sees setState in render.
   useEffect(() => {
@@ -377,6 +379,16 @@ export function EdgeView({
           <span className="text-zinc-400">IV30 {pct(iv30)} · RV20 {pct(rv20)} · VRP {vrp.variancePoints === null ? '—' : `${vrp.variancePoints.toFixed(0)} bp²`}</span>
         </div>
       </section>
+
+      <TcnUnifiedDashboard
+        ticker={ticker}
+        bars={bars}
+        allStockBars={s.allStockBars}
+        iv30={iv30}
+        rv20={rv20}
+        topOpportunity={topOpportunity}
+        onNavigate={onNavigate}
+      />
 
       <section className="panel p-5">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--hairline)] pb-3">

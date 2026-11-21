@@ -426,36 +426,48 @@ export function HomeView({ onNavigate, onSelectPreset, ticker, bars, barsSource,
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          {presets.map((item) => (
-            <button
-              key={item.ticker}
-              type="button"
-              onClick={() => {
-                onSelectPreset(item.ticker);
-                onNavigate('analysis');
-              }}
-              className="group relative cursor-pointer overflow-hidden rounded-xl border border-[var(--hairline)] bg-[var(--bg-inset)] p-4 text-left transition-all duration-200 hover:border-gold-500/45 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-400/60"
-            >
-              <GlowingEffect borderWidth={1} proximity={36} />
-              <div className="flex items-center justify-between">
-                <span className="font-mono text-sm font-bold tracking-wide text-zinc-900 transition-colors group-hover:text-gold-700 dark:text-zinc-50 dark:group-hover:text-gold-300">
-                  {item.ticker}
-                </span>
-                <span className={`font-mono text-[10px] font-semibold ${(tapeBySymbol.get(item.ticker)?.changePct ?? 0) >= 0 ? 'text-[var(--positive)]' : 'text-[var(--negative)]'}`}>
-                  {tapeBySymbol.has(item.ticker)
-                    ? `${tapeBySymbol.get(item.ticker)!.changePct >= 0 ? '+' : ''}${tapeBySymbol.get(item.ticker)!.changePct.toFixed(2)}%`
-                    : '—'}
-                </span>
-              </div>
-              <div className="mt-1.5 truncate text-[11px] font-medium text-zinc-600 dark:text-zinc-300">
-                {item.name}
-              </div>
-              <div className="mt-3 flex items-center justify-between font-mono text-[9px] uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
-                <span className="truncate">{item.category}</span>
-                <span className="shrink-0">{tapeBySymbol.has(item.ticker) ? tapeBySymbol.get(item.ticker)!.price.toFixed(2) : '—'}</span>
-              </div>
-            </button>
-          ))}
+          {presets.map((item) => {
+            const quote = tapeBySymbol.get(item.ticker);
+            const hasPrice = Boolean(quote && !quote.pending);
+            return (
+              <button
+                key={item.ticker}
+                type="button"
+                onClick={() => {
+                  onSelectPreset(item.ticker);
+                  onNavigate('analysis');
+                }}
+                className="group relative cursor-pointer overflow-hidden rounded-xl border border-[var(--hairline)] bg-[var(--bg-inset)] p-4 text-left transition-all duration-200 hover:border-gold-500/45 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-400/60"
+              >
+                <GlowingEffect borderWidth={1} proximity={36} />
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-sm font-bold tracking-wide text-zinc-900 transition-colors group-hover:text-gold-700 dark:text-zinc-50 dark:group-hover:text-gold-300">
+                    {item.ticker}
+                  </span>
+                  <span
+                    className={`font-mono text-[10px] font-semibold ${
+                      !hasPrice
+                        ? 'text-zinc-400 dark:text-zinc-500'
+                        : quote!.changePct >= 0
+                          ? 'text-[var(--positive)]'
+                          : 'text-[var(--negative)]'
+                    }`}
+                  >
+                    {hasPrice
+                      ? `${quote!.changePct >= 0 ? '+' : ''}${quote!.changePct.toFixed(2)}%`
+                      : '—'}
+                  </span>
+                </div>
+                <div className="mt-1.5 truncate text-[11px] font-medium text-zinc-600 dark:text-zinc-300">
+                  {item.name}
+                </div>
+                <div className="mt-3 flex items-center justify-between font-mono text-[9px] uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
+                  <span className="truncate">{item.category}</span>
+                  <span className="shrink-0">{hasPrice ? quote!.price.toFixed(2) : '—'}</span>
+                </div>
+              </button>
+            );
+          })}
         </div>
       </section>
 

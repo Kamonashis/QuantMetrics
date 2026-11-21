@@ -5,6 +5,8 @@ export interface TapeItem {
   symbol: string;
   price: number;
   changePct: number;
+  pending?: boolean;
+  asOf?: string;
 }
 
 /**
@@ -29,16 +31,26 @@ export function TickerTape({ items }: { items: TapeItem[] }) {
             <span key={`${item.symbol}-${i}`} className="mx-5 flex items-center gap-2 font-mono text-[11px]">
               <span className="font-semibold tracking-wider text-zinc-700 dark:text-zinc-300">{item.symbol}</span>
               <span className="tabular-nums text-zinc-900 dark:text-zinc-100">
-                {item.price.toFixed(2)}
+                {item.pending ? '—' : item.price.toFixed(2)}
               </span>
               <span
                 className={`flex items-center gap-0.5 tabular-nums ${
-                  up ? 'text-[var(--positive)]' : 'text-[var(--negative)]'
+                  item.pending
+                    ? 'text-zinc-400 dark:text-zinc-500'
+                    : up
+                      ? 'text-[var(--positive)]'
+                      : 'text-[var(--negative)]'
                 }`}
               >
-                {up ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                {up ? '+' : ''}
-                {item.changePct.toFixed(2)}%
+                {item.pending ? (
+                  '—'
+                ) : (
+                  <>
+                    {up ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                    {up ? '+' : ''}
+                    {item.changePct.toFixed(2)}%
+                  </>
+                )}
               </span>
               <span className="ml-4 text-[8px] text-zinc-300 dark:text-zinc-700">◆</span>
             </span>

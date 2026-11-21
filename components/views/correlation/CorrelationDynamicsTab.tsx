@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   IntradayBar,
   computeRollingCorrelation,
@@ -10,6 +10,11 @@ import {
   computeRegimeCorrelations,
   computeRealizedCorrelationIntraday,
 } from '@/lib/correlation-engine';
+import {
+  getCachedTcnCorrelationForecast,
+  runTcnCorrelationForecast,
+  type TcnCorrelationForecast,
+} from '@/lib/tcn-multi-domain';
 import {
   MathDisplay,
   DccQEquation,
@@ -22,6 +27,14 @@ import { RegimeChip } from '@/components/ui/RegimeChip';
 import { RegimeTransitionMatrix } from '@/components/ui/RegimeTransitionMatrix';
 import { fitGaussianHmm, type HmmFit } from '@/lib/hmm';
 import {
+  buildRegimeBandSpans,
+  getHmmRegimeToken,
+} from '@/lib/hmm-regime-overlay';
+import {
+  HmmRegimeOverlayToggle,
+  HmmRegimeScorecard,
+} from '@/components/charts/HmmRegimeOverlayControls';
+import {
   Activity,
   Zap,
   Clock,
@@ -31,6 +44,8 @@ import {
   ShieldAlert,
   ArrowRight,
   TrendingUp,
+  RotateCcw,
+  Sparkles,
 } from 'lucide-react';
 
 interface CorrelationDynamicsTabProps {
@@ -52,15 +67,76 @@ export function CorrelationDynamicsTab({
     tickers[1] || (tickers.length > 1 ? tickers[1] : 'SPY')
   );
 
-  // Engine choice: DCC-GARCH vs EWMA
-  const [modelType, setModelType] = useState<'dcc' | 'ewma'>('dcc');
+  // Engine choice: DCC-GARCH vs EWMA vs TCN-Attention (Fisher-z)
+  const [modelType, setModelType] = useState<'dcc' | 'ewma' | 'tcn'>('dcc');
   const [ewmaLambda, setEwmaLambda] = useState<number>(0.94);
   const [rollingWindow, setRollingWindow] = useState<number>(60);
   const [forecastDays, setForecastDays] = useState<number>(30);
+  const [showRegimeOverlay, setShowRegimeOverlay] = useState<boolean>(true);
+  const [corrHoverIdx, setCorrHoverIdx] = useState<number | null>(null);
 
   const returnsA = useMemo(() => returnsByTicker[selectedPairA] || [], [returnsByTicker, selectedPairA]);
   const returnsB = useMemo(() => returnsByTicker[selectedPairB] || [], [returnsByTicker, selectedPairB]);
   const nObs = Math.min(returnsA.length, returnsB.length);
+  const firstDate = dates[0] ?? '';
+  const lastDate = dates[dates.length - 1] ?? '';
+
+  const [tcnCorr, setTcnCorr] = useState<TcnCorrelationForecast | null>(() =>
+    nObs >= 70
+      ? getCachedTcnCorrelationForecast(selectedPairA, selectedPairB, returnsA, returnsB, dates, forecastDays)
+      : null
+  );
+  const [tcnTraining, setTcnTraining] = useState(false);
+  const [tcnRetrainNonce, setTcnRetrainNonce] = useState(0);
+  const rARef = useRef(returnsA);
+  const rBRef = useRef(returnsB);
+  const datesRef = useRef(dates);
+  useEffect(() => {
+    rARef.current = returnsA;
+    rBRef.current = returnsB;
+    datesRef.current = dates;
+  }, [returnsA, returnsB, dates]);
+
+  useEffect(() => {
+    if (nObs < 70) return;
+    let cancelled = false;
+    const force = tcnRetrainNonce > 0;
+    const timer = setTimeout(() => {
+      if (cancelled) return;
+      const curA = rARef.current;
+      const curB = rBRef.current;
+      const curDates = datesRef.current;
+      if (!force) {
+        const cached = getCachedTcnCorrelationForecast(selectedPairA, selectedPairB, curA, curB, curDates, forecastDays);
+        if (cached) {
+          setTcnCorr(cached);
+          setTcnTraining(false);
+          return;
+        }
+        if (modelType !== 'tcn') return;
+      }
+      setTcnTraining(true);
+      void runTcnCorrelationForecast(selectedPairA, selectedPairB, curA, curB, curDates, forecastDays, {
+        forceRetrain: force,
+        yieldControl: () => new Promise<void>((r) => setTimeout(r, 0)),
+        isCancelled: () => cancelled,
+      }).then((res) => {
+        if (!cancelled) {
+          if (res) setTcnCorr(res);
+          setTcnTraining(false);
+        }
+      });
+    }, 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [selectedPairA, selectedPairB, nObs, firstDate, lastDate, forecastDays, modelType, tcnRetrainNonce]);
+
+  const activeTcnCorr =
+    tcnCorr && tcnCorr.tickerA === selectedPairA.toUpperCase() && tcnCorr.tickerB === selectedPairB.toUpperCase()
+      ? tcnCorr
+      : null;
 
   // Fit DCC-GARCH
   const dccResult = useMemo(() => {
@@ -150,7 +226,11 @@ export function CorrelationDynamicsTab({
 
   // Active series for the dynamic chart
   const activeSeries =
-    modelType === 'dcc' ? dccResult.dynamicCorrelations : ewmaResult;
+    modelType === 'dcc'
+      ? dccResult.dynamicCorrelations
+      : modelType === 'tcn'
+        ? (activeTcnCorr?.dynamicCorrelations ?? ewmaResult)
+        : ewmaResult;
 
   const currentDynamicCorr =
     activeSeries[activeSeries.length - 1]?.correlation ?? dccResult.unconditionalCorr;
@@ -208,19 +288,81 @@ export function CorrelationDynamicsTab({
             <AlgoSelect
               ariaLabel="Correlation model"
               value={modelType}
-              onChange={(v) => setModelType(v as 'dcc' | 'ewma')}
+              onChange={(v) => setModelType(v as 'dcc' | 'ewma' | 'tcn')}
               options={[
                 { value: 'dcc', label: 'DCC-GARCH', hint: 'Engle · QMLE' },
                 { value: 'ewma', label: 'EWMA', hint: 'RiskMetrics' },
+                { value: 'tcn', label: 'TCN-Attention', hint: '1d/5d/22d · Fisher-z' },
               ]}
-              className="w-52"
+              className="w-56"
             />
           </div>
         </div>
 
         {/* Dynamic Model Control Readout Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-4 text-xs">
-          {modelType === 'dcc' ? (
+          {modelType === 'tcn' ? (
+            <>
+              {([1, 5, 22] as const).map((h) => {
+                const hz = activeTcnCorr?.horizons[h];
+                return (
+                  <div key={h} className="p-3 bg-zinc-50 dark:bg-zinc-900/60 rounded-lg border border-zinc-200 dark:border-zinc-800">
+                    <div className="flex items-center justify-between font-mono text-[10px] text-zinc-400">
+                      <span>TCN {h}D Forecast ρ</span>
+                      <span>OOS MAE {hz ? hz.oosMae.toFixed(3) : '—'}</span>
+                    </div>
+                    <div className="mt-0.5 flex items-baseline gap-2">
+                      <span className="font-mono text-xl font-bold text-gold-600 dark:text-gold-300 tabular-nums">
+                        {hz ? hz.predictedCorr.toFixed(3) : tcnTraining ? '…' : '—'}
+                      </span>
+                      {hz && (
+                        <span className={`font-mono text-[10px] font-semibold tabular-nums ${hz.deltaVsCurrent >= 0.04 ? 'text-rose-500' : hz.deltaVsCurrent <= -0.04 ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-400'}`}>
+                          {hz.deltaVsCurrent >= 0 ? '+' : ''}{hz.deltaVsCurrent.toFixed(2)} vs now
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[10px] font-mono text-zinc-500 block mt-0.5 tabular-nums">
+                      {hz ? `99% PI [${hz.lower99.toFixed(2)}, ${hz.upper99.toFixed(2)}]` : 'Fisher-z tanh bounded (-1, 1)'}
+                    </span>
+                  </div>
+                );
+              })}
+
+              <div className="p-3 bg-zinc-50 dark:bg-zinc-900/60 rounded-lg border border-zinc-200 dark:border-zinc-800 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between font-mono text-[10px] text-zinc-400">
+                    <span className="flex items-center gap-1"><Sparkles className="h-3 w-3 text-gold-500" /> Spillover State</span>
+                    <button
+                      type="button"
+                      onClick={() => setTcnRetrainNonce((n) => n + 1)}
+                      disabled={tcnTraining}
+                      className="inline-flex cursor-pointer items-center gap-1 text-gold-600 hover:underline dark:text-gold-400 disabled:opacity-50"
+                    >
+                      <RotateCcw className={`h-3 w-3 ${tcnTraining ? 'animate-spin' : ''}`} />
+                      {tcnTraining ? 'Training' : 'Retrain'}
+                    </button>
+                  </div>
+                  <div className={`mt-1 font-mono text-sm font-bold ${
+                    activeTcnCorr?.spilloverAlert.level === 'ELEVATED'
+                      ? 'text-rose-500 dark:text-rose-400'
+                      : activeTcnCorr?.spilloverAlert.level === 'WATCH'
+                        ? 'text-gold-600 dark:text-gold-400'
+                        : 'text-emerald-600 dark:text-emerald-400'
+                  }`}>
+                    {activeTcnCorr?.spilloverAlert.level ?? (tcnTraining ? 'COMPUTING…' : '—')}
+                  </div>
+                  <p className="mt-0.5 text-[10px] leading-snug text-zinc-500 dark:text-zinc-400">
+                    {activeTcnCorr?.spilloverAlert.summary ?? 'Monitoring cross-asset correlation jump risk.'}
+                  </p>
+                  {activeTcnCorr?.hmmRegime && (
+                    <div className="mt-1 font-mono text-[9.5px] tabular-nums text-gold-700 dark:text-gold-300">
+                      Joint HMM: {activeTcnCorr.hmmRegime.dominantLabel} ({Math.round(activeTcnCorr.hmmRegime.probs[0] * 100)}/{Math.round(activeTcnCorr.hmmRegime.probs[1] * 100)}/{Math.round(activeTcnCorr.hmmRegime.probs[2] * 100)}%)
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          ) : modelType === 'dcc' ? (
             <>
               <div className="p-3 bg-zinc-50 dark:bg-zinc-900/60 rounded-lg border border-zinc-200 dark:border-zinc-800">
                 <span className="text-zinc-400 font-mono text-[10px] block">
@@ -327,7 +469,12 @@ export function CorrelationDynamicsTab({
           <div>
             <div className="flex items-center gap-2">
               <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
-                {modelType === 'dcc' ? 'Engle DCC-GARCH(1,1)' : 'RiskMetrics EWMA'} Dynamic Correlation Path
+                {modelType === 'dcc'
+                  ? 'Engle DCC-GARCH(1,1)'
+                  : modelType === 'tcn'
+                    ? 'TCN-Attention (Fisher-z 1d/5d/22d)'
+                    : 'RiskMetrics EWMA'}{' '}
+                Dynamic Correlation Path
               </h4>
               <span className="text-xs font-mono text-zinc-400">
                 · {selectedPairA} vs {selectedPairB}
@@ -350,11 +497,117 @@ export function CorrelationDynamicsTab({
           </div>
         </div>
 
+        {/* Causal HMM Regime Overlay Toggle & Live Hover Readout (TCN mode) */}
+        {modelType === 'tcn' && activeTcnCorr && activeTcnCorr.hmmStates.length > 0 && (() => {
+          const dyn = activeTcnCorr.dynamicCorrelations;
+          const hIdx = corrHoverIdx !== null && corrHoverIdx < dyn.length ? corrHoverIdx : dyn.length - 1;
+          const hPt = dyn[hIdx];
+          const tok = hPt?.hmmState !== undefined ? getHmmRegimeToken(hPt.hmmState) : null;
+          return (
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3 pb-2 border-b border-[var(--hairline)]">
+              <HmmRegimeOverlayToggle
+                enabled={showRegimeOverlay}
+                onToggle={() => setShowRegimeOverlay((v) => !v)}
+                caption="Joint HMM origin t−1"
+              />
+              {hPt && (
+                <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] font-mono tabular-nums text-zinc-600 dark:text-zinc-300">
+                  <strong className="text-zinc-900 dark:text-zinc-100">{hPt.date}</strong>
+                  {hPt.isOos && <span className="text-gold-600 dark:text-gold-400">OOS</span>}
+                  <span>·</span>
+                  <span>ρ = {hPt.correlation.toFixed(3)}</span>
+                  {tok && (
+                    <>
+                      <span>·</span>
+                      <span className="inline-flex items-center gap-1.5">
+                        <span
+                          className="w-2 h-2 rounded-full shrink-0"
+                          style={{ backgroundColor: tok.color }}
+                        />
+                        <span className={`font-semibold ${tok.textClass}`}>
+                          {tok.label}
+                          {hPt.hmmProb !== undefined ? ` (${Math.round(hPt.hmmProb * 100)}%)` : ''}
+                        </span>
+                      </span>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
         {/* SVG Time-Series Chart */}
         <ChartFullscreen title="Dynamic Correlation Path vs. Static Baseline">
         <div className="w-full h-64 bg-zinc-50 dark:bg-zinc-900/60 rounded-xl border border-zinc-200 dark:border-zinc-800 relative p-3">
           {activeSeries.length > 5 ? (
-            <svg viewBox="0 0 800 220" className="w-full h-full">
+            <svg
+              viewBox="0 0 800 220"
+              className="w-full h-full cursor-crosshair"
+              onMouseMove={(e) => {
+                if (modelType !== 'tcn' || !activeTcnCorr) return;
+                const rect = e.currentTarget.getBoundingClientRect();
+                const svgX = ((e.clientX - rect.left) / rect.width) * 800;
+                const clamped = Math.max(50, Math.min(700, svgX));
+                const idx = Math.round(((clamped - 50) / 650) * Math.max(1, activeSeries.length - 1));
+                setCorrHoverIdx(Math.max(0, Math.min(activeSeries.length - 1, idx)));
+              }}
+              onMouseLeave={() => setCorrHoverIdx(null)}
+            >
+              {/* Causal Joint HMM Regime Background Bands (TCN mode) */}
+              {modelType === 'tcn' && activeTcnCorr && activeTcnCorr.hmmStates.length > 0 && (() => {
+                const dyn = activeTcnCorr.dynamicCorrelations;
+                const totalPts = Math.max(1, dyn.length - 1);
+                const stepX = 650 / totalPts;
+                const spans = buildRegimeBandSpans(dyn.map((p) => p.hmmState));
+                const holdX = 50 + Math.min(totalPts, activeTcnCorr.holdoutStartIdx) * stepX;
+                return (
+                  <g
+                    style={{
+                      opacity: showRegimeOverlay ? 1 : 0,
+                      transition: 'opacity 150ms ease',
+                    }}
+                  >
+                    {spans.map((span) => {
+                      const tok = getHmmRegimeToken(span.state);
+                      const x0 = 50 + span.startIdx * stepX;
+                      const x1 = span.endIdx < dyn.length - 1 ? 50 + (span.endIdx + 1) * stepX : 700;
+                      return (
+                        <rect
+                          key={`corr-band-${span.startIdx}-${span.endIdx}-${span.state}`}
+                          x={x0}
+                          y={20}
+                          width={Math.max(1, x1 - x0)}
+                          height={180}
+                          fill={`rgba(${tok.rgb}, 0.12)`}
+                        />
+                      );
+                    })}
+                    {activeTcnCorr.holdoutStartIdx > 0 && activeTcnCorr.holdoutStartIdx < dyn.length && (
+                      <g>
+                        <line
+                          x1={holdX}
+                          y1={20}
+                          x2={holdX}
+                          y2={200}
+                          stroke="#DEC084"
+                          strokeWidth="0.8"
+                          strokeDasharray="2 3"
+                          opacity="0.7"
+                        />
+                        <text
+                          x={holdX + 4}
+                          y={31}
+                          className="text-[9px] font-mono fill-gold-600 dark:fill-gold-400"
+                        >
+                          OOS
+                        </text>
+                      </g>
+                    )}
+                  </g>
+                );
+              })()}
+
               {/* Horizontal Reference Lines (-1, 0, +1) */}
               <line x1="40" y1="20" x2="780" y2="20" stroke="#64748b" strokeWidth="0.3" strokeDasharray="3 3" />
               <line x1="40" y1="110" x2="780" y2="110" stroke="#64748b" strokeWidth="0.65" strokeDasharray="2 2" />
@@ -391,14 +644,79 @@ export function CorrelationDynamicsTab({
                 return (
                   <polyline
                     fill="none"
-                    stroke={modelType === 'dcc' ? '#DEC084' : '#0ea5e9'}
-                    strokeWidth="1.3"
+                    stroke={modelType === 'ewma' ? '#94a3b8' : '#DEC084'}
+                    strokeWidth="1.4"
                     points={pointsStr}
                   />
                 );
               })()}
 
-              {/* DCC Forecast Cone (if DCC selected) */}
+              {/* Color-coded OOS Prediction Points by Causal Joint HMM Regime (TCN mode) */}
+              {modelType === 'tcn' && activeTcnCorr && activeTcnCorr.hmmStates.length > 0 && (() => {
+                const dyn = activeTcnCorr.dynamicCorrelations;
+                const stepX = 650 / Math.max(1, dyn.length - 1);
+                const oosIndices: number[] = [];
+                for (let i = 0; i < dyn.length; i++) {
+                  if (dyn[i].isOos) oosIndices.push(i);
+                }
+                const stride = Math.max(1, Math.ceil(oosIndices.length / 44));
+                return (
+                  <g
+                    style={{
+                      opacity: showRegimeOverlay ? 1 : 0,
+                      transition: 'opacity 150ms ease',
+                    }}
+                  >
+                    {oosIndices.map((idx, k) => {
+                      if (k % stride !== 0 && idx !== oosIndices[oosIndices.length - 1]) return null;
+                      const pt = dyn[idx];
+                      const tok = getHmmRegimeToken(pt.hmmState);
+                      return (
+                        <circle
+                          key={`corr-oos-${idx}`}
+                          cx={50 + idx * stepX}
+                          cy={110 - pt.correlation * 90}
+                          r={2.7}
+                          fill={tok.color}
+                          stroke="#08080a"
+                          strokeWidth={0.9}
+                        />
+                      );
+                    })}
+                  </g>
+                );
+              })()}
+
+              {/* Hover Crosshair & Active Marker (TCN mode) */}
+              {modelType === 'tcn' && activeTcnCorr && corrHoverIdx !== null && (() => {
+                const dyn = activeTcnCorr.dynamicCorrelations;
+                const pt = dyn[corrHoverIdx];
+                if (!pt) return null;
+                const stepX = 650 / Math.max(1, dyn.length - 1);
+                const cx = 50 + corrHoverIdx * stepX;
+                const cy = 110 - pt.correlation * 90;
+                const fill =
+                  showRegimeOverlay && pt.hmmState !== undefined
+                    ? getHmmRegimeToken(pt.hmmState).color
+                    : '#DEC084';
+                return (
+                  <g>
+                    <line
+                      x1={cx}
+                      y1={20}
+                      x2={cx}
+                      y2={200}
+                      stroke="#DEC084"
+                      strokeWidth="0.7"
+                      strokeDasharray="2 2"
+                      opacity="0.7"
+                    />
+                    <circle cx={cx} cy={cy} r={4.2} fill={fill} stroke="#08080a" strokeWidth={1.3} />
+                  </g>
+                );
+              })()}
+
+              {/* Forecast Cone (DCC or TCN-Attention) */}
               {modelType === 'dcc' && dccResult.forecastCone.length > 0 && (() => {
                 const startX = 700;
                 const endX = 770;
@@ -423,6 +741,43 @@ export function CorrelationDynamicsTab({
                   />
                 );
               })()}
+
+              {modelType === 'tcn' && activeTcnCorr && activeTcnCorr.forecastCone.length > 0 && (() => {
+                const startX = 700;
+                const cone = activeTcnCorr.forecastCone;
+                const dx = 70 / Math.max(1, cone.length - 1);
+                const topPath = cone
+                  .map((c, i) => `${(startX + i * dx).toFixed(1)},${(110 - c.upper99 * 90).toFixed(1)}`)
+                  .join(' ');
+                const bottomPath = cone
+                  .slice()
+                  .reverse()
+                  .map((c, i) => `${(startX + (cone.length - 1 - i) * dx).toFixed(1)},${(110 - c.lower99 * 90).toFixed(1)}`)
+                  .join(' ');
+                const midPath = cone
+                  .map((c, i) => `${(startX + i * dx).toFixed(1)},${(110 - c.correlation * 90).toFixed(1)}`)
+                  .join(' ');
+
+                return (
+                  <g>
+                    <polygon
+                      points={`${topPath} ${bottomPath}`}
+                      fill="#DEC084"
+                      fillOpacity="0.16"
+                      stroke="#DEC084"
+                      strokeWidth="0.5"
+                      strokeDasharray="2 2"
+                    />
+                    <polyline
+                      fill="none"
+                      stroke="#3fb27f"
+                      strokeWidth="1.5"
+                      strokeDasharray="3 2"
+                      points={midPath}
+                    />
+                  </g>
+                );
+              })()}
             </svg>
           ) : (
             <div className="h-full flex items-center justify-center text-xs text-zinc-400 font-mono">
@@ -432,13 +787,44 @@ export function CorrelationDynamicsTab({
         </div>
         </ChartFullscreen>
 
-        <div className="mt-3 flex items-center justify-between text-xs text-zinc-500 font-mono">
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-500 font-mono">
           <span>Start: {dates[0] || 'Historical'}</span>
           <span>Latest: {dates[dates.length - 1] || 'Current'}</span>
           {modelType === 'dcc' && (
             <span className="text-gold-500 font-semibold">+30-Day Forecast Cone Shaded</span>
           )}
+          {modelType === 'tcn' && activeTcnCorr && (
+            <span className="text-gold-500 font-semibold">
+              +30D Fisher-z 99% Cone · {activeTcnCorr.cacheHit ? 'cached' : `${activeTcnCorr.trainingDurationMs}ms`}
+              {activeTcnCorr.topShockDates.length > 0 && ` · Top shock ${activeTcnCorr.topShockDates[0].date}`}
+            </span>
+          )}
         </div>
+
+        {/* Per-Regime OOS Correlation Accuracy Scorecard (TCN mode) */}
+        {modelType === 'tcn' && activeTcnCorr && activeTcnCorr.regimePerformance.length > 0 && (
+          <HmmRegimeScorecard
+            className="mt-4"
+            title={`TCN 1d OOS Correlation Accuracy by Joint HMM Regime (${selectedPairA}/${selectedPairB})`}
+            subtitle="Stratified by dominant forward-filtered joint HMM state at prediction origin (t−1)"
+            columns={[
+              { key: 'mae', label: '1d OOS MAE' },
+              { key: 'rmse', label: '1d OOS RMSE' },
+              { key: 'pred', label: 'Mean Pred ρ' },
+              { key: 'act', label: 'Mean Actual ρ' },
+            ]}
+            rows={activeTcnCorr.regimePerformance.map((r) => ({
+              state: r.state,
+              count: r.count,
+              cells: {
+                mae: r.oosMae !== null ? r.oosMae.toFixed(3) : '—',
+                rmse: r.oosRmse !== null ? r.oosRmse.toFixed(3) : '—',
+                pred: r.meanPredCorr !== null ? r.meanPredCorr.toFixed(3) : '—',
+                act: r.meanActualCorr !== null ? r.meanActualCorr.toFixed(3) : '—',
+              },
+            }))}
+          />
+        )}
       </div>
 
       {/* Rolling Windows & Tail Copula Breakdown Row */}

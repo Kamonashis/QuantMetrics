@@ -1,20 +1,38 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   GarchModelSummary,
   GarchForecastPoint,
 } from '@/lib/quant-engine';
 import { useChartSize } from '@/lib/use-chart-size';
+import {
+  buildRegimeBandSpans,
+  getHmmRegimeToken,
+  type HmmStateIdx,
+  type VolRegimePerfRow,
+} from '@/lib/hmm-regime-overlay';
+import {
+  HmmRegimeOverlayToggle,
+  HmmRegimeScorecard,
+} from '@/components/charts/HmmRegimeOverlayControls';
 
 interface VolatilityForecastChartProps {
   dates: string[];
   historicalVol: (number | null)[];
-  /** The selected model's conditional vol series (EWMA / GJR-GARCH / HMM regime-mixture) */
+  /** The selected model's conditional vol series (EWMA / GJR-GARCH / HMM regime-mixture / TCN) */
   modelVol: number[];
   modelLabel: string;
   forecastPoints: GarchForecastPoint[];
   modelSummary: GarchModelSummary;
+  /** Optional strictly causal dominant HMM state per historical return session */
+  hmmStates?: HmmStateIdx[];
+  /** Optional causal HMM posterior probability per historical return session */
+  hmmProbs?: number[];
+  /** Index into historical series where OOS holdout begins */
+  holdoutStartIdx?: number;
+  /** Per-regime 1d OOS performance rows (Calm / Watchful / Crisis) */
+  regimePerformance?: VolRegimePerfRow[];
 }
 
 /**
@@ -28,11 +46,22 @@ export function VolatilityForecastChart({
   modelLabel,
   forecastPoints,
   modelSummary,
+  hmmStates,
+  hmmProbs,
+  holdoutStartIdx,
+  regimePerformance,
 }: VolatilityForecastChartProps) {
   const [showModel, setShowModel] = useState(true);
   const [showHist, setShowHist] = useState(true);
+  const [showRegimeOverlay, setShowRegimeOverlay] = useState(true);
   const [hoverIndex, setHoverIndex] = useState<{ type: 'hist' | 'fc'; idx: number } | null>(null);
   const { ref, size } = useChartSize<HTMLDivElement>();
+
+  const hasHmmOverlay = Boolean(hmmStates && hmmStates.length > 0);
+  const regimeBandSpans = useMemo(() => {
+    if (!hmmStates || hmmStates.length === 0) return [];
+    return buildRegimeBandSpans(hmmStates.slice(0, dates.length));
+  }, [hmmStates, dates.length]);
 
   const nHist = dates.length;
   const nFc = forecastPoints.length;
@@ -137,8 +166,9 @@ export function VolatilityForecastChart({
         {/* Series Visibility Toggles */}
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <button
+            type="button"
             onClick={() => setShowModel(!showModel)}
-            className={`px-2.5 py-1 rounded-md font-medium transition-colors border ${
+            className={`px-2.5 py-1 rounded-md font-medium transition-colors border whitespace-nowrap shrink-0 cursor-pointer ${
               showModel
                 ? 'bg-gold-500/10 border-gold-500/30 text-gold-600 dark:text-gold-400'
                 : 'border-zinc-200 dark:border-zinc-800 text-zinc-400'
@@ -147,8 +177,9 @@ export function VolatilityForecastChart({
             {modelLabel}
           </button>
           <button
+            type="button"
             onClick={() => setShowHist(!showHist)}
-            className={`px-2.5 py-1 rounded-md font-medium transition-colors border ${
+            className={`px-2.5 py-1 rounded-md font-medium transition-colors border whitespace-nowrap shrink-0 cursor-pointer ${
               showHist
                 ? 'bg-zinc-500/10 border-zinc-500/30 text-zinc-600 dark:text-zinc-400'
                 : 'border-zinc-200 dark:border-zinc-800 text-zinc-400'
@@ -158,6 +189,75 @@ export function VolatilityForecastChart({
           </button>
         </div>
       </div>
+
+      {/* HMM Regime Overlay Controls + Live Hover Readout Strip */}
+      {(hasHmmOverlay || hoverIndex) && (
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5 pb-2 border-b border-[var(--hairline)]">
+          {hasHmmOverlay ? (
+            <HmmRegimeOverlayToggle
+              enabled={showRegimeOverlay}
+              onToggle={() => setShowRegimeOverlay((v) => !v)}
+              caption="OOS points colored by origin t−1"
+            />
+          ) : (
+            <div />
+          )}
+
+          {hoverIndex && (() => {
+            if (hoverIndex.type === 'hist') {
+              const i = Math.max(0, Math.min(nHist - 1, hoverIndex.idx));
+              const mv = modelVol[i];
+              const hv = historicalVol[i];
+              const st = hmmStates?.[i];
+              const pr = hmmProbs?.[i];
+              const tok = st !== undefined ? getHmmRegimeToken(st) : null;
+              const isOosPt = holdoutStartIdx !== undefined && i >= holdoutStartIdx;
+              return (
+                <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] font-mono tabular-nums text-zinc-600 dark:text-zinc-300">
+                  <strong className="text-zinc-900 dark:text-zinc-100">{dates[i]}</strong>
+                  {isOosPt && <span className="text-gold-600 dark:text-gold-400">OOS</span>}
+                  <span>·</span>
+                  <span>Model {(mv * 100).toFixed(1)}%</span>
+                  {hv !== null && hv !== undefined && (
+                    <>
+                      <span>·</span>
+                      <span className="text-zinc-500 dark:text-zinc-400">RV30 {(hv * 100).toFixed(1)}%</span>
+                    </>
+                  )}
+                  {tok && (
+                    <>
+                      <span>·</span>
+                      <span className="inline-flex items-center gap-1.5">
+                        <span
+                          className="w-2 h-2 rounded-full shrink-0"
+                          style={{ backgroundColor: tok.color }}
+                        />
+                        <span className={`font-semibold ${tok.textClass}`}>
+                          {tok.label}
+                          {pr !== undefined ? ` (${Math.round(pr * 100)}%)` : ''}
+                        </span>
+                      </span>
+                    </>
+                  )}
+                </div>
+              );
+            }
+            const fc = forecastPoints[hoverIndex.idx];
+            if (!fc) return null;
+            return (
+              <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] font-mono tabular-nums text-zinc-600 dark:text-zinc-300">
+                <strong className="text-gold-600 dark:text-gold-400">+{fc.day}d ({fc.date})</strong>
+                <span>·</span>
+                <span>Forecast {(fc.annualizedVol * 100).toFixed(1)}%</span>
+                <span>·</span>
+                <span className="text-zinc-500 dark:text-zinc-400">
+                  95% [{(fc.lower95 * 100).toFixed(1)}%, {(fc.upper95 * 100).toFixed(1)}%]
+                </span>
+              </div>
+            );
+          })()}
+        </div>
+      )}
 
       <div ref={ref} className="chart-frame">
         {ready && (
@@ -178,6 +278,54 @@ export function VolatilityForecastChart({
               <stop offset="100%" stopColor="#DEC084" stopOpacity="0.10" />
             </linearGradient>
           </defs>
+
+          {/* Causal HMM Regime Background Bands (run-length merged, <15% opacity) */}
+          {hasHmmOverlay && regimeBandSpans.length > 0 && (
+            <g
+              style={{
+                opacity: showRegimeOverlay ? 1 : 0,
+                transition: 'opacity 150ms ease',
+              }}
+            >
+              {regimeBandSpans.map((span) => {
+                const tok = getHmmRegimeToken(span.state);
+                const x0 = getX(span.startIdx);
+                const x1 = span.endIdx < nHist - 1 ? getX(span.endIdx + 1) : splitX;
+                const bandW = Math.max(1, x1 - x0);
+                return (
+                  <rect
+                    key={`${span.startIdx}-${span.endIdx}-${span.state}`}
+                    x={x0}
+                    y={padTop}
+                    width={bandW}
+                    height={chartH}
+                    fill={`rgba(${tok.rgb}, 0.12)`}
+                  />
+                );
+              })}
+              {holdoutStartIdx !== undefined && holdoutStartIdx > 0 && holdoutStartIdx < nHist && (
+                <g>
+                  <line
+                    x1={getX(holdoutStartIdx)}
+                    y1={padTop}
+                    x2={getX(holdoutStartIdx)}
+                    y2={padTop + chartH}
+                    stroke="#DEC084"
+                    strokeWidth="0.9"
+                    strokeDasharray="2 3"
+                    opacity="0.65"
+                  />
+                  <text
+                    x={getX(holdoutStartIdx) + 4}
+                    y={padTop + 23}
+                    className="text-[9px] font-mono fill-gold-600 dark:fill-gold-400"
+                  >
+                    OOS Holdout
+                  </text>
+                </g>
+              )}
+            </g>
+          )}
 
           {/* Grid lines */}
           {[0, 0.25, 0.5, 0.75, 1].map((pct) => {
@@ -283,6 +431,41 @@ export function VolatilityForecastChart({
             />
           )}
 
+          {/* Color-coded OOS Prediction Points by Causal HMM Regime */}
+          {showModel && hasHmmOverlay && hmmStates && holdoutStartIdx !== undefined && (
+            <g
+              style={{
+                opacity: showRegimeOverlay ? 1 : 0,
+                transition: 'opacity 150ms ease',
+              }}
+            >
+              {(() => {
+                const start = Math.max(0, holdoutStartIdx);
+                const oosLen = Math.max(1, nHist - start);
+                const stride = Math.max(1, Math.ceil(oosLen / 48));
+                const dots: React.ReactNode[] = [];
+                for (let i = start; i < nHist; i += stride) {
+                  const st = hmmStates[i];
+                  const val = modelVol[i];
+                  if (st === undefined || !Number.isFinite(val)) continue;
+                  const tok = getHmmRegimeToken(st);
+                  dots.push(
+                    <circle
+                      key={`oos-dot-${i}`}
+                      cx={getX(i)}
+                      cy={getY(val)}
+                      r={2.7}
+                      fill={tok.color}
+                      stroke="#08080a"
+                      strokeWidth={0.9}
+                    />
+                  );
+                }
+                return dots;
+              })()}
+            </g>
+          )}
+
           {/* Forecast trajectory line */}
           <path
             d={`M ${fcLinePoints.join(' L ')}`}
@@ -313,6 +496,20 @@ export function VolatilityForecastChart({
                 strokeDasharray="2 2"
                 opacity="0.7"
               />
+              {hoverIndex.type === 'hist' && modelVol[hoverIndex.idx] !== undefined && (
+                <circle
+                  cx={getX(hoverIndex.idx)}
+                  cy={getY(modelVol[hoverIndex.idx])}
+                  r={4.2}
+                  fill={
+                    showRegimeOverlay && hmmStates?.[hoverIndex.idx] !== undefined
+                      ? getHmmRegimeToken(hmmStates[hoverIndex.idx]).color
+                      : '#DEC084'
+                  }
+                  stroke="#08080a"
+                  strokeWidth={1.3}
+                />
+              )}
             </g>
           )}
 
@@ -343,6 +540,31 @@ export function VolatilityForecastChart({
         </svg>
         )}
       </div>
+
+      {/* Per-Regime OOS Volatility Accuracy Scorecard */}
+      {regimePerformance && regimePerformance.length > 0 && (
+        <HmmRegimeScorecard
+          className="mt-4"
+          title="TCN 1d OOS Volatility Accuracy by Causal HMM Regime"
+          subtitle="Grouped by dominant forward-filtered HMM state at prediction origin (t−1)"
+          columns={[
+            { key: 'qlike', label: 'Mean QLIKE' },
+            { key: 'mse', label: 'MSE log-RV' },
+            { key: 'predVol', label: 'Mean Pred Vol' },
+            { key: 'realVol', label: 'Mean Realized Vol' },
+          ]}
+          rows={regimePerformance.map((r) => ({
+            state: r.state,
+            count: r.count,
+            cells: {
+              qlike: r.meanQlike !== null ? r.meanQlike.toFixed(3) : '—',
+              mse: r.meanMseLogVar !== null ? r.meanMseLogVar.toFixed(3) : '—',
+              predVol: r.meanPredVol !== null ? `${(r.meanPredVol * 100).toFixed(1)}%` : '—',
+              realVol: r.meanRealizedVol !== null ? `${(r.meanRealizedVol * 100).toFixed(1)}%` : '—',
+            },
+          }))}
+        />
+      )}
 
       {/* Model Diagnostic Footnotes & Parameter Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4 pt-3 border-t border-zinc-100 dark:border-zinc-800/80 text-xs">

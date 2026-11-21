@@ -1,11 +1,16 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   PriceBar,
   calculateReturns,
   performRegressionAnalysis,
 } from '@/lib/quant-engine';
+import {
+  getCachedTcnRegressionForecast,
+  runTcnMultiAssetRegression,
+  type TcnMultiAssetRegressionResult,
+} from '@/lib/tcn-multi-domain';
 import { ResidualDiagnosticsChart } from '@/components/charts/ResidualDiagnosticsChart';
 import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 import {
@@ -20,7 +25,412 @@ import { ShimmerButton } from '@/components/ui/ShimmerButton';
 import { TickerSuggest } from '@/components/ui/TickerSuggest';
 import { AlgoSelect } from '@/components/ui/AlgoSelect';
 import { ProvenanceBadge } from '@/components/ui/provenance-badge';
-import { Play, RotateCcw, HelpCircle, ArrowUpRight, TrendingUp, Info } from 'lucide-react';
+import {
+  buildRegimeBandSpans,
+  getHmmRegimeToken,
+} from '@/lib/hmm-regime-overlay';
+import {
+  HmmRegimeOverlayToggle,
+  HmmRegimeScorecard,
+} from '@/components/charts/HmmRegimeOverlayControls';
+import { Play, RotateCcw, HelpCircle, ArrowUpRight, TrendingUp, Info, Sparkles } from 'lucide-react';
+
+function TcnRegressionOosChart({ tcnReg }: { tcnReg: TcnMultiAssetRegressionResult }) {
+  const [showRegimeOverlay, setShowRegimeOverlay] = useState(true);
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
+  const hist = tcnReg.oosHistory;
+  const series = useMemo(() => {
+    if (!hist || hist.length === 0) return [];
+    let cumAct = 0;
+    let cumPred = 0;
+    let cumOls = 0;
+    return hist.map((pt) => {
+      cumAct += pt.actualReturn * 100;
+      cumPred += pt.predictedReturn * 100;
+      cumOls += pt.olsPredictedReturn * 100;
+      const hit =
+        (pt.predictedReturn >= 0 && pt.actualReturn >= 0) ||
+        (pt.predictedReturn < 0 && pt.actualReturn < 0);
+      return {
+        ...pt,
+        cumAct,
+        cumPred,
+        cumOls,
+        hit,
+      };
+    });
+  }, [hist]);
+
+  const regimeBandSpans = useMemo(
+    () => buildRegimeBandSpans(series.map((s) => s.hmmState)),
+    [series]
+  );
+
+  if (series.length < 3) return null;
+
+  const n = series.length;
+  const activeIdx = hoverIdx !== null && hoverIdx < n ? hoverIdx : n - 1;
+  const activePt = series[activeIdx];
+  const activeTok = getHmmRegimeToken(activePt.hmmState);
+
+  let minY = 0;
+  let maxY = 0;
+  for (const s of series) {
+    minY = Math.min(minY, s.cumAct, s.cumPred, s.cumOls);
+    maxY = Math.max(maxY, s.cumAct, s.cumPred, s.cumOls);
+  }
+  const padVal = Math.max((maxY - minY) * 0.16, 0.5);
+  const domMin = minY - padVal;
+  const domMax = maxY + padVal;
+  const spanY = Math.max(domMax - domMin, 1e-4);
+
+  const w = 760;
+  const h = 192;
+  const padL = 50;
+  const padR = 16;
+  const padT = 14;
+  const padB = 26;
+  const chartW = w - padL - padR;
+  const chartH = h - padT - padB;
+
+  const toX = (i: number) => padL + ((i + 1) / n) * chartW;
+  const toY = (pct: number) => padT + chartH - ((pct - domMin) / spanY) * chartH;
+  const zeroY = toY(0);
+  const slotW = chartW / n;
+
+  const actPath = [
+    `M ${padL.toFixed(1)} ${zeroY.toFixed(1)}`,
+    ...series.map((s, i) => `L ${toX(i).toFixed(1)} ${toY(s.cumAct).toFixed(1)}`),
+  ].join(' ');
+  const predPath = [
+    `M ${padL.toFixed(1)} ${zeroY.toFixed(1)}`,
+    ...series.map((s, i) => `L ${toX(i).toFixed(1)} ${toY(s.cumPred).toFixed(1)}`),
+  ].join(' ');
+  const olsPath = [
+    `M ${padL.toFixed(1)} ${zeroY.toFixed(1)}`,
+    ...series.map((s, i) => `L ${toX(i).toFixed(1)} ${toY(s.cumOls).toFixed(1)}`),
+  ].join(' ');
+
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((f) => domMin + f * spanY);
+  const xTickIndices = Array.from(
+    new Set([0, Math.floor((n - 1) / 3), Math.floor(((n - 1) * 2) / 3), n - 1])
+  );
+  const stride = Math.max(1, Math.ceil(n / 42));
+
+  return (
+    <div className="mt-4 pt-4 border-t border-[var(--hairline)] space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h4 className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+            Strictly OOS 1d Cumulative Forecast vs. Realized Return ({tcnReg.dependentTicker})
+          </h4>
+          <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+            Cumulative 1d predicted path (TCN-Attention vs. lag-matched OLS) color-coded by causal HMM regime at origin t−1.
+          </p>
+        </div>
+        <HmmRegimeOverlayToggle
+          enabled={showRegimeOverlay}
+          onToggle={() => setShowRegimeOverlay((v) => !v)}
+          caption="origin t−1 regime"
+        />
+      </div>
+
+      {/* Live Hover Readout Strip */}
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono tabular-nums text-zinc-500 dark:text-zinc-400">
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+          <strong className="text-zinc-900 dark:text-zinc-100">{activePt.date}</strong>
+          <span>·</span>
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              className="w-2 h-2 rounded-full shrink-0"
+              style={{ backgroundColor: activeTok.color }}
+            />
+            <strong className={activeTok.textClass}>
+              {activeTok.label} ({Math.round(activePt.hmmProb * 100)}%)
+            </strong>
+          </span>
+          <span>·</span>
+          <span>
+            TCN r̂{' '}
+            <strong className={activePt.predictedReturn >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}>
+              {activePt.predictedReturn >= 0 ? '+' : ''}
+              {(activePt.predictedReturn * 100).toFixed(2)}%
+            </strong>
+          </span>
+          <span>·</span>
+          <span>
+            Actual r{' '}
+            <strong className={activePt.actualReturn >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}>
+              {activePt.actualReturn >= 0 ? '+' : ''}
+              {(activePt.actualReturn * 100).toFixed(2)}%
+            </strong>
+          </span>
+          <span>·</span>
+          <span>
+            OLS {activePt.olsPredictedReturn >= 0 ? '+' : ''}
+            {(activePt.olsPredictedReturn * 100).toFixed(2)}%
+          </span>
+        </div>
+
+        <span
+          className={`font-semibold ${
+            activePt.hit
+              ? 'text-emerald-700 dark:text-emerald-400'
+              : 'text-rose-600 dark:text-rose-400'
+          }`}
+        >
+          {activePt.hit ? 'Direction Hit' : 'Direction Miss'}
+        </span>
+      </div>
+
+      <div className="w-full overflow-x-auto rounded-lg border border-[var(--hairline)] bg-[var(--bg-inset)]/40 p-2">
+        <svg
+          viewBox={`0 0 ${w} ${h}`}
+          className="block w-full h-[192px] min-w-[460px] select-none cursor-crosshair"
+          role="img"
+          aria-label="Out-of-sample cumulative predicted versus realized return with causal HMM regime overlay"
+          onMouseLeave={() => setHoverIdx(null)}
+        >
+          {/* Run-length merged causal HMM regime background bands */}
+          <g
+            style={{
+              opacity: showRegimeOverlay ? 1 : 0,
+              transition: 'opacity 150ms ease',
+            }}
+          >
+            {regimeBandSpans.map((span) => {
+              const tok = getHmmRegimeToken(span.state);
+              const x0 = span.startIdx === 0 ? padL : toX(span.startIdx) - slotW / 2;
+              const x1 = span.endIdx === n - 1 ? w - padR : toX(span.endIdx) + slotW / 2;
+              return (
+                <rect
+                  key={`reg-band-${span.startIdx}-${span.endIdx}-${span.state}`}
+                  x={x0}
+                  y={padT}
+                  width={Math.max(1, x1 - x0)}
+                  height={chartH}
+                  fill={`rgba(${tok.rgb}, 0.12)`}
+                />
+              );
+            })}
+          </g>
+
+          {/* Horizontal gridlines */}
+          {yTicks.map((val, idx) => {
+            const y = toY(val);
+            return (
+              <g key={idx}>
+                <line
+                  x1={padL}
+                  y1={y}
+                  x2={w - padR}
+                  y2={y}
+                  stroke="currentColor"
+                  className="text-zinc-200 dark:text-zinc-800/80"
+                  strokeDasharray="2 3"
+                  strokeWidth={0.75}
+                />
+                <text
+                  x={padL - 6}
+                  y={y + 3}
+                  textAnchor="end"
+                  className="text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
+                >
+                  {val >= 0 ? '+' : ''}
+                  {val.toFixed(1)}%
+                </text>
+              </g>
+            );
+          })}
+
+          {/* 0% baseline */}
+          <line
+            x1={padL}
+            y1={zeroY}
+            x2={w - padR}
+            y2={zeroY}
+            stroke="currentColor"
+            className="text-zinc-400 dark:text-zinc-600"
+            strokeWidth={1}
+            opacity={0.75}
+          />
+
+          {/* OLS Baseline curve */}
+          <path
+            d={olsPath}
+            fill="none"
+            stroke="#64748b"
+            strokeWidth={1.1}
+            strokeDasharray="2 3"
+            opacity={0.75}
+          />
+
+          {/* Realized cumulative return curve */}
+          <path
+            d={actPath}
+            fill="none"
+            stroke="#94a3b8"
+            strokeWidth={1.5}
+            strokeDasharray="4 2"
+          />
+
+          {/* TCN Predicted cumulative return curve */}
+          <path
+            d={predPath}
+            fill="none"
+            stroke="#DEC084"
+            strokeWidth={1.8}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+
+          {/* Regime-colored OOS prediction points */}
+          <g
+            style={{
+              opacity: showRegimeOverlay ? 1 : 0,
+              transition: 'opacity 150ms ease',
+            }}
+          >
+            {series.map((s, i) => {
+              if (i % stride !== 0 && i !== n - 1 && i !== activeIdx) return null;
+              const tok = getHmmRegimeToken(s.hmmState);
+              const isAct = i === activeIdx;
+              return (
+                <circle
+                  key={`reg-pt-${s.date}-${i}`}
+                  cx={toX(i)}
+                  cy={toY(s.cumPred)}
+                  r={isAct ? 4.4 : 2.7}
+                  fill={tok.color}
+                  stroke="#08080a"
+                  strokeWidth={isAct ? 1.3 : 0.85}
+                />
+              );
+            })}
+          </g>
+
+          {/* Hover crosshair & active dots */}
+          <line
+            x1={toX(activeIdx)}
+            y1={padT}
+            x2={toX(activeIdx)}
+            y2={padT + chartH}
+            stroke="#DEC084"
+            strokeOpacity={hoverIdx !== null ? 0.65 : 0.3}
+            strokeDasharray="2 2"
+            strokeWidth={1}
+          />
+          <circle
+            cx={toX(activeIdx)}
+            cy={toY(activePt.cumAct)}
+            r={3.2}
+            fill="#94a3b8"
+            stroke="#08080a"
+            strokeWidth={1.1}
+          />
+          <circle
+            cx={toX(activeIdx)}
+            cy={toY(activePt.cumPred)}
+            r={4.3}
+            fill={showRegimeOverlay ? activeTok.color : '#DEC084'}
+            stroke="#08080a"
+            strokeWidth={1.3}
+          />
+
+          {/* Interactive hit columns */}
+          {series.map((s, i) => (
+            <rect
+              key={`reg-hit-${s.date}-${i}`}
+              x={toX(i) - slotW / 2}
+              y={padT}
+              width={Math.max(4, slotW)}
+              height={chartH}
+              fill="transparent"
+              onMouseEnter={() => setHoverIdx(i)}
+            />
+          ))}
+
+          {/* X-axis ticks */}
+          {xTickIndices.map((idx) => {
+            const rawDate = series[idx].date;
+            const shortDate = rawDate.length >= 10 ? rawDate.slice(5) : rawDate;
+            return (
+              <text
+                key={idx}
+                x={toX(idx)}
+                y={h - 6}
+                textAnchor={idx === 0 ? 'start' : idx === n - 1 ? 'end' : 'middle'}
+                className="text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
+              >
+                {shortDate}
+              </text>
+            );
+          })}
+        </svg>
+      </div>
+
+      {/* Legend Strip */}
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono text-zinc-500 dark:text-zinc-400">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="inline-flex items-center gap-1.5">
+            <span className="w-3 h-0.5 bg-[#DEC084] inline-block" />
+            TCN Cum Pred
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="w-3 border-t border-dashed border-[#94a3b8] inline-block" />
+            Realized Cum Return
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="w-3 border-t border-dotted border-[#64748b] inline-block" />
+            Lag-Matched OLS
+          </span>
+        </div>
+        <span>Hover sessions to compare TCN vs. OLS across HMM regimes</span>
+      </div>
+
+      {/* Per-Regime Regression Accuracy Scorecard */}
+      {tcnReg.regimePerformance && tcnReg.regimePerformance.length > 0 && (
+        <HmmRegimeScorecard
+          title={`TCN 1d OOS Regression Accuracy by Causal HMM Regime (${tcnReg.dependentTicker})`}
+          subtitle="Stratified by dominant HMM state at t−1 prediction origin"
+          columns={[
+            { key: 'hit', label: 'Dir Hit Rate' },
+            { key: 'tcnRmse', label: 'TCN OOS RMSE' },
+            { key: 'olsRmse', label: 'OLS OOS RMSE' },
+            { key: 'means', label: 'Mean Pred / Act' },
+          ]}
+          rows={tcnReg.regimePerformance.map((r) => ({
+            state: r.state,
+            count: r.count,
+            cells: {
+              hit:
+                r.hitRatePct !== null ? (
+                  <span
+                    className={
+                      r.hitRatePct >= 52
+                        ? 'text-emerald-600 dark:text-emerald-400 font-semibold'
+                        : 'text-zinc-800 dark:text-zinc-200'
+                    }
+                  >
+                    {r.hitRatePct.toFixed(0)}%
+                  </span>
+                ) : (
+                  '—'
+                ),
+              tcnRmse: r.oosRmse !== null ? `${(r.oosRmse * 100).toFixed(2)}%` : '—',
+              olsRmse: r.olsOosRmse !== null ? `${(r.olsOosRmse * 100).toFixed(2)}%` : '—',
+              means:
+                r.meanPredReturn !== null && r.meanActualReturn !== null
+                  ? `${r.meanPredReturn >= 0 ? '+' : ''}${(r.meanPredReturn * 100).toFixed(2)}% / ${r.meanActualReturn >= 0 ? '+' : ''}${(r.meanActualReturn * 100).toFixed(2)}%`
+                  : '—',
+            },
+          }))}
+        />
+      )}
+    </div>
+  );
+}
 
 interface RegressionViewProps {
   regressionTickers: string;
@@ -51,7 +461,7 @@ export function RegressionView({
 }: RegressionViewProps) {
   const [localInput, setLocalInput] = useState(regressionTickers);
   const [regressionType, setRegressionType] = useState<
-    'Standard OLS' | 'Robust Regression' | 'Rolling Regression'
+    'Standard OLS' | 'Robust Regression' | 'Rolling Regression' | 'TCN-Attention Sequence'
   >('Standard OLS');
   const [rollingWindow, setRollingWindow] = useState<number>(60);
 
@@ -88,17 +498,85 @@ export function RegressionView({
     return { returnsByTicker: map, dates: commonDates };
   }, [dependentTicker, independentTickers, allStockBars, startDate, endDate, returnType]);
 
-  // Execute regression
+  // Execute linear regression baseline (used directly and as OLS comparison baseline)
+  const linearEngineType: 'Standard OLS' | 'Robust Regression' | 'Rolling Regression' =
+    regressionType === 'TCN-Attention Sequence' ? 'Standard OLS' : regressionType;
   const regressionSummary = React.useMemo(() => {
     return performRegressionAnalysis(
       returnsByTicker,
       dates,
       dependentTicker,
       independentTickers,
-      regressionType,
+      linearEngineType,
       rollingWindow
     );
-  }, [returnsByTicker, dates, dependentTicker, independentTickers, regressionType, rollingWindow]);
+  }, [returnsByTicker, dates, dependentTicker, independentTickers, linearEngineType, rollingWindow]);
+
+  // Multi-asset TCN-Attention Sequence model (1d / 5d / 22d, cached)
+  const indepKey = independentTickers.join(',');
+  const yLen = returnsByTicker[dependentTicker]?.length ?? 0;
+  const lastDate = dates[dates.length - 1] ?? '';
+  const firstDate = dates[0] ?? '';
+
+  const [tcnReg, setTcnReg] = useState<TcnMultiAssetRegressionResult | null>(() =>
+    yLen >= 70
+      ? getCachedTcnRegressionForecast(dependentTicker, independentTickers, returnsByTicker, dates)
+      : null
+  );
+  const [tcnTraining, setTcnTraining] = useState(false);
+  const [tcnRetrainNonce, setTcnRetrainNonce] = useState(0);
+  const returnsRef = useRef(returnsByTicker);
+  const datesRef = useRef(dates);
+  const indepRef = useRef(independentTickers);
+  useEffect(() => {
+    returnsRef.current = returnsByTicker;
+    datesRef.current = dates;
+    indepRef.current = independentTickers;
+  }, [returnsByTicker, dates, independentTickers]);
+
+  useEffect(() => {
+    if (yLen < 70) return;
+    let cancelled = false;
+    const force = tcnRetrainNonce > 0;
+    const isSelected = regressionType === 'TCN-Attention Sequence';
+    const timer = setTimeout(() => {
+      if (cancelled) return;
+      const curRets = returnsRef.current;
+      const curDates = datesRef.current;
+      const curIndep = indepRef.current;
+      if (!force) {
+        const cached = getCachedTcnRegressionForecast(dependentTicker, curIndep, curRets, curDates);
+        if (cached) {
+          setTcnReg(cached);
+          setTcnTraining(false);
+          return;
+        }
+        if (!isSelected) return;
+      }
+      setTcnTraining(true);
+      void runTcnMultiAssetRegression(dependentTicker, curIndep, curRets, curDates, {
+        forceRetrain: force,
+        yieldControl: () => new Promise<void>((r) => setTimeout(r, 0)),
+        isCancelled: () => cancelled,
+      }).then((res) => {
+        if (!cancelled) {
+          if (res) setTcnReg(res);
+          setTcnTraining(false);
+        }
+      });
+    }, 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [dependentTicker, indepKey, yLen, firstDate, lastDate, regressionType, tcnRetrainNonce]);
+
+  const activeTcnReg =
+    tcnReg &&
+    tcnReg.dependentTicker === dependentTicker.toUpperCase() &&
+    tcnReg.independentTickers.join(',') === independentTickers.slice(0, 6).map((t) => t.toUpperCase()).join(',')
+      ? tcnReg
+      : null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -194,13 +672,14 @@ export function RegressionView({
               value={regressionType}
               onChange={(v) =>
                 setRegressionType(
-                  v as 'Standard OLS' | 'Robust Regression' | 'Rolling Regression'
+                  v as 'Standard OLS' | 'Robust Regression' | 'Rolling Regression' | 'TCN-Attention Sequence'
                 )
               }
               options={[
                 { value: 'Standard OLS', label: 'Standard OLS', hint: 'closed form' },
                 { value: 'Robust Regression', label: 'Robust Regression', hint: 'Huber IRLS' },
                 { value: 'Rolling Regression', label: 'Rolling Regression', hint: 'windowed OLS' },
+                { value: 'TCN-Attention Sequence', label: 'TCN-Attention Sequence', hint: '1d/5d/22d · nonlinear' },
               ]}
               className="w-full"
             />
@@ -273,6 +752,136 @@ export function RegressionView({
                 : `Insufficient overlapping price observations for ${dependentTicker} and ${independentTickers.join(', ')} in selected date range. Click 'Run Regression' to fetch price bars.`}
             </span>
           </div>
+        </div>
+      )}
+
+      {/* Multi-Asset Nonlinear Sequence Panel (TCN-Attention 1d / 5d / 22d) */}
+      {(regressionType === 'TCN-Attention Sequence' || activeTcnReg) && (
+        <div className="panel p-5 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-zinc-100 dark:border-zinc-800/80">
+            <div>
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-gold-500" />
+                <span className="kicker">TCN-Attention Multi-Asset Sequence Forecasting</span>
+                {activeTcnReg && (
+                  <span className="font-mono text-[10px] text-zinc-400 tabular-nums">
+                    · {activeTcnReg.cacheHit ? 'cached' : `${activeTcnReg.trainingDurationMs}ms`} · RF {activeTcnReg.receptiveField}d · {activeTcnReg.parameterCount} params
+                    {activeTcnReg.hmmRegime
+                      ? ` · HMM ${activeTcnReg.hmmRegime.dominantLabel} (${Math.round(activeTcnReg.hmmRegime.probs[0] * 100)}/${Math.round(activeTcnReg.hmmRegime.probs[1] * 100)}/${Math.round(activeTcnReg.hmmRegime.probs[2] * 100)}%)`
+                      : ''}
+                  </span>
+                )}
+              </div>
+              <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm mt-0.5">
+                Nonlinear Cross-Asset Sequence Forecast: {dependentTicker} ← [{independentTickers.join(', ')}] (1d · 5d · 22d)
+              </h3>
+            </div>
+            <button
+              type="button"
+              onClick={() => setTcnRetrainNonce((n) => n + 1)}
+              disabled={tcnTraining}
+              className="inline-flex cursor-pointer items-center gap-1.5 self-start sm:self-auto rounded-lg border border-[var(--hairline)] bg-[var(--bg-inset)] px-2.5 py-1.5 font-mono text-[10px] font-semibold text-zinc-700 hover:border-gold-500/50 dark:text-zinc-300 disabled:opacity-50"
+            >
+              <RotateCcw className={`h-3.5 w-3.5 ${tcnTraining ? 'animate-spin' : ''}`} />
+              {tcnTraining ? 'Training…' : 'Retrain Sequence Head'}
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {([1, 5, 22] as const).map((h) => {
+              const hz = activeTcnReg?.horizons[h];
+              const lift = hz ? hz.nonlinearLiftR2 : null;
+              return (
+                <div key={h} className="panel-inset p-3.5 border border-[var(--hairline)]">
+                  <div className="flex items-center justify-between font-mono text-[10px] uppercase tracking-wider text-zinc-400">
+                    <span className="font-semibold text-gold-700 dark:text-gold-300">{h}D Cumulative Return</span>
+                    <span>OOS n={hz?.holdoutCount ?? 0}</span>
+                  </div>
+                  <div className="mt-1.5 flex items-baseline justify-between font-mono tabular-nums">
+                    <span className={`text-xl font-bold ${hz && hz.predictedReturn >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
+                      {hz ? `${hz.predictedReturn >= 0 ? '+' : ''}${(hz.predictedReturn * 100).toFixed(2)}%` : tcnTraining ? '…' : '—'}
+                    </span>
+                    <span className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                      {hz ? `99% [${(hz.lower99 * 100).toFixed(1)}%, ${(hz.upper99 * 100).toFixed(1)}%]` : '—'}
+                    </span>
+                  </div>
+                  <div className="mt-2 pt-2 border-t border-[var(--hairline)] grid grid-cols-3 gap-2 font-mono text-[10px] tabular-nums">
+                    <div>
+                      <span className="text-zinc-400 block">OOS R²</span>
+                      <span className="font-semibold text-zinc-800 dark:text-zinc-100">{hz ? `${(hz.oosR2 * 100).toFixed(1)}%` : '—'}</span>
+                    </div>
+                    <div>
+                      <span className="text-zinc-400 block">Lift vs OLS</span>
+                      <span className={`font-semibold ${lift !== null && lift >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500'}`}>
+                        {lift !== null ? `${lift >= 0 ? '+' : ''}${(lift * 100).toFixed(1)}%` : '—'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-zinc-400 block">Dir Hit</span>
+                      <span className="font-semibold text-gold-700 dark:text-gold-300">{hz ? `${hz.directionalAccuracyPct.toFixed(0)}%` : '—'}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {activeTcnReg && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="panel-inset p-3.5 border border-[var(--hairline)]">
+                <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-400 mb-2">
+                  Cross-Asset Permutation Factor Importance (Holdout RMSE Impact)
+                </div>
+                <div className="space-y-2">
+                  {activeTcnReg.factorImportance.map((f) => (
+                    <div key={f.ticker} className="flex items-center gap-3 font-mono text-[11px]">
+                      <span
+                        className={`w-28 shrink-0 font-semibold truncate ${
+                          f.isHmmRegime
+                            ? 'text-gold-700 dark:text-gold-300'
+                            : 'text-zinc-800 dark:text-zinc-200'
+                        }`}
+                      >
+                        {f.ticker}{f.isDependentLag ? ' (lag)' : f.isHmmRegime ? ' (3s)' : ''}
+                      </span>
+                      <div className="h-2.5 flex-1 overflow-hidden rounded-sm bg-zinc-200/70 dark:bg-zinc-800">
+                        <div
+                          className={`h-full rounded-sm ${f.isHmmRegime ? 'bg-emerald-500/80' : 'bg-gold-500/80'}`}
+                          style={{ width: `${Math.max(3, f.importancePct).toFixed(1)}%` }}
+                        />
+                      </div>
+                      <span className="w-24 shrink-0 text-right tabular-nums text-zinc-600 dark:text-zinc-300">
+                        {f.importancePct.toFixed(1)}% <span className="text-zinc-400">(+{f.rmseIncreaseBps.toFixed(1)}bp)</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="panel-inset p-3.5 border border-[var(--hairline)]">
+                <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-400 mb-2">
+                  Causal Self-Attention Transmission Dates
+                </div>
+                <div className="space-y-1.5 font-mono text-[11px]">
+                  {activeTcnReg.topTransmissionDates.map((d) => (
+                    <div key={d.date} className="flex items-center justify-between border-b border-[var(--hairline)] last:border-0 pb-1 last:pb-0 tabular-nums">
+                      <span className="text-zinc-700 dark:text-zinc-200 font-semibold">
+                        {d.date} <span className="font-normal text-zinc-400">(lag t-{d.lag})</span>
+                      </span>
+                      <span className="text-gold-700 dark:text-gold-300 font-semibold">
+                        attn {(d.weight * 100).toFixed(1)}% · {d.metricLabel} {d.metricValue >= 0 ? '+' : ''}{d.metricValue.toFixed(2)}%
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-2 font-mono text-[9.5px] text-zinc-400">
+                  Evaluated strictly out-of-sample on the trailing chronological holdout split against a lag-matched OLS linear baseline.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {activeTcnReg && <TcnRegressionOosChart tcnReg={activeTcnReg} />}
         </div>
       )}
 
