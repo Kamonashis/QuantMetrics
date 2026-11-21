@@ -75,8 +75,8 @@ export default function App() {
   const [endDate, setEndDate] = useState<string>(todayStr);
   const [returnType, setReturnType] = useState<'simple' | 'log'>('log');
   const [rollingWindows, setRollingWindows] = useState<string>('10,20,30');
-  const [decompPeriod, setDecompPeriod] = useState<number>(30);
-  const [decompModel, setDecompModel] = useState<'additive' | 'multiplicative'>('additive');
+  const [decompPeriod, setDecompPeriod] = useState<number>(21);
+  const [decompModel, setDecompModel] = useState<'additive' | 'multiplicative'>('multiplicative');
 
   // Deep-link: ?view=analysis (plus tab params like ?tab=risk) restores the
   // top-level view on mount. Deferred 0ms so the setState doesn't cascade in the effect.

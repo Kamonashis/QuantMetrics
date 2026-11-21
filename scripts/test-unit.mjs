@@ -14,7 +14,7 @@ mkdirSync(outDir, { recursive: true });
 
 const cmd = [
   'npx tsc',
-  'lib/options.ts lib/gex.ts lib/vol-analytics.ts lib/quant-engine.ts lib/hmm.ts lib/vol-signals.ts lib/analysis-engine.ts lib/earnings.ts lib/rnd.ts lib/ticker-snapshot.ts lib/options-decision.ts lib/forecast-trust.ts lib/opportunity-engine.ts lib/signal-outcomes.ts lib/fno/config.ts lib/fno/types.ts lib/fno/expiry-ladder.ts lib/fno/positioning.ts lib/fno/term-structure.ts lib/fno/expected-move.ts',
+  'lib/options.ts lib/gex.ts lib/vol-analytics.ts lib/quant-engine.ts lib/tcn-attention.ts lib/hmm.ts lib/vol-signals.ts lib/analysis-engine.ts lib/earnings.ts lib/rnd.ts lib/ticker-snapshot.ts lib/options-decision.ts lib/forecast-trust.ts lib/opportunity-engine.ts lib/signal-outcomes.ts lib/fno/config.ts lib/fno/types.ts lib/fno/expiry-ladder.ts lib/fno/positioning.ts lib/fno/term-structure.ts lib/fno/expected-move.ts',
   `--outDir ${JSON.stringify(outDir)}`,
   '--target es2020 --module commonjs --skipLibCheck --esModuleInterop',
 ].join(' ');

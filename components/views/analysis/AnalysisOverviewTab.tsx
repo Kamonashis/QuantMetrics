@@ -26,12 +26,7 @@ import { AlgoSelect } from '@/components/ui/AlgoSelect';
 import type { HmmFit } from '@/lib/hmm';
 import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 import {
-  SkewnessEquation,
-  KurtosisEquation,
-  AnnualizedVolEquation,
   VarianceRatioEquation,
-  DecompositionAdditiveEquation,
-  DecompositionMultiplicativeEquation,
 } from '@/components/math/MathEquations';
 import {
   TrendingUp,
@@ -64,6 +59,8 @@ interface AnalysisOverviewTabProps {
   onDecompPeriodChange: (p: number) => void;
   decompModel: 'additive' | 'multiplicative';
   onDecompModelChange: (m: 'additive' | 'multiplicative') => void;
+  cycleBand: { min: number; max: number };
+  onCycleBandChange: (band: { min: number; max: number }) => void;
   onExportCsv: () => void;
   hmmFit?: HmmFit | null;
   hmmK?: 2 | 3 | 4;
@@ -93,6 +90,8 @@ export function AnalysisOverviewTab({
   onDecompPeriodChange,
   decompModel,
   onDecompModelChange,
+  cycleBand,
+  onCycleBandChange,
   onExportCsv,
   hmmFit,
   hmmK,
@@ -685,65 +684,91 @@ export function AnalysisOverviewTab({
         </div>
       </div>
 
-      {/* Classical Time Series Decomposition */}
+      {/* Structural Time Series Decomposition & TCN-Attention Forecast */}
       <div className="panel p-5">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-zinc-100 dark:border-zinc-800/60 gap-3">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between pb-4 border-b border-zinc-100 dark:border-zinc-800/60 gap-3">
           <div>
             <div className="flex items-center gap-2">
               <Layers className="w-4 h-4 text-gold-500" />
               <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
-                Classical Structural Decomposition (Trend · Seasonal · Residual)
+                Structural Decomposition (Trend · Cyclical · Seasonal · Residual) &amp; TCN-Attention Forecast
               </h3>
             </div>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-              Separating macro trend, periodic calendar components, and irregular noise
+              Fourier bandpass cyclical extraction with component-wise Dilated Causal TCN + Multi-Head Self-Attention next-day price reconstruction
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-zinc-500 font-medium">Period:</label>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-1.5">
+              <label htmlFor="overview-decomp-period" className="text-xs text-zinc-500 font-medium">
+                Seasonal:
+              </label>
               <select
+                id="overview-decomp-period"
                 value={decompPeriod}
                 onChange={(e) => onDecompPeriodChange(parseInt(e.target.value, 10))}
                 className="px-2 py-1 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-xs font-mono"
               >
-                <option value={5}>5 Days (Weekly)</option>
-                <option value={21}>21 Days (Monthly)</option>
-                <option value={63}>63 Days (Quarterly)</option>
+                <option value={5}>5d (Weekly)</option>
+                <option value={21}>21d (Monthly)</option>
+                <option value={30}>30d (6-Week)</option>
+                <option value={63}>63d (Quarterly)</option>
+              </select>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <label htmlFor="overview-cycle-band" className="text-xs text-zinc-500 font-medium">
+                Cycle Band:
+              </label>
+              <select
+                id="overview-cycle-band"
+                value={`${cycleBand.min}-${cycleBand.max}`}
+                onChange={(e) => {
+                  const [minStr, maxStr] = e.target.value.split('-');
+                  onCycleBandChange({
+                    min: parseInt(minStr, 10),
+                    max: parseInt(maxStr, 10),
+                  });
+                }}
+                className="px-2 py-1 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-xs font-mono"
+              >
+                <option value="15-63">15–63d (Short)</option>
+                <option value="25-126">25–126d (Business)</option>
+                <option value="40-180">40–180d (Macro)</option>
               </select>
             </div>
 
             <div className="scrollbar-none inline-flex max-w-full overflow-x-auto p-0.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs">
               <button
                 type="button"
-                onClick={() => onDecompModelChange('additive')}
-                className={`shrink-0 px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer ${
-                  decompModel === 'additive'
-                    ? 'bg-white dark:bg-zinc-800 text-gold-600 dark:text-gold-400 shadow-xs'
-                    : 'text-zinc-500 hover:text-zinc-900'
-                }`}
-              >
-                Additive
-              </button>
-              <button
-                type="button"
                 onClick={() => onDecompModelChange('multiplicative')}
                 className={`shrink-0 px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer ${
                   decompModel === 'multiplicative'
                     ? 'bg-white dark:bg-zinc-800 text-gold-600 dark:text-gold-400 shadow-xs'
-                    : 'text-zinc-500 hover:text-zinc-900'
+                    : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
                 }`}
               >
                 Multiplicative
+              </button>
+              <button
+                type="button"
+                onClick={() => onDecompModelChange('additive')}
+                className={`shrink-0 px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer ${
+                  decompModel === 'additive'
+                    ? 'bg-white dark:bg-zinc-800 text-gold-600 dark:text-gold-400 shadow-xs'
+                    : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
+                }`}
+              >
+                Additive
               </button>
             </div>
           </div>
         </div>
 
         <div className="mt-4">
-          <ChartFullscreen title="Time-Series Decomposition & ADF Test">
-            <DecompositionChart decomposition={decompResult} adfTest={adfResult} />
+          <ChartFullscreen title="Structural Decomposition & TCN-Attention Forecast">
+            <DecompositionChart ticker={ticker} decomposition={decompResult} adfTest={adfResult} />
           </ChartFullscreen>
         </div>
       </div>

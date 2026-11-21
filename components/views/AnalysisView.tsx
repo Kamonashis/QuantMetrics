@@ -121,6 +121,7 @@ export function AnalysisView({
   const [localTicker, setLocalTicker] = useState(ticker);
   const [activeSubTab, setActiveSubTab] = useState<AnalysisSubTabId>('overview');
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [cycleBand, setCycleBand] = useState<{ min: number; max: number }>({ min: 25, max: 126 });
 
   // Deep-link: ?tab=dynamics restores the T1–T5 selection (replaceState keeps history clean).
   // Deferred with a 0ms timeout so the setState doesn't cascade synchronously inside the effect.
@@ -183,10 +184,10 @@ export function AnalysisView({
     return computeRollingAnnualizedVol(dates, returns, parsedWindows);
   }, [dates, returns, parsedWindows]);
 
-  // Compute Seasonal Decomposition
+  // Compute Structural Decomposition (Trend, Fourier Cyclical, Seasonal, Irregular)
   const decompResult = useMemo(() => {
-    return decomposeTimeSeries(dates, prices, decompPeriod, decompModel);
-  }, [dates, prices, decompPeriod, decompModel]);
+    return decomposeTimeSeries(dates, prices, decompPeriod, decompModel, cycleBand.min, cycleBand.max);
+  }, [dates, prices, decompPeriod, decompModel, cycleBand.min, cycleBand.max]);
 
   // Compute ADF test on decomposition residuals
   const adfResult = useMemo(() => {
@@ -557,8 +558,8 @@ export function AnalysisView({
                       onChange={(e) => onDecompModelChange(e.target.value as 'additive' | 'multiplicative')}
                       className="h-11 flex-1 px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 text-base text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-1 focus:ring-gold-500"
                     >
-                      <option value="additive">Additive</option>
                       <option value="multiplicative">Multiplicative</option>
+                      <option value="additive">Additive</option>
                     </select>
                   </div>
                 </div>
@@ -687,6 +688,8 @@ export function AnalysisView({
           onDecompPeriodChange={onDecompPeriodChange}
           decompModel={decompModel}
           onDecompModelChange={onDecompModelChange}
+          cycleBand={cycleBand}
+          onCycleBandChange={setCycleBand}
           onExportCsv={handleExportCsv}
           hmmFit={hmmFit}
           hmmK={hmmK}

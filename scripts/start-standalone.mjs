@@ -30,7 +30,7 @@ if (existsSync(publicDir)) {
 }
 
 // 3. Launch the standalone server
-const port = process.env.PORT ?? '3528';
+const port = process.env.PORT ?? '3000';
 const hostname = process.env.HOSTNAME ?? '0.0.0.0';
 const child = spawn(process.execPath, [serverPath], {
   stdio: 'inherit',

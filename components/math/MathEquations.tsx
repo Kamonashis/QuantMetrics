@@ -374,6 +374,24 @@ export function DecompositionMultiplicativeEquation({
 }
 
 /**
+ * Dilated Causal TCN + Multi-Head Self-Attention Forecast Equation
+ */
+export function TcnAttentionEquation({
+  className = '',
+  display = 'inline',
+  outputMode = 'htmlAndMathml',
+}: MathComponentProps) {
+  return (
+    <MathDisplay
+      preset="tcn-attention"
+      display={display}
+      outputMode={outputMode}
+      className={className}
+    />
+  );
+}
+
+/**
  * Multiple Linear Regression Model Equation
  */
 export function RegressionModelEquation({

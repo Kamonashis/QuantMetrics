@@ -93,6 +93,7 @@ export type FinancialFormulaPreset =
   | 'adf'
   | 'decomposition-additive'
   | 'decomposition-multiplicative'
+  | 'tcn-attention'
   | 'ols-model'
   | 'ols-matrix'
   | 'robust-irls'
@@ -256,14 +257,19 @@ export const FINANCIAL_FORMULA_PRESETS: Record<FinancialFormulaPreset, { tex: st
     description: 'Evaluates unit-root non-stationarity under null hypothesis H0: gamma = 0 vs alternative H1: gamma < 0.',
   },
   'decomposition-additive': {
-    tex: String.raw`Y_t = T_t + S_t + I_t`,
-    label: 'Additive Classical Decomposition',
-    description: 'Decomposes price series linearly into Trend (T), Seasonal factor (S), and Residual noise (I).',
+    tex: String.raw`Y_t = T_t + C_t + S_t + I_t`,
+    label: 'Additive 4-Component Structural Decomposition',
+    description: 'Decomposes price series linearly into Secular Trend (T), Fourier Bandpass Cycle (C), Seasonal factor (S), and Residual noise (I).',
   },
   'decomposition-multiplicative': {
-    tex: String.raw`Y_t = T_t \times S_t \times I_t`,
-    label: 'Multiplicative Classical Decomposition',
-    description: 'Decomposes price series proportionally when seasonal swings scale with the trend level.',
+    tex: String.raw`Y_t = T_t \times C_t \times S_t \times I_t`,
+    label: 'Multiplicative 4-Component Structural Decomposition',
+    description: 'Decomposes price series proportionally into Trend (T), Fourier Bandpass Cycle (C), Seasonal factor (S), and Residual factor (I).',
+  },
+  'tcn-attention': {
+    tex: String.raw`\hat{Y}_{t+1} = f_{\text{TCN-Attn}}(\hat{T}_{t+1},\, \hat{C}_{t+1},\, \hat{S}_{t+1},\, \hat{I}_{t+1}), \quad \text{Attn}(Q,K,V) = \operatorname{softmax}\!\left(\frac{QK^\top}{\sqrt{d_k}}\right)V`,
+    label: 'Dilated Causal TCN with Multi-Head Self-Attention',
+    description: 'Predicts each decomposed component one step ahead via dilated causal 1D convolutions and scaled dot-product self-attention, then reconstructs next-day price.',
   },
   'ols-model': {
     tex: String.raw`Y_t = \beta_0 + \sum_{k=1}^K \beta_k X_{k,t} + \varepsilon_t`,

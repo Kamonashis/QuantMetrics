@@ -41,10 +41,15 @@ export interface DecompositionResult {
   dates: string[];
   observed: number[];
   trend: (number | null)[];
+  cyclical: number[];
   seasonal: number[];
   residual: (number | null)[];
   model: 'additive' | 'multiplicative';
   period: number;
+  cycleMinPeriod: number;
+  cycleMaxPeriod: number;
+  dominantCyclePeriod: number | null;
+  cyclePowerShare: number;
 }
 
 export interface AdfTestResult {
@@ -380,145 +385,258 @@ export function computeAcfPacfSquaredReturns(
 }
 
 // -------------------------------------------------------------
-// SEASONAL DECOMPOSITION
+// 4-COMPONENT STRUCTURAL DECOMPOSITION (FOURIER BANDPASS CYCLICAL)
 // -------------------------------------------------------------
 
+/**
+ * Decomposes a price time series into four components:
+ *   Multiplicative (default): Y_t = T_t * C_t * S_t * I_t
+ *   Additive:                 Y_t = T_t + C_t + S_t + I_t
+ *
+ * Uses linear drift removal + orthonormal Type-II Discrete Cosine Transform
+ * (symmetric-reflected real Fourier transform, eliminating endpoint wrap-around)
+ * with a cosine-tapered Fourier bandpass filter to separate the dominant cyclical
+ * component (C_t) cleanly from the long-run secular trend (T_t) and periodic
+ * seasonal factor (S_t). Reconstruction is exact to machine precision.
+ */
 export function decomposeTimeSeries(
   dates: string[],
   prices: number[],
-  period: number = 30,
-  model: 'additive' | 'multiplicative' = 'additive'
+  period: number = 21,
+  model: 'additive' | 'multiplicative' = 'multiplicative',
+  cycleMinPeriod?: number,
+  cycleMaxPeriod?: number
 ): DecompositionResult {
   const n = prices.length;
-  const trend: (number | null)[] = new Array(n).fill(null);
-  const seasonal: number[] = new Array(n).fill(0);
-  const residual: (number | null)[] = new Array(n).fill(null);
+  const neutral = model === 'multiplicative' ? 1 : 0;
 
-  if (n < period * 2) {
+  const safePeriod = Math.max(2, Math.min(Math.floor(period), Math.max(2, Math.floor(n / 2))));
+  const defaultLow = Math.max(safePeriod + 2, 25);
+  const rawLow = cycleMinPeriod ?? defaultLow;
+  const minBound = Math.max(6, Math.min(rawLow, Math.max(6, Math.floor(n / 3))));
+  const defaultHigh = Math.max(minBound + 15, Math.min(126, Math.floor(n * 0.75)));
+  const rawHigh = cycleMaxPeriod ?? defaultHigh;
+  const maxBound = Math.max(minBound + 4, Math.min(rawHigh, Math.max(minBound + 4, Math.floor(n * 0.9))));
+
+  if (n < Math.max(safePeriod * 2, 16)) {
     return {
       dates,
       observed: prices,
-      trend: prices,
-      seasonal,
-      residual,
+      trend: prices.slice(),
+      cyclical: new Array(n).fill(neutral),
+      seasonal: new Array(n).fill(neutral),
+      residual: new Array(n).fill(neutral),
       model,
-      period,
+      period: safePeriod,
+      cycleMinPeriod: minBound,
+      cycleMaxPeriod: maxBound,
+      dominantCyclePeriod: null,
+      cyclePowerShare: 0,
     };
   }
 
-  // 1. Calculate Centered Moving Average for Trend
-  const isEven = period % 2 === 0;
-  const half = Math.floor(period / 2);
-
+  // 1. Transform to additive working space (log-space for multiplicative guarantees exact T*C*S*I = Y)
+  const y = new Float64Array(n);
   for (let i = 0; i < n; i++) {
-    if (isEven) {
-      if (i >= half && i < n - half) {
-        let sum = 0.5 * prices[i - half] + 0.5 * prices[i + half];
-        for (let j = i - half + 1; j < i + half; j++) {
-          sum += prices[j];
-        }
-        trend[i] = sum / period;
+    const p = Number.isFinite(prices[i]) ? prices[i] : prices[Math.max(0, i - 1)] || 1;
+    y[i] = model === 'multiplicative' ? Math.log(Math.max(p, 1e-6)) : p;
+  }
+
+  // 2. Remove OLS linear drift L_t = a + b*t before spectral transform to suppress Gibbs edge ringing
+  const tMean = (n - 1) / 2;
+  let yMean = 0;
+  for (let i = 0; i < n; i++) yMean += y[i];
+  yMean /= n;
+
+  let sTT = 0;
+  let sTY = 0;
+  for (let i = 0; i < n; i++) {
+    const dt = i - tMean;
+    sTT += dt * dt;
+    sTY += dt * (y[i] - yMean);
+  }
+  const slope = sTT > 0 ? sTY / sTT : 0;
+  const intercept = yMean - slope * tMean;
+
+  const detrended = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    detrended[i] = y[i] - (intercept + slope * i);
+  }
+
+  // 3. Orthonormal DCT-II (real Fourier basis on evenly reflected series -> continuous endpoints)
+  const coeffs = new Float64Array(n);
+  const scale0 = Math.sqrt(1 / n);
+  const scaleK = Math.sqrt(2 / n);
+  const piOverN = Math.PI / n;
+
+  for (let k = 0; k < n; k++) {
+    let sum = 0;
+    const freq = piOverN * k;
+    for (let t = 0; t < n; t++) {
+      sum += detrended[t] * Math.cos(freq * (t + 0.5));
+    }
+    coeffs[k] = sum * (k === 0 ? scale0 : scaleK);
+  }
+
+  // 4. Partition spectral energy with smooth raised-cosine transitions:
+  //    - Trend low-pass:    period P_k > maxBound
+  //    - Cyclical bandpass: minBound <= P_k <= maxBound (notching seasonal period if inside band)
+  const trendCoeffs = new Float64Array(n);
+  const cycleCoeffs = new Float64Array(n);
+  trendCoeffs[0] = coeffs[0];
+
+  const kHighCutoff = (2 * n) / maxBound;
+  const kLowCutoff = (2 * n) / minBound;
+  const taperLow = Math.max(0.5, kHighCutoff * 0.15);
+  const taperHigh = Math.max(0.75, kLowCutoff * 0.12);
+
+  let totalDetrendedPower = 0;
+  let cyclePower = 0;
+  let bestCyclePower = -1;
+  let dominantCyclePeriod: number | null = null;
+
+  for (let k = 1; k < n; k++) {
+    const pK = (2 * n) / k;
+    const energy = coeffs[k] * coeffs[k];
+    totalDetrendedPower += energy;
+
+    let wTrend = 0;
+    if (k <= kHighCutoff - taperLow) {
+      wTrend = 1;
+    } else if (k < kHighCutoff + taperLow) {
+      const u = (k - (kHighCutoff - taperLow)) / (2 * taperLow);
+      wTrend = 0.5 * (1 + Math.cos(Math.PI * u));
+    }
+
+    let wPassHigh = 0;
+    if (k <= kLowCutoff - taperHigh) {
+      wPassHigh = 1;
+    } else if (k < kLowCutoff + taperHigh) {
+      const u = (k - (kLowCutoff - taperHigh)) / (2 * taperHigh);
+      wPassHigh = 0.5 * (1 + Math.cos(Math.PI * u));
+    }
+
+    let wCycle = Math.max(0, (1 - wTrend) * wPassHigh);
+
+    if (safePeriod >= minBound && safePeriod <= maxBound) {
+      const relDist = Math.abs(pK - safePeriod) / safePeriod;
+      if (relDist < 0.08) {
+        wCycle *= (relDist / 0.08) * (relDist / 0.08);
       }
-    } else {
-      if (i >= half && i < n - half) {
-        let sum = 0;
-        for (let j = i - half; j <= i + half; j++) {
-          sum += prices[j];
-        }
-        trend[i] = sum / period;
+    }
+
+    trendCoeffs[k] = coeffs[k] * wTrend;
+    cycleCoeffs[k] = coeffs[k] * wCycle;
+
+    const weightedCycleEnergy = cycleCoeffs[k] * cycleCoeffs[k];
+    cyclePower += weightedCycleEnergy;
+    if (wCycle > 0.25 && weightedCycleEnergy > bestCyclePower) {
+      bestCyclePower = weightedCycleEnergy;
+      dominantCyclePeriod = pK;
+    }
+  }
+
+  // 5. Inverse DCT-II to reconstruct smooth trend and Fourier bandpass cyclical component
+  const trendWork = new Float64Array(n);
+  const cycleWork = new Float64Array(n);
+
+  for (let t = 0; t < n; t++) {
+    let tSum = trendCoeffs[0] * scale0;
+    let cSum = 0;
+    const pos = t + 0.5;
+    for (let k = 1; k < n; k++) {
+      const tc = trendCoeffs[k];
+      const cc = cycleCoeffs[k];
+      if (tc !== 0 || cc !== 0) {
+        const basis = scaleK * Math.cos(piOverN * k * pos);
+        tSum += tc * basis;
+        cSum += cc * basis;
       }
     }
+    trendWork[t] = intercept + slope * t + tSum;
+    cycleWork[t] = cSum;
   }
 
-  // Extrapolate trend ends linearly to avoid empty ends in visualizations
-  let firstValid = -1;
-  let lastValid = -1;
-  for (let i = 0; i < n; i++) {
-    if (trend[i] !== null) {
-      if (firstValid === -1) firstValid = i;
-      lastValid = i;
-    }
+  // Center cyclical component to exact mean 0 in working space (absorb tiny offset into trend)
+  let cycleMean = 0;
+  for (let t = 0; t < n; t++) cycleMean += cycleWork[t];
+  cycleMean /= n;
+  for (let t = 0; t < n; t++) {
+    cycleWork[t] -= cycleMean;
+    trendWork[t] += cycleMean;
   }
 
-  if (firstValid > 0 && lastValid > firstValid) {
-    const slopeStart = (trend[firstValid + 1]! - trend[firstValid]!);
-    for (let i = firstValid - 1; i >= 0; i--) {
-      trend[i] = trend[firstValid]! - (firstValid - i) * slopeStart;
-    }
-    const slopeEnd = (trend[lastValid]! - trend[lastValid - 1]!);
-    for (let i = lastValid + 1; i < n; i++) {
-      trend[i] = trend[lastValid]! + (i - lastValid) * slopeEnd;
-    }
+  // 6. Extract Periodic Seasonal Component S_t via phase-averaging on (y - T - C)
+  const seasonalAverages = new Float64Array(safePeriod);
+  const seasonalCounts = new Int32Array(safePeriod);
+  for (let t = 0; t < n; t++) {
+    const idx = t % safePeriod;
+    seasonalAverages[idx] += y[t] - trendWork[t] - cycleWork[t];
+    seasonalCounts[idx]++;
   }
-
-  // 2. Detrend
-  const detrended: (number | null)[] = new Array(n).fill(null);
-  for (let i = 0; i < n; i++) {
-    if (trend[i] !== null && trend[i]! !== 0) {
-      detrended[i] =
-        model === 'additive'
-          ? prices[i] - trend[i]!
-          : prices[i] / trend[i]!;
-    }
-  }
-
-  // 3. Compute Seasonal Indices
-  const seasonalAverages: number[] = new Array(period).fill(0);
-  const seasonalCounts: number[] = new Array(period).fill(0);
-
-  for (let i = 0; i < n; i++) {
-    if (detrended[i] !== null) {
-      const idx = i % period;
-      seasonalAverages[idx] += detrended[i]!;
-      seasonalCounts[idx]++;
-    }
-  }
-
-  for (let k = 0; k < period; k++) {
+  let meanSeason = 0;
+  for (let k = 0; k < safePeriod; k++) {
     if (seasonalCounts[k] > 0) {
       seasonalAverages[k] /= seasonalCounts[k];
     }
+    meanSeason += seasonalAverages[k];
+  }
+  meanSeason /= safePeriod;
+  for (let k = 0; k < safePeriod; k++) {
+    seasonalAverages[k] -= meanSeason;
+  }
+  for (let t = 0; t < n; t++) {
+    trendWork[t] += meanSeason;
   }
 
-  // Normalize seasonal component
-  if (model === 'additive') {
-    let meanSeason = 0;
-    for (let k = 0; k < period; k++) meanSeason += seasonalAverages[k];
-    meanSeason /= period;
-    for (let k = 0; k < period; k++) seasonalAverages[k] -= meanSeason;
+  const seasonalWork = new Float64Array(n);
+  const residualWork = new Float64Array(n);
+  for (let t = 0; t < n; t++) {
+    seasonalWork[t] = seasonalAverages[t % safePeriod];
+    residualWork[t] = y[t] - trendWork[t] - cycleWork[t] - seasonalWork[t];
+  }
+
+  // 7. Transform back to price / factor space
+  const trend: (number | null)[] = new Array(n);
+  const cyclical: number[] = new Array(n);
+  const seasonal: number[] = new Array(n);
+  const residual: (number | null)[] = new Array(n);
+
+  if (model === 'multiplicative') {
+    for (let t = 0; t < n; t++) {
+      trend[t] = Math.exp(trendWork[t]);
+      cyclical[t] = Math.exp(cycleWork[t]);
+      seasonal[t] = Math.exp(seasonalWork[t]);
+      residual[t] = Math.exp(residualWork[t]);
+    }
   } else {
-    let meanSeason = 0;
-    for (let k = 0; k < period; k++) meanSeason += seasonalAverages[k];
-    meanSeason /= period;
-    if (meanSeason !== 0) {
-      for (let k = 0; k < period; k++) seasonalAverages[k] /= meanSeason;
+    for (let t = 0; t < n; t++) {
+      trend[t] = trendWork[t];
+      cyclical[t] = cycleWork[t];
+      seasonal[t] = seasonalWork[t];
+      residual[t] = residualWork[t];
     }
   }
 
-  for (let i = 0; i < n; i++) {
-    seasonal[i] = seasonalAverages[i % period];
-  }
-
-  // 4. Compute Residuals
-  for (let i = 0; i < n; i++) {
-    if (trend[i] !== null) {
-      if (model === 'additive') {
-        residual[i] = prices[i] - trend[i]! - seasonal[i];
-      } else {
-        const denom = trend[i]! * seasonal[i];
-        residual[i] = denom !== 0 ? prices[i] / denom : 1;
-      }
-    }
-  }
+  const cyclePowerShare =
+    totalDetrendedPower > 1e-12 ? Math.min(1, Math.max(0, cyclePower / totalDetrendedPower)) : 0;
 
   return {
     dates,
     observed: prices,
     trend,
+    cyclical,
     seasonal,
     residual,
     model,
-    period,
+    period: safePeriod,
+    cycleMinPeriod: minBound,
+    cycleMaxPeriod: maxBound,
+    dominantCyclePeriod:
+      dominantCyclePeriod !== null && Number.isFinite(dominantCyclePeriod)
+        ? Math.round(dominantCyclePeriod * 10) / 10
+        : null,
+    cyclePowerShare,
   };
 }
 
