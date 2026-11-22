@@ -1,12 +1,14 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import type { Data, Layout } from 'plotly.js';
 import {
   DailyRealizedVol,
   HarRvModelSummary,
   forecastHarRv,
 } from '@/lib/quant-engine';
-import { useChartSize } from '@/lib/use-chart-size';
+import { PlotlyChart, usePlotlyDarkTheme } from '@/components/charts/PlotlyChart';
+import { getPlotlyThemeTokens, QUANT_COLORS } from '@/lib/plotly-theme';
 
 interface HarRvForecastChartProps {
   dailyRV: DailyRealizedVol[];
@@ -19,54 +21,121 @@ export function HarRvForecastChart({
   harSummary,
   ticker,
 }: HarRvForecastChartProps) {
+  const isDark = usePlotlyDarkTheme();
+  const tokens = useMemo(() => getPlotlyThemeTokens(isDark), [isDark]);
   const [horizon, setHorizon] = useState<number>(10);
-  const { ref, size } = useChartSize<HTMLDivElement>();
 
-  const rvSeries = dailyRV.map((d) => d.realizedVariance);
-  const forecastPoints = forecastHarRv(harSummary, rvSeries, horizon);
+  const { traces, layout } = useMemo<{ traces: Data[]; layout: Partial<Layout> }>(() => {
+    const rvSeries = dailyRV.map((d) => d.realizedVariance);
+    const forecastPoints = forecastHarRv(harSummary, rvSeries, horizon);
+    const nHist = dailyRV.length;
+    if (nHist === 0) return { traces: [], layout: {} };
 
-  const nHist = dailyRV.length;
-  const nFc = forecastPoints.length;
-  const totalPoints = nHist + nFc;
+    const histX = dailyRV.map((d) => d.date);
+    const histY = dailyRV.map((d) => d.annualizedRealizedVol * 100);
+    const lastDate = histX[nHist - 1];
+    const lastVol = histY[nHist - 1] ?? harSummary.forecastNextDayVol * 100;
 
-  let maxVol = harSummary.forecastNextDayVol * 1.3;
-  dailyRV.forEach((d) => { if (d.annualizedRealizedVol > maxVol) maxVol = d.annualizedRealizedVol; });
-  forecastPoints.forEach((p) => { if (p.upper95 > maxVol) maxVol = p.upper95; });
-  maxVol = Math.max(0.2, maxVol * 1.15);
+    // Synthesize sequential business-day ISO strings after lastDate for Plotly date axis continuity
+    const baseMs = Date.parse(`${lastDate}T00:00:00Z`);
+    const fcDates: string[] = [lastDate];
+    let cursor = Number.isFinite(baseMs) ? baseMs : Date.parse('2026-11-08T00:00:00Z');
+    for (let i = 0; i < forecastPoints.length; i++) {
+      cursor += 86400000;
+      const d = new Date(cursor);
+      if (d.getUTCDay() === 6) cursor += 2 * 86400000;
+      else if (d.getUTCDay() === 0) cursor += 86400000;
+      fcDates.push(new Date(cursor).toISOString().slice(0, 10));
+    }
 
-  const width = size.width;
-  const height = size.height;
-  const ready = width > 0;
-  const padLeft = 46;
-  const padRight = 18;
-  const padTop = 16;
-  const padBottom = 30;
+    const fcMid = [lastVol, ...forecastPoints.map((p) => p.forecastVol * 100)];
+    const fcUp95 = [lastVol, ...forecastPoints.map((p) => p.upper95 * 100)];
+    const fcLo95 = [lastVol, ...forecastPoints.map((p) => p.lower95 * 100)];
 
-  const chartW = width - padLeft - padRight;
-  const chartH = height - padTop - padBottom;
+    const dataTraces: Data[] = [
+      {
+        type: 'scatter',
+        mode: 'lines',
+        name: '95% Lower',
+        x: fcDates,
+        y: fcLo95,
+        line: { width: 0 },
+        showlegend: false,
+        hoverinfo: 'skip',
+      },
+      {
+        type: 'scatter',
+        mode: 'lines',
+        name: '95% CI Cone',
+        x: fcDates,
+        y: fcUp95,
+        fill: 'tonexty',
+        fillcolor: 'rgba(222, 192, 132, 0.2)',
+        line: { width: 0 },
+        hovertemplate: '%{y:.2f}%<extra>95% Upper</extra>',
+      },
+      {
+        type: 'scatter',
+        mode: 'lines+markers',
+        name: 'Realized Vol (1-min RV)',
+        x: histX,
+        y: histY,
+        line: { color: QUANT_COLORS.goldLight, width: 1.9 },
+        marker: {
+          color: QUANT_COLORS.goldLight,
+          size: 5,
+          line: { color: isDark ? '#0E0E11' : '#FFFFFF', width: 1 },
+        },
+        hovertemplate: '%{y:.2f}%<extra>Realized Vol</extra>',
+      },
+      {
+        type: 'scatter',
+        mode: 'lines',
+        name: 'HAR-RV Forecast',
+        x: fcDates,
+        y: fcMid,
+        line: { color: QUANT_COLORS.gold, width: 2, dash: 'dash' },
+        hovertemplate: '%{y:.2f}%<extra>HAR-RV Forecast</extra>',
+      },
+    ];
 
-  const getX = (idx: number) => padLeft + (idx / Math.max(1, totalPoints - 1)) * chartW;
-  const getY = (val: number) => padTop + chartH - (val / maxVol) * chartH;
-
-  const splitX = getX(nHist - 1);
-
-  // Historical path
-  const histPoints = dailyRV.map((d, i) => `${getX(i)},${getY(d.annualizedRealizedVol)}`).join(' L ');
-
-  // Forecast cone path
-  const lastVol = dailyRV[nHist - 1]?.annualizedRealizedVol || harSummary.forecastNextDayVol;
-  const upperPts: string[] = [`${splitX},${getY(lastVol)}`];
-  const lowerPts: string[] = [`${splitX},${getY(lastVol)}`];
-  const fcLinePts: string[] = [`${splitX},${getY(lastVol)}`];
-
-  forecastPoints.forEach((p, i) => {
-    const x = getX(nHist + i);
-    fcLinePts.push(`${x},${getY(p.forecastVol)}`);
-    upperPts.push(`${x},${getY(p.upper95)}`);
-    lowerPts.push(`${x},${getY(p.lower95)}`);
-  });
-
-  const conePath = `M ${upperPts.join(' L ')} L ${lowerPts.reverse().join(' L ')} Z`;
+    return {
+      traces: dataTraces,
+      layout: {
+        shapes: [
+          {
+            type: 'line',
+            xref: 'x',
+            yref: 'paper',
+            x0: lastDate,
+            x1: lastDate,
+            y0: 0,
+            y1: 1,
+            line: { color: tokens.textMuted, width: 1, dash: 'dot' },
+          },
+        ],
+        annotations: [
+          {
+            x: lastDate,
+            y: 1.0,
+            xref: 'x',
+            yref: 'paper',
+            text: 'HAR-RV Projection →',
+            showarrow: false,
+            xanchor: 'left',
+            yanchor: 'top',
+            xshift: 6,
+            font: { size: 10, color: QUANT_COLORS.goldLight },
+          },
+        ],
+        yaxis: {
+          ticksuffix: '%',
+          rangemode: 'tozero',
+          gridcolor: tokens.grid,
+        },
+      },
+    };
+  }, [dailyRV, harSummary, horizon, isDark, tokens]);
 
   return (
     <div className="panel p-5">
@@ -81,12 +150,13 @@ export function HarRvForecastChart({
             </span>
           </div>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-            Combines Daily (β_d), Weekly (β_w), and Monthly (β_m) realized volatility components to capture long memory
+            Combines Daily (β_d), Weekly (β_w), and Monthly (β_m) realized volatility components to
+            capture long memory
           </p>
         </div>
 
         {/* Horizon Slider */}
-        <div className="flex items-center gap-2 text-xs">
+        <div className="flex items-center gap-2 text-xs whitespace-nowrap shrink-0">
           <span className="text-zinc-500">Horizon:</span>
           <input
             type="range"
@@ -102,125 +172,25 @@ export function HarRvForecastChart({
         </div>
       </div>
 
-      <div ref={ref} className="chart-frame">
-        {ready && (
-        <svg width={width} height={height} className="block h-full w-full">
-          <defs>
-            <linearGradient id="harGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#DEC084" stopOpacity="0.25" />
-              <stop offset="100%" stopColor="#DEC084" stopOpacity="0.05" />
-            </linearGradient>
-          </defs>
-
-          {/* Grid lines */}
-          {[0, 0.33, 0.66, 1].map((pct) => {
-            const val = pct * maxVol;
-            const yPos = getY(val);
-            return (
-              <g key={pct}>
-                <line
-                  x1={padLeft}
-                  y1={yPos}
-                  x2={width - padRight}
-                  y2={yPos}
-                  stroke="currentColor"
-                  className="text-zinc-200 dark:text-zinc-800/80"
-                  strokeDasharray="2 3"
-                />
-                <text
-                  x={padLeft - 6}
-                  y={yPos + 4}
-                  textAnchor="end"
-                  className="text-[10px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
-                >
-                  {(val * 100).toFixed(0)}%
-                </text>
-              </g>
-            );
-          })}
-
-          {/* Split boundary */}
-          <line
-            x1={splitX}
-            y1={padTop}
-            x2={splitX}
-            y2={padTop + chartH}
-            stroke="#94a3b8"
-            strokeWidth="0.8"
-            strokeDasharray="3 3"
-          />
-          <text
-            x={splitX - 6}
-            y={padTop + 12}
-            textAnchor="end"
-            className="text-[10px] font-medium fill-zinc-500"
-          >
-            Realized Historical
-          </text>
-          <text
-            x={splitX + 6}
-            y={padTop + 12}
-            textAnchor="start"
-            className="text-[10px] font-medium fill-gold-500"
-          >
-            HAR-RV Projection →
-          </text>
-
-          {/* Forecast 95% Cone */}
-          <path d={conePath} fill="url(#harGradient)" />
-
-          {/* Historical Realized Vol line */}
-          <path
-            d={`M ${histPoints}`}
-            fill="none"
-            stroke="#DEC084"
-            strokeWidth="1.4"
-            strokeLinecap="round"
-          />
-
-          {/* Forecast expected line */}
-          <path
-            d={`M ${fcLinePts.join(' L ')}`}
-            fill="none"
-            stroke="#DEC084"
-            strokeWidth="1.3"
-            strokeDasharray="4 2"
-          />
-
-          {/* Data point dots */}
-          {dailyRV.map((d, i) => (
-            <circle
-              key={d.date}
-              cx={getX(i)}
-              cy={getY(d.annualizedRealizedVol)}
-              r="3.5"
-              fill="#DEC084"
-              stroke="#0E0E11"
-              strokeWidth="1"
-            />
-          ))}
-
-          {/* X axis labels */}
-          <text x={getX(0)} y={height - 8} className="text-[10px] font-mono fill-zinc-500">
-            {dailyRV[0]?.date}
-          </text>
-          <text x={splitX} y={height - 8} textAnchor="middle" className="text-[10px] font-mono fill-zinc-700 dark:fill-zinc-300 font-bold">
-            Latest ({dailyRV[nHist - 1]?.date})
-          </text>
-          <text x={getX(totalPoints - 1)} y={height - 8} textAnchor="end" className="text-[10px] font-mono fill-gold-500">
-            +{horizon}d Forecast
-          </text>
-        </svg>
-        )}
-      </div>
+      <PlotlyChart
+        data={traces}
+        layout={layout}
+        plotType="2d"
+        rangeSlider
+        hovermode="x unified"
+        height={295}
+        exportFilename={`quantmetrics-harrv-${ticker.toLowerCase()}`}
+        uirevisionKey={`har-${ticker}-${dailyRV.length}-${horizon}`}
+        showWheelHint
+      />
 
       {/* Model Parameter Table & GARCH Comparison Scoreboard */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-3 border-t border-zinc-100 dark:border-zinc-800 text-xs">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-3 border-t border-[var(--hairline)] text-xs">
         {/* HAR-RV Coefficients */}
-        <div className="bg-zinc-50 dark:bg-zinc-900/60 p-3 rounded-lg border border-zinc-200 dark:border-zinc-800/60 font-mono">
+        <div className="panel-inset p-3 rounded-lg font-mono">
           <div className="font-semibold text-zinc-800 dark:text-zinc-200 mb-2 font-sans flex items-center justify-between">
             <span>HAR-RV Component Weights</span>
-            <span className="text-gold-600 dark:text-gold-300 dark:text-gold-600 dark:text-gold-300 font-mono font-bold">
+            <span className="text-gold-600 dark:text-gold-300 font-mono font-bold tabular-nums">
               R² = {(harSummary.rSquared * 100).toFixed(1)}%
             </span>
           </div>
@@ -237,31 +207,35 @@ export function HarRvForecastChart({
         </div>
 
         {/* HAR-RV vs Daily GARCH Scoreboard */}
-        <div className="bg-zinc-50 dark:bg-zinc-900/60 p-3 rounded-lg border border-zinc-200 dark:border-zinc-800/60">
+        <div className="panel-inset p-3 rounded-lg">
           <div className="font-semibold text-zinc-800 dark:text-zinc-200 mb-2 flex items-center justify-between">
             <span>Model Predictive Superiority</span>
-            <span className="text-gold-600 dark:text-gold-400 font-medium text-[11px]">
-              +{( (harSummary.rSquared - harSummary.garchComparisonR2) * 100 ).toFixed(1)}% Higher R²
+            <span className="text-gold-600 dark:text-gold-400 font-medium text-[11px] tabular-nums">
+              +{((harSummary.rSquared - harSummary.garchComparisonR2) * 100).toFixed(1)}% Higher R²
             </span>
           </div>
           <table className="w-full text-xs font-mono">
             <tbody>
-              <tr className="border-b border-zinc-200 dark:border-zinc-800/60">
+              <tr className="border-b border-[var(--hairline)]">
                 <td className="py-1 text-zinc-500 font-sans">HAR-RV (1-Min Realized)</td>
                 <td className="py-1 text-right font-bold text-gold-600 dark:text-gold-300 tabular-nums">
-                  R²: {(harSummary.rSquared * 100).toFixed(1)}% · RMSE: {(harSummary.rmse * 100).toFixed(2)}%
+                  R²: {(harSummary.rSquared * 100).toFixed(1)}% · RMSE:{' '}
+                  {(harSummary.rmse * 100).toFixed(2)}%
                 </td>
               </tr>
               <tr>
                 <td className="py-1 text-zinc-500 font-sans">Daily GARCH(1,1)</td>
                 <td className="py-1 text-right font-bold text-zinc-500 tabular-nums">
-                  R²: {(harSummary.garchComparisonR2 * 100).toFixed(1)}% · RMSE: {(harSummary.rmse * 1.45 * 100).toFixed(2)}%
+                  R²: {(harSummary.garchComparisonR2 * 100).toFixed(1)}% · RMSE:{' '}
+                  {(harSummary.rmse * 1.45 * 100).toFixed(2)}%
                 </td>
               </tr>
             </tbody>
           </table>
           <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-2 font-sans">
-            Because HAR-RV aggregates 390 high-frequency price changes per day, it eliminates the measurement error inherent in daily close-to-close returns, providing tighter forecast confidence bands.
+            Because HAR-RV aggregates 390 high-frequency price changes per day, it eliminates the
+            measurement error inherent in daily close-to-close returns, providing tighter forecast
+            confidence bands.
           </p>
         </div>
       </div>

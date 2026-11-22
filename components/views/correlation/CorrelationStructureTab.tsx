@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
+import type { Data, Layout } from 'plotly.js';
 import {
   computeMantegnaNetwork,
   computeLeadLagCorrelation,
@@ -8,6 +9,8 @@ import {
 } from '@/lib/correlation-engine';
 import { MantegnaDistanceEquation, FrobeniusDivergenceEquation } from '@/components/math/MathEquations';
 import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
+import { PlotlyChart, usePlotlyDarkTheme } from '@/components/charts/PlotlyChart';
+import { getPlotlyThemeTokens, QUANT_COLORS } from '@/lib/plotly-theme';
 import {
   GitCommit,
   Network,
@@ -56,22 +59,206 @@ export function CorrelationStructureTab({
     return computeMantegnaNetwork(matrix, tickers);
   }, [matrix, tickers, n]);
 
-  // Node coordinates for SVG layout (Circular arrangement for clean, deterministic rendering)
+  const isDark = usePlotlyDarkTheme();
+  const tokens = useMemo(() => getPlotlyThemeTokens(isDark), [isDark]);
+
+  // Node coordinates for deterministic circular MST layout
   const nodePositions = useMemo(() => {
     const coords: { [sym: string]: { x: number; y: number; angle: number } } = {};
-    const centerX = 260;
-    const centerY = 200;
-    const radius = 140;
+    const radius = 1;
 
     tickers.forEach((sym, idx) => {
-      const angle = (idx / n) * 2 * Math.PI - Math.PI / 2;
-      const x = centerX + radius * Math.cos(angle);
-      const y = centerY + radius * Math.sin(angle);
+      const angle = (idx / Math.max(1, n)) * 2 * Math.PI - Math.PI / 2;
+      const x = radius * Math.cos(angle);
+      const y = -radius * Math.sin(angle);
       coords[sym] = { x, y, angle };
     });
 
-    return { coords, centerX, centerY };
+    return { coords, radius };
   }, [tickers, n]);
+
+  const { mstTraces, mstLayout } = useMemo<{
+    mstTraces: Data[];
+    mstLayout: Partial<Layout>;
+  }>(() => {
+    const traces: Data[] = [];
+
+    // Subtle reference ring
+    const ringX: number[] = [];
+    const ringY: number[] = [];
+    for (let i = 0; i <= 72; i++) {
+      const theta = (i / 72) * 2 * Math.PI;
+      ringX.push(Math.cos(theta));
+      ringY.push(Math.sin(theta));
+    }
+    traces.push({
+      type: 'scatter',
+      mode: 'lines',
+      x: ringX,
+      y: ringY,
+      line: {
+        color: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(24,24,27,0.1)',
+        width: 1,
+        dash: 'dot',
+      },
+      hoverinfo: 'skip',
+      showlegend: false,
+    });
+
+    // MST edges + midpoint correlation labels
+    const midX: number[] = [];
+    const midY: number[] = [];
+    const midLabels: string[] = [];
+    const midHover: string[] = [];
+
+    for (const edge of mstResult.edges) {
+      const p1 = nodePositions.coords[edge.source];
+      const p2 = nodePositions.coords[edge.target];
+      if (!p1 || !p2) continue;
+      const isConn =
+        selectedNode !== null &&
+        (edge.source === selectedNode || edge.target === selectedNode);
+      const width = Math.max(1.2, (2 - edge.distance) * 2.2) + (isConn ? 1.4 : 0);
+      const opacity = selectedNode ? (isConn ? 0.95 : 0.16) : 0.7;
+      const color = isConn
+        ? '#10b981'
+        : edge.correlation >= 0
+          ? QUANT_COLORS.gold
+          : '#E0655F';
+
+      traces.push({
+        type: 'scatter',
+        mode: 'lines',
+        x: [p1.x, p2.x],
+        y: [p1.y, p2.y],
+        line: { color, width },
+        opacity,
+        hoverinfo: 'skip',
+        showlegend: false,
+      });
+
+      if (!selectedNode || isConn) {
+        midX.push((p1.x + p2.x) / 2);
+        midY.push((p1.y + p2.y) / 2);
+        midLabels.push(edge.correlation.toFixed(2));
+        midHover.push(
+          `${edge.source} ↔ ${edge.target}<br>ρ = ${edge.correlation.toFixed(3)} · d = ${edge.distance.toFixed(3)}`
+        );
+      }
+    }
+
+    if (midX.length > 0) {
+      traces.push({
+        type: 'scatter',
+        mode: 'text',
+        x: midX,
+        y: midY,
+        text: midLabels,
+        textfont: {
+          size: 9.5,
+          color: tokens.textMuted,
+          family: 'IBM Plex Mono, monospace',
+        },
+        hovertext: midHover,
+        hoverinfo: 'text',
+        showlegend: false,
+      });
+    }
+
+    // Hub outer ring highlight
+    const hubPos = nodePositions.coords[mstResult.hubTicker];
+    if (hubPos) {
+      traces.push({
+        type: 'scatter',
+        mode: 'markers',
+        x: [hubPos.x],
+        y: [hubPos.y],
+        marker: {
+          size: 46,
+          color: 'rgba(16,185,129,0.08)',
+          line: { color: '#10b981', width: 1.5 },
+        },
+        hoverinfo: 'skip',
+        showlegend: false,
+      });
+    }
+
+    // MST Nodes
+    const nodeX: number[] = [];
+    const nodeY: number[] = [];
+    const nodeText: string[] = [];
+    const nodeHover: string[] = [];
+    const nodeCustom: string[] = [];
+    const nodeSize: number[] = [];
+    const nodeFill: string[] = [];
+    const nodeLine: string[] = [];
+
+    for (const sym of tickers) {
+      const pos = nodePositions.coords[sym];
+      if (!pos) continue;
+      const cent = mstResult.centrality.find((c) => c.ticker === sym);
+      const degree = cent?.degree ?? 0;
+      const isHub = cent?.isHub ?? false;
+      const isSel = selectedNode === sym;
+      nodeX.push(pos.x);
+      nodeY.push(pos.y);
+      nodeText.push(sym);
+      nodeCustom.push(sym);
+      nodeHover.push(
+        `<b>${sym}</b>${isHub ? ' (Hub)' : ''}<br>Degree: ${degree}<br>Centrality: ${(cent?.centralityScore ?? 0).toFixed(3)}<br><i>Click to inspect neighborhood</i>`
+      );
+      nodeSize.push(isHub ? 36 : Math.max(26, 22 + degree * 3.5));
+      nodeFill.push(isSel ? '#10b981' : isHub ? '#065f46' : isDark ? '#1e293b' : '#27272a');
+      nodeLine.push(isSel ? '#ffffff' : isHub ? '#34d399' : '#64748b');
+    }
+
+    traces.push({
+      type: 'scatter',
+      mode: 'text+markers',
+      name: 'Assets',
+      x: nodeX,
+      y: nodeY,
+      text: nodeText,
+      customdata: nodeCustom,
+      textposition: 'middle center',
+      textfont: {
+        size: 10,
+        color: '#ffffff',
+        family: 'IBM Plex Mono, monospace',
+      },
+      marker: {
+        size: nodeSize,
+        color: nodeFill,
+        line: { color: nodeLine, width: 1.6 },
+      },
+      hovertext: nodeHover,
+      hoverinfo: 'text',
+      showlegend: false,
+    });
+
+    return {
+      mstTraces: traces,
+      mstLayout: {
+        margin: { l: 16, r: 16, t: 16, b: 16 },
+        xaxis: {
+          range: [-1.35, 1.35],
+          showgrid: false,
+          zeroline: false,
+          showticklabels: false,
+          fixedrange: false,
+        },
+        yaxis: {
+          range: [-1.35, 1.35],
+          showgrid: false,
+          zeroline: false,
+          showticklabels: false,
+          scaleanchor: 'x',
+          scaleratio: 1,
+          fixedrange: false,
+        },
+      },
+    };
+  }, [tickers, mstResult, nodePositions, selectedNode, isDark, tokens]);
 
   // 2. Lead-Lag Cross-Correlation Computation
   const leadLagResult = useMemo(() => {
@@ -197,170 +384,28 @@ export function CorrelationStructureTab({
               Kruskal&apos;s algorithm isolates the most statistically significant correlation pathways. Thicker links represent higher correlation (shorter metric distance). Click any node to inspect its local neighborhood.
             </p>
 
-            {/* SVG Network Canvas */}
+            {/* Interactive Plotly MST Network Canvas */}
             <ChartFullscreen title="Mantegna Minimum Spanning Tree" subtitle="Correlation-metric network — click nodes to inspect neighborhoods">
-            <div className="relative w-full aspect-4/3 bg-zinc-50 dark:bg-zinc-900/40 rounded-xl border border-zinc-100 dark:border-zinc-800/80 overflow-hidden flex items-center justify-center p-2">
-              <svg
-                viewBox="0 0 520 400"
-                className="w-full h-full max-h-[380px] select-none"
-              >
-                <defs>
-                  <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-                    <feGaussianBlur stdDeviation="3" result="blur" />
-                    <feComposite in="SourceGraphic" in2="blur" operator="over" />
-                  </filter>
-                </defs>
-
-                {/* Background Subtle Axis or Grid Rings */}
-                <circle
-                  cx={nodePositions.centerX}
-                  cy={nodePositions.centerY}
-                  r="140"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeDasharray="3 3"
-                  className="text-zinc-200 dark:text-zinc-800"
+              <div className="w-full rounded-xl border border-zinc-100 dark:border-zinc-800/80 bg-zinc-50 dark:bg-zinc-900/40 p-1.5">
+                <PlotlyChart
+                  data={mstTraces}
+                  layout={mstLayout}
+                  plotType="2d"
+                  enableWheelPan={false}
+                  hovermode="closest"
+                  showLegend={false}
+                  height={370}
+                  exportFilename="mantegna-mst-network"
+                  uirevisionKey={`mst-${tickers.join('-')}`}
+                  onClick={(ev) => {
+                    const pt = (ev as { points?: Array<{ customdata?: unknown }> })?.points?.[0];
+                    if (pt && typeof pt.customdata === 'string') {
+                      const clicked = pt.customdata;
+                      setSelectedNode((prev) => (prev === clicked ? null : clicked));
+                    }
+                  }}
                 />
-
-                {/* MST Edges */}
-                {mstResult.edges.map((edge, idx) => {
-                  const p1 = nodePositions.coords[edge.source];
-                  const p2 = nodePositions.coords[edge.target];
-                  if (!p1 || !p2) return null;
-
-                  const isConnectedToSelected =
-                    selectedNode && (edge.source === selectedNode || edge.target === selectedNode);
-                  // Width inversely proportional to distance (dist between 0 and 2)
-                  const strokeWidth = Math.max(1.0, (2 - edge.distance) * 1.8);
-                  const isPositive = edge.correlation >= 0;
-
-                  return (
-                    <g key={`${edge.source}-${edge.target}-${idx}`}>
-                      <line
-                        x1={p1.x}
-                        y1={p1.y}
-                        x2={p2.x}
-                        y2={p2.y}
-                        stroke={
-                          isConnectedToSelected
-                            ? '#10b981'
-                            : isPositive
-                            ? '#3b82f6'
-                            : '#ec4899'
-                        }
-                        strokeWidth={isConnectedToSelected ? strokeWidth + 1.0 : strokeWidth}
-                        strokeOpacity={
-                          selectedNode
-                            ? isConnectedToSelected
-                              ? 0.95
-                              : 0.15
-                            : 0.65
-                        }
-                        strokeLinecap="round"
-                        className="transition-all duration-300"
-                      />
-                      {/* Midpoint Label with Correlation value */}
-                      <text
-                        x={(p1.x + p2.x) / 2}
-                        y={(p1.y + p2.y) / 2 - 4}
-                        textAnchor="middle"
-                        className="text-[9px] font-mono font-bold fill-zinc-500 dark:fill-zinc-400 select-none"
-                        opacity={selectedNode ? (isConnectedToSelected ? 1 : 0.1) : 0.8}
-                      >
-                        {edge.correlation.toFixed(2)}
-                      </text>
-                    </g>
-                  );
-                })}
-
-                {/* MST Nodes */}
-                {tickers.map((ticker) => {
-                  const pos = nodePositions.coords[ticker];
-                  if (!pos) return null;
-
-                  const cent = mstResult.centrality.find((c) => c.ticker === ticker);
-                  const degree = cent?.degree || 0;
-                  const isHub = cent?.isHub || false;
-                  const isSelected = selectedNode === ticker;
-
-                  // Node radius based on degree
-                  const radius = isHub ? 19 : Math.max(14, 12 + degree * 1.8);
-
-                  return (
-                    <g
-                      key={ticker}
-                      transform={`translate(${pos.x}, ${pos.y})`}
-                      onClick={() =>
-                        setSelectedNode((prev) => (prev === ticker ? null : ticker))
-                      }
-                      className="cursor-pointer group"
-                    >
-                      {/* Hub Glow Ring */}
-                      {isHub && (
-                        <circle
-                          r={radius + 4}
-                          fill="none"
-                          stroke="#10b981"
-                          strokeWidth="1.3"
-                          strokeDasharray="4 2"
-                          className="animate-spin text-gold-500"
-                          style={{ transformOrigin: '0 0', animationDuration: '10s' }}
-                        />
-                      )}
-
-                      {/* Main Node Circle */}
-                      <circle
-                        r={radius}
-                        fill={
-                          isSelected
-                            ? '#10b981'
-                            : isHub
-                            ? '#065f46'
-                            : '#1e293b'
-                        }
-                        stroke={
-                          isSelected
-                            ? '#ffffff'
-                            : isHub
-                            ? '#34d399'
-                            : '#64748b'
-                        }
-                        strokeWidth={isSelected ? 1.6 : 1.0}
-                        className="transition-all duration-200 group-hover:stroke-gold-400 group-hover:scale-105"
-                      />
-
-                      {/* Ticker Label */}
-                      <text
-                        textAnchor="middle"
-                        dy=".35em"
-                        className="text-[10px] font-mono font-bold fill-white pointer-events-none select-none"
-                      >
-                        {ticker}
-                      </text>
-
-                      {/* Degree Badge */}
-                      <circle
-                        cx={radius - 2}
-                        cy={-radius + 2}
-                        r="6.5"
-                        fill="#0E0E11"
-                        stroke="#475569"
-                        strokeWidth="0.65"
-                      />
-                      <text
-                        x={radius - 2}
-                        y={-radius + 2}
-                        textAnchor="middle"
-                        dy=".35em"
-                        className="text-[8px] font-mono font-bold fill-gold-400 pointer-events-none select-none"
-                      >
-                        {degree}
-                      </text>
-                    </g>
-                  );
-                })}
-              </svg>
-            </div>
+              </div>
             </ChartFullscreen>
           </div>
 

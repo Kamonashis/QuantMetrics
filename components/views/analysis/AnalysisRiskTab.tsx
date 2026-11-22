@@ -21,11 +21,10 @@ import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 import { RegimeChip } from '@/components/ui/RegimeChip';
 import { RegimeTransitionMatrix } from '@/components/ui/RegimeTransitionMatrix';
 import { VaRExplorer } from '@/components/ui/VarExplorer';
+import type { Data, Layout } from 'plotly.js';
 import { regimeNames } from '@/components/charts/RegimeTimeline';
-import { useChartSize } from '@/lib/use-chart-size';
 import type { HmmFit } from '@/lib/hmm';
 import {
-  buildRegimeBandSpans,
   getHmmRegimeToken,
   type HmmStateIdx,
 } from '@/lib/hmm-regime-overlay';
@@ -33,6 +32,12 @@ import {
   HmmRegimeOverlayToggle,
   HmmRegimeScorecard,
 } from '@/components/charts/HmmRegimeOverlayControls';
+import { PlotlyChart, usePlotlyDarkTheme } from '@/components/charts/PlotlyChart';
+import {
+  buildHmmRegimeShapes,
+  getPlotlyThemeTokens,
+  QUANT_COLORS,
+} from '@/lib/plotly-theme';
 import {
   ShieldAlert,
   TrendingDown,
@@ -54,6 +59,8 @@ interface VarOosMonitorPoint {
 }
 
 function TcnVarOosMonitorChart({ tcnRisk }: { tcnRisk: TcnRiskVarForecast }) {
+  const isDark = usePlotlyDarkTheme();
+  const tokens = useMemo(() => getPlotlyThemeTokens(isDark), [isDark]);
   const [showRegimeOverlay, setShowRegimeOverlay] = useState(true);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
 
@@ -81,10 +88,119 @@ function TcnVarOosMonitorChart({ tcnRisk }: { tcnRisk: TcnRiskVarForecast }) {
     return out;
   }, [tcnRisk]);
 
-  const regimeBandSpans = useMemo(
-    () => buildRegimeBandSpans(points.map((p) => p.hmmState)),
-    [points]
-  );
+  const { traces, layout } = useMemo<{
+    traces: Data[];
+    layout: Partial<Layout>;
+  }>(() => {
+    if (points.length < 3) return { traces: [], layout: {} };
+    const xs = points.map((p) => p.date);
+    const lossesPct = points.map((p) => p.loss * 100);
+    const var95Pct = points.map((p) => p.var95 * 100);
+    const var99Pct = points.map((p) => p.var99 * 100);
+
+    const pointColors = points.map((p) =>
+      showRegimeOverlay
+        ? getHmmRegimeToken(p.hmmState).color
+        : p.hit99
+          ? QUANT_COLORS.negative
+          : p.hit95
+            ? QUANT_COLORS.gold
+            : '#71717a'
+    );
+
+    const barColors = pointColors.map((hex) => {
+      if (hex.startsWith('#') && hex.length === 7) {
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        return `rgba(${r},${g},${b},0.32)`;
+      }
+      return hex;
+    });
+
+    const data: Data[] = [
+      {
+        type: 'bar',
+        name: 'Realized Loss (−r_t)',
+        x: xs,
+        y: lossesPct,
+        marker: { color: barColors },
+        hovertemplate: 'Loss: %{y:+.2f}%<extra></extra>',
+      },
+      {
+        type: 'scatter',
+        mode: 'markers',
+        name: 'OOS Daily Loss',
+        x: xs,
+        y: lossesPct,
+        marker: {
+          size: points.map((p) => (p.hit99 ? 8 : p.hit95 ? 6.5 : 4.5)),
+          color: pointColors,
+          line: {
+            color: points.map((p) =>
+              p.hit99 ? QUANT_COLORS.negative : isDark ? '#08080A' : '#FFFFFF'
+            ),
+            width: points.map((p) => (p.hit99 ? 1.8 : 0.8)),
+          },
+        },
+        text: points.map((p) => {
+          const tok = getHmmRegimeToken(p.hmmState);
+          const tag = p.hit99 ? 'VaR 99% Breach' : p.hit95 ? 'VaR 95% Breach' : 'Within Envelope';
+          return `${tok.label} (${Math.round(p.hmmProb * 100)}%) · ${tag}`;
+        }),
+        hovertemplate: '%{text}<extra></extra>',
+        showlegend: false,
+      },
+      {
+        type: 'scatter',
+        mode: 'lines',
+        name: 'TCN VaR 95%',
+        x: xs,
+        y: var95Pct,
+        line: { color: QUANT_COLORS.gold, width: 1.6, dash: 'dash' },
+        hovertemplate: 'VaR 95%: %{y:.2f}%<extra></extra>',
+      },
+      {
+        type: 'scatter',
+        mode: 'lines',
+        name: 'TCN VaR 99%',
+        x: xs,
+        y: var99Pct,
+        line: { color: QUANT_COLORS.negative, width: 1.8 },
+        hovertemplate: 'VaR 99%: %{y:.2f}%<extra></extra>',
+      },
+    ];
+
+    const shapes: Layout['shapes'] = [
+      ...buildHmmRegimeShapes(
+        xs,
+        points.map((p) => p.hmmState),
+        showRegimeOverlay
+      ),
+      {
+        type: 'line',
+        xref: 'paper',
+        x0: 0,
+        x1: 1,
+        yref: 'y',
+        y0: 0,
+        y1: 0,
+        line: { color: tokens.zeroLine, width: 1 },
+      },
+    ];
+
+    return {
+      traces: data,
+      layout: {
+        margin: { l: 48, r: 16, t: 10, b: 36 },
+        shapes,
+        yaxis: {
+          ticksuffix: '%',
+          tickfont: { size: 10, color: tokens.textMuted },
+        },
+      },
+    };
+  }, [points, showRegimeOverlay, isDark, tokens]);
 
   if (points.length < 3) return null;
 
@@ -92,44 +208,6 @@ function TcnVarOosMonitorChart({ tcnRisk }: { tcnRisk: TcnRiskVarForecast }) {
   const activeIdx = hoverIdx !== null && hoverIdx < n ? hoverIdx : n - 1;
   const activePt = points[activeIdx];
   const activeTok = getHmmRegimeToken(activePt.hmmState);
-
-  let minY = 0;
-  let maxY = 0.03;
-  for (const p of points) {
-    if (p.loss < minY) minY = p.loss;
-    if (p.loss > maxY) maxY = p.loss;
-    if (p.var99 > maxY) maxY = p.var99;
-  }
-  const padTopVal = Math.max(0.005, (maxY - minY) * 0.14);
-  const domMin = Math.min(-0.005, minY - padTopVal * 0.4);
-  const domMax = maxY + padTopVal;
-  const spanY = Math.max(domMax - domMin, 1e-4);
-
-  const w = 760;
-  const h = 194;
-  const padL = 48;
-  const padR = 16;
-  const padT = 14;
-  const padB = 26;
-  const chartW = w - padL - padR;
-  const chartH = h - padT - padB;
-
-  const toX = (i: number) => padL + (i / Math.max(1, n - 1)) * chartW;
-  const toY = (val: number) => padT + chartH - ((val - domMin) / spanY) * chartH;
-  const zeroY = toY(0);
-
-  const var95Path = points
-    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${toX(i).toFixed(1)} ${toY(p.var95).toFixed(1)}`)
-    .join(' ');
-  const var99Path = points
-    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${toX(i).toFixed(1)} ${toY(p.var99).toFixed(1)}`)
-    .join(' ');
-
-  const slotW = chartW / Math.max(1, n - 1);
-  const yTicks = [domMin, 0, domMax * 0.5, domMax];
-  const xTickIndices = Array.from(
-    new Set([0, Math.floor((n - 1) / 3), Math.floor(((n - 1) * 2) / 3), n - 1])
-  );
 
   return (
     <div className="mt-4 pt-4 border-t border-[var(--hairline)] space-y-3">
@@ -190,158 +268,27 @@ function TcnVarOosMonitorChart({ tcnRisk }: { tcnRisk: TcnRiskVarForecast }) {
         </span>
       </div>
 
-      <div className="w-full overflow-x-auto rounded-lg border border-[var(--hairline)] bg-[var(--bg-inset)]/40 p-2">
-        <svg
-          viewBox={`0 0 ${w} ${h}`}
-          className="block w-full h-[194px] min-w-[460px] select-none cursor-crosshair"
-          role="img"
-          aria-label="Out-of-sample daily realized loss versus TCN VaR 95% and 99% thresholds with HMM regime overlay"
-          onMouseLeave={() => setHoverIdx(null)}
-        >
-          {/* Run-length merged causal HMM regime background bands */}
-          <g
-            style={{
-              opacity: showRegimeOverlay ? 1 : 0,
-              transition: 'opacity 150ms ease',
-            }}
-          >
-            {regimeBandSpans.map((span) => {
-              const tok = getHmmRegimeToken(span.state);
-              const x0 = span.startIdx === 0 ? padL : toX(span.startIdx) - slotW / 2;
-              const x1 = span.endIdx === n - 1 ? w - padR : toX(span.endIdx) + slotW / 2;
-              return (
-                <rect
-                  key={`var-band-${span.startIdx}-${span.endIdx}-${span.state}`}
-                  x={x0}
-                  y={padT}
-                  width={Math.max(1, x1 - x0)}
-                  height={chartH}
-                  fill={`rgba(${tok.rgb}, 0.12)`}
-                />
-              );
-            })}
-          </g>
-
-          {/* Gridlines & Y labels */}
-          {yTicks.map((val, idx) => {
-            const y = toY(val);
-            return (
-              <g key={idx}>
-                <line
-                  x1={padL}
-                  y1={y}
-                  x2={w - padR}
-                  y2={y}
-                  stroke="currentColor"
-                  className={val === 0 ? 'text-zinc-400 dark:text-zinc-600' : 'text-zinc-200 dark:text-zinc-800/80'}
-                  strokeDasharray={val === 0 ? undefined : '2 3'}
-                  strokeWidth={val === 0 ? 1 : 0.75}
-                />
-                <text
-                  x={padL - 6}
-                  y={y + 3}
-                  textAnchor="end"
-                  className="text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
-                >
-                  {(val * 100).toFixed(1)}%
-                </text>
-              </g>
-            );
-          })}
-
-          {/* VaR 95% & VaR 99% threshold curves */}
-          <path
-            d={var95Path}
-            fill="none"
-            stroke="#DEC084"
-            strokeWidth={1.4}
-            strokeDasharray="4 2"
-          />
-          <path
-            d={var99Path}
-            fill="none"
-            stroke="#E0655F"
-            strokeWidth={1.6}
-          />
-
-          {/* Daily Realized Loss stems & Regime-colored OOS markers */}
-          {points.map((p, i) => {
-            const cx = toX(i);
-            const cy = toY(p.loss);
-            const tok = getHmmRegimeToken(p.hmmState);
-            const isAct = i === activeIdx;
-            const fill = showRegimeOverlay
-              ? tok.color
-              : p.hit99
-                ? '#E0655F'
-                : p.hit95
-                  ? '#DEC084'
-                  : '#71717a';
-            return (
-              <g key={`var-pt-${p.date}-${i}`}>
-                <line
-                  x1={cx}
-                  y1={zeroY}
-                  x2={cx}
-                  y2={cy}
-                  stroke={fill}
-                  strokeOpacity={isAct ? 0.85 : 0.35}
-                  strokeWidth={isAct ? 1.5 : 1}
-                />
-                <circle
-                  cx={cx}
-                  cy={cy}
-                  r={isAct ? 4.6 : p.hit99 ? 3.8 : p.hit95 ? 3.1 : 2.2}
-                  fill={fill}
-                  stroke={p.hit99 ? '#E0655F' : '#08080a'}
-                  strokeWidth={p.hit99 || isAct ? 1.4 : 0.8}
-                />
-              </g>
-            );
-          })}
-
-          {/* Hover crosshair */}
-          <line
-            x1={toX(activeIdx)}
-            y1={padT}
-            x2={toX(activeIdx)}
-            y2={padT + chartH}
-            stroke="#DEC084"
-            strokeOpacity={hoverIdx !== null ? 0.65 : 0.3}
-            strokeDasharray="2 2"
-            strokeWidth={1}
-          />
-
-          {/* Interactive hit columns */}
-          {points.map((p, i) => (
-            <rect
-              key={`var-hit-${p.date}-${i}`}
-              x={toX(i) - slotW / 2}
-              y={padT}
-              width={Math.max(4, slotW)}
-              height={chartH}
-              fill="transparent"
-              onMouseEnter={() => setHoverIdx(i)}
-            />
-          ))}
-
-          {/* X-axis ticks */}
-          {xTickIndices.map((idx) => {
-            const rawDate = points[idx].date;
-            const shortDate = rawDate.length >= 10 ? rawDate.slice(5) : rawDate;
-            return (
-              <text
-                key={idx}
-                x={toX(idx)}
-                y={h - 6}
-                textAnchor={idx === 0 ? 'start' : idx === n - 1 ? 'end' : 'middle'}
-                className="text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
-              >
-                {shortDate}
-              </text>
-            );
-          })}
-        </svg>
+      <div className="w-full rounded-lg border border-[var(--hairline)] bg-[var(--bg-inset)]/40 p-1.5">
+        <PlotlyChart
+          data={traces}
+          layout={layout}
+          plotType="2d"
+          rangeSlider
+          hovermode="x unified"
+          showLegend={false}
+          height={240}
+          showWheelHint
+          exportFilename={`${tcnRisk.ticker}-tcn-var-oos`}
+          uirevisionKey={`tcn-var-oos-${tcnRisk.ticker}-${showRegimeOverlay}`}
+          onHover={(ev) => {
+            const pt = (ev as { points?: Array<{ x?: unknown }> })?.points?.[0];
+            if (pt?.x !== undefined) {
+              const idx = points.findIndex((p) => p.date === String(pt.x));
+              if (idx >= 0) setHoverIdx(idx);
+            }
+          }}
+          onUnhover={() => setHoverIdx(null)}
+        />
       </div>
 
       {/* Legend Strip */}
@@ -425,10 +372,10 @@ export function AnalysisRiskTab({
   returns = [],
   dates = [],
 }: AnalysisRiskTabProps) {
+  const isDark = usePlotlyDarkTheme();
+  const tokens = useMemo(() => getPlotlyThemeTokens(isDark), [isDark]);
   const [ddHoverIdx, setDdHoverIdx] = useState<number | null>(null);
   const [betaHoverIdx, setBetaHoverIdx] = useState<number | null>(null);
-  const { ref: ddRef, size: ddSize } = useChartSize<HTMLDivElement>();
-  const { ref: betaRef, size: betaSize } = useChartSize<HTMLDivElement>();
 
   const retLen = returns.length;
   const firstDate = dates[0] ?? '';
@@ -487,63 +434,87 @@ export function AnalysisRiskTab({
     [varBacktestModels, activeTcnRisk]
   );
 
-  // Underwater curve pure SVG scaling
   const ddData = drawdownResult.underwaterCurve;
   const nDd = ddData.length;
-  let maxDd = 0;
-  for (const d of ddData) {
-    if (Math.abs(d.drawdownPct) > maxDd) maxDd = Math.abs(d.drawdownPct);
-  }
-  maxDd = Math.max(5, maxDd * 1.1);
-
-  const ddW = ddSize.width;
-  const ddH = ddSize.height;
-  const ddReady = ddW > 0;
-  const dPadL = 46;
-  const dPadR = 14;
-  const dPadT = 14;
-  const dPadB = 28;
-  const dcW = Math.max(1, ddW - dPadL - dPadR);
-  const dcH = Math.max(1, ddH - dPadT - dPadB);
-  const ddXTicks = [0, 0.25, 0.5, 0.75, 1].map((pct) => Math.round(pct * Math.max(0, nDd - 1)));
-
-  const getDdX = (i: number) => dPadL + (i / Math.max(1, nDd - 1)) * dcW;
-  const getDdY = (ddPct: number) => dPadT + (Math.abs(ddPct) / maxDd) * dcH;
-
-  const activeDdIdx = ddHoverIdx !== null ? ddHoverIdx : nDd - 1;
+  const activeDdIdx = ddHoverIdx !== null && ddHoverIdx < nDd ? ddHoverIdx : nDd - 1;
   const activeDdPoint = ddData[activeDdIdx] || { date: '', drawdownPct: 0 };
 
-  // Rolling Beta pure SVG scaling
+  const { ddTraces, ddLayout } = useMemo<{
+    ddTraces: Data[];
+    ddLayout: Partial<Layout>;
+  }>(() => {
+    if (ddData.length === 0) return { ddTraces: [], ddLayout: {} };
+    const xs = ddData.map((d) => d.date);
+    const ys = ddData.map((d) => -Math.abs(d.drawdownPct));
+    return {
+      ddTraces: [
+        {
+          type: 'scatter',
+          mode: 'lines',
+          name: 'Drawdown',
+          x: xs,
+          y: ys,
+          fill: 'tozeroy',
+          fillcolor: 'rgba(244,63,94,0.22)',
+          line: { color: '#f43f5e', width: 1.6 },
+          hovertemplate: 'Drawdown: %{y:.2f}%<extra></extra>',
+        },
+      ],
+      ddLayout: {
+        margin: { l: 52, r: 16, t: 10, b: 36 },
+        yaxis: {
+          title: { text: 'DD %', font: { size: 10, color: tokens.textMuted } },
+          ticksuffix: '%',
+          range: [Math.min(-5, Math.min(...ys) * 1.1), 0.5],
+          zeroline: true,
+          zerolinecolor: tokens.zeroLine,
+        },
+      },
+    };
+  }, [ddData, tokens]);
+
   const betaData = downsideResult.rollingBetaSeries;
   const nBeta = betaData.length;
-  let minBeta = 0;
-  let maxBeta = 2;
-  if (nBeta > 0) {
-    for (const b of betaData) {
-      if (b.beta < minBeta) minBeta = b.beta;
-      if (b.beta > maxBeta) maxBeta = b.beta;
-    }
-  }
-  minBeta = Math.min(-0.2, minBeta - 0.1);
-  maxBeta = Math.max(1.8, maxBeta + 0.1);
-  const betaRange = maxBeta - minBeta || 1;
-
-  const bW = betaSize.width;
-  const bH = betaSize.height;
-  const betaReady = bW > 0;
-  const bPadL = 38;
-  const bPadR = 12;
-  const bPadT = 10;
-  const bPadB = 24;
-  const bcW = Math.max(1, bW - bPadL - bPadR);
-  const bcH = Math.max(1, bH - bPadT - bPadB);
-  const betaXTicks = [0, 0.25, 0.5, 0.75, 1].map((pct) => Math.round(pct * Math.max(0, nBeta - 1)));
-
-  const getBetaX = (i: number) => bPadL + (i / Math.max(1, nBeta - 1)) * bcW;
-  const getBetaY = (val: number) => bPadT + bcH - ((val - minBeta) / betaRange) * bcH;
-
-  const activeBetaIdx = betaHoverIdx !== null ? betaHoverIdx : nBeta - 1;
+  const activeBetaIdx = betaHoverIdx !== null && betaHoverIdx < nBeta ? betaHoverIdx : nBeta - 1;
   const activeBetaPoint = betaData[activeBetaIdx] || { date: '', beta: 1 };
+
+  const { betaTraces, betaLayout } = useMemo<{
+    betaTraces: Data[];
+    betaLayout: Partial<Layout>;
+  }>(() => {
+    if (betaData.length === 0) return { betaTraces: [], betaLayout: {} };
+    return {
+      betaTraces: [
+        {
+          type: 'scatter',
+          mode: 'lines',
+          name: '60d Rolling β',
+          x: betaData.map((b) => b.date),
+          y: betaData.map((b) => b.beta),
+          line: { color: '#10b981', width: 1.8 },
+          hovertemplate: 'β vs SPY: %{y:.2f}<extra></extra>',
+        },
+      ],
+      betaLayout: {
+        margin: { l: 44, r: 14, t: 10, b: 36 },
+        shapes: [
+          {
+            type: 'line',
+            xref: 'paper',
+            x0: 0,
+            x1: 1,
+            yref: 'y',
+            y0: 1,
+            y1: 1,
+            line: { color: tokens.zeroLine, width: 1, dash: 'dash' },
+          },
+        ],
+        yaxis: {
+          title: { text: 'Beta (β)', font: { size: 10, color: tokens.textMuted } },
+        },
+      },
+    };
+  }, [betaData, tokens]);
 
   return (
     <div className="space-y-6">
@@ -796,107 +767,23 @@ export function AnalysisRiskTab({
         {/* Underwater Chart */}
         <div className="mt-4">
           <ChartFullscreen title="Underwater Drawdown Curve">
-          <div ref={ddRef} className="chart-frame">
-          {ddReady && (
-          <svg
-            width={ddW}
-            height={ddH}
-            className="block h-full w-full select-none"
-            onMouseMove={(e) => {
-              const rect = e.currentTarget.getBoundingClientRect();
-              const mouseX = e.clientX - rect.left;
-              const ratio = Math.max(0, Math.min(1, (mouseX - dPadL) / dcW));
-              const idx = Math.round(ratio * (nDd - 1));
-              setDdHoverIdx(idx);
-            }}
-            onMouseLeave={() => setDdHoverIdx(null)}
-          >
-            {/* Gridlines */}
-            {[0, 0.33, 0.66, 1].map((pct) => {
-              const yVal = pct * maxDd;
-              const yPos = getDdY(yVal);
-              return (
-                <g key={pct}>
-                  <line x1={dPadL} y1={yPos} x2={ddW - dPadR} y2={yPos} stroke="#334155" strokeDasharray="2 2" strokeWidth={0.5} opacity={0.3} />
-                  <text x={dPadL - 8} y={yPos + 3} textAnchor="end" fontSize="10" fill="#64748b" className="font-mono">
-                    -{yVal.toFixed(1)}%
-                  </text>
-                </g>
-              );
-            })}
-
-            {/* Zero top baseline */}
-            <line x1={dPadL} y1={dPadT} x2={ddW - dPadR} y2={dPadT} stroke="#64748b" strokeWidth={0.65} />
-
-            {/* Underwater Area */}
-            {nDd > 1 && (
-              <path
-                d={`
-                  M ${getDdX(0)} ${dPadT}
-                  ${ddData.map((d, i) => `L ${getDdX(i)} ${getDdY(d.drawdownPct)}`).join(' ')}
-                  L ${getDdX(nDd - 1)} ${dPadT}
-                  Z
-                `}
-                fill="#f43f5e"
-                fillOpacity={0.25}
-              />
-            )}
-
-            {/* Underwater Line */}
-            {nDd > 1 && (
-              <path
-                d={ddData.map((d, i) => `${i === 0 ? 'M' : 'L'} ${getDdX(i)} ${getDdY(d.drawdownPct)}`).join(' ')}
-                fill="none"
-                stroke="#f43f5e"
-                strokeWidth={1.2}
-              />
-            )}
-
-            {/* Y-axis title */}
-            <text
-              x={10}
-              y={dPadT + dcH / 2}
-              textAnchor="middle"
-              transform={`rotate(-90 10 ${dPadT + dcH / 2})`}
-              className="text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 uppercase"
-            >
-              DD %
-            </text>
-
-            {/* X-axis baseline + date ticks */}
-            <line
-              x1={dPadL}
-              y1={ddH - dPadB}
-              x2={ddW - dPadR}
-              y2={ddH - dPadB}
-              stroke="currentColor"
-              className="text-zinc-200 dark:text-zinc-800"
-              strokeWidth={1}
+            <PlotlyChart
+              data={ddTraces}
+              layout={ddLayout}
+              plotType="2d"
+              rangeSlider
+              hovermode="x unified"
+              showLegend={false}
+              height={250}
+              showWheelHint
+              exportFilename={`${ticker}-underwater-drawdown`}
+              uirevisionKey={`dd-${ticker}-${nDd}`}
+              onHover={(ev) => {
+                const pt = (ev as { points?: Array<{ pointIndex?: number }> })?.points?.[0];
+                if (pt && typeof pt.pointIndex === 'number') setDdHoverIdx(pt.pointIndex);
+              }}
+              onUnhover={() => setDdHoverIdx(null)}
             />
-            {ddXTicks.map((idx, i) =>
-              ddData[idx] ? (
-                <text
-                  key={`xtick-${i}`}
-                  x={getDdX(idx)}
-                  y={ddH - dPadB + 13}
-                  textAnchor={i === 0 ? 'start' : i === ddXTicks.length - 1 ? 'end' : 'middle'}
-                  className="text-[8px] sm:text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
-                >
-                  {ddData[idx].date}
-                </text>
-              ) : null
-            )}
-
-            {/* Hover marker */}
-            {activeDdIdx >= 0 && activeDdIdx < nDd && (
-              <g>
-                <line x1={getDdX(activeDdIdx)} y1={dPadT} x2={getDdX(activeDdIdx)} y2={ddH - dPadB} stroke="#fda4af" strokeDasharray="2 2" strokeWidth={0.65} />
-                <circle cx={getDdX(activeDdIdx)} cy={getDdY(activeDdPoint.drawdownPct)} r="4" fill="#f43f5e" />
-              </g>
-            )}
-          </svg>
-          )}
-          </div>
           </ChartFullscreen>
         </div>
       </div>
@@ -954,65 +841,23 @@ export function AnalysisRiskTab({
           {/* Rolling Beta Chart */}
           <div className="mt-4">
             <ChartFullscreen title="60-Day Rolling Beta to SPY">
-            <div ref={betaRef} className="chart-frame-sm">
-            {betaReady && (
-            <svg
-              width={bW}
-              height={bH}
-              className="block h-full w-full select-none"
-              onMouseMove={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                const mouseX = e.clientX - rect.left;
-                const ratio = Math.max(0, Math.min(1, (mouseX - bPadL) / bcW));
-                const idx = Math.round(ratio * (nBeta - 1));
-                setBetaHoverIdx(idx);
-              }}
-              onMouseLeave={() => setBetaHoverIdx(null)}
-            >
-              {/* Beta = 1 reference line */}
-              <line x1={bPadL} y1={getBetaY(1)} x2={bW - bPadR} y2={getBetaY(1)} stroke="#64748b" strokeDasharray="3 3" strokeWidth={0.65} opacity={0.5} />
-
-              {/* Beta Path */}
-              {nBeta > 1 && (
-                <path
-                  d={betaData.map((b, i) => `${i === 0 ? 'M' : 'L'} ${getBetaX(i)} ${getBetaY(b.beta)}`).join(' ')}
-                  fill="none"
-                  stroke="#10b981"
-                  strokeWidth={1.3}
-                />
-              )}
-
-              {/* X-axis baseline + date ticks */}
-              <line
-                x1={bPadL}
-                y1={bH - bPadB}
-                x2={bW - bPadR}
-                y2={bH - bPadB}
-                stroke="currentColor"
-                className="text-zinc-200 dark:text-zinc-800"
-                strokeWidth={1}
+              <PlotlyChart
+                data={betaTraces}
+                layout={betaLayout}
+                plotType="2d"
+                rangeSlider
+                hovermode="x unified"
+                showLegend={false}
+                height={210}
+                showWheelHint
+                exportFilename={`${ticker}-rolling-beta-spy`}
+                uirevisionKey={`beta-${ticker}-${nBeta}`}
+                onHover={(ev) => {
+                  const pt = (ev as { points?: Array<{ pointIndex?: number }> })?.points?.[0];
+                  if (pt && typeof pt.pointIndex === 'number') setBetaHoverIdx(pt.pointIndex);
+                }}
+                onUnhover={() => setBetaHoverIdx(null)}
               />
-              {betaXTicks.map((idx, i) =>
-                betaData[idx] ? (
-                  <text
-                    key={`xtick-${i}`}
-                    x={getBetaX(idx)}
-                    y={bH - bPadB + 13}
-                    textAnchor={i === 0 ? 'start' : i === betaXTicks.length - 1 ? 'end' : 'middle'}
-                    className="text-[8px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
-                  >
-                    {betaData[idx].date}
-                  </text>
-                ) : null
-              )}
-
-              {/* Hover dot */}
-              {activeBetaIdx >= 0 && activeBetaIdx < nBeta && (
-                <circle cx={getBetaX(activeBetaIdx)} cy={getBetaY(activeBetaPoint.beta)} r="4" fill="#10b981" />
-              )}
-            </svg>
-            )}
-            </div>
             </ChartFullscreen>
           </div>
 

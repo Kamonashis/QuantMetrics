@@ -1,33 +1,201 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import type { Data, Layout } from 'plotly.js';
 import { RegressionSummary } from '@/lib/quant-engine';
+import { SERIES_COLORS } from '@/lib/chart-palette';
+import { PlotlyChart, usePlotlyDarkTheme } from '@/components/charts/PlotlyChart';
+import { getPlotlyThemeTokens, QUANT_COLORS } from '@/lib/plotly-theme';
 
 interface ResidualDiagnosticsChartProps {
   summary: RegressionSummary;
 }
 
-export function ResidualDiagnosticsChart({
-  summary,
-}: ResidualDiagnosticsChartProps) {
+export function ResidualDiagnosticsChart({ summary }: ResidualDiagnosticsChartProps) {
+  const isDark = usePlotlyDarkTheme();
+  const tokens = useMemo(() => getPlotlyThemeTokens(isDark), [isDark]);
   const [activeTab, setActiveTab] = useState<'qq' | 'fitted' | 'histogram' | 'rolling'>('qq');
 
-  const { residuals, rollingBetas, regressionType } = summary;
+  const { residuals, rollingBetas, regressionType, independentTickers } = summary;
+
+  const { traces, layout, isTimeSeries } = useMemo<{
+    traces: Data[];
+    layout: Partial<Layout>;
+    isTimeSeries: boolean;
+  }>(() => {
+    if (!residuals || residuals.length === 0) {
+      return { traces: [], layout: {}, isTimeSeries: false };
+    }
+
+    if (activeTab === 'qq') {
+      const theo = residuals.map((r) => r.theoreticalQuantile);
+      const samp = residuals.map((r) => r.standardizedResidual);
+      const bound = Math.max(
+        3.2,
+        Math.max(...theo.map(Math.abs)),
+        Math.max(...samp.map(Math.abs))
+      );
+
+      return {
+        isTimeSeries: false,
+        traces: [
+          {
+            type: 'scatter',
+            mode: 'lines',
+            name: 'Normal 45° Reference',
+            x: [-bound, bound],
+            y: [-bound, bound],
+            line: { color: QUANT_COLORS.goldLight, width: 1.5, dash: 'dash' },
+            hoverinfo: 'skip',
+          },
+          {
+            type: 'scatter',
+            mode: 'markers',
+            name: 'Standardized Residuals',
+            x: theo,
+            y: samp,
+            marker: { color: QUANT_COLORS.slate, size: 5.5, opacity: 0.78 },
+            hovertemplate: 'Theoretical %{x:.2f} · Sample %{y:.2f}<extra>Q-Q</extra>',
+          },
+        ],
+        layout: {
+          xaxis: {
+            title: { text: 'Theoretical Quantiles N(0, 1)', font: { size: 10, color: tokens.textMuted } },
+            zeroline: true,
+            zerolinecolor: tokens.zeroLine,
+            gridcolor: tokens.grid,
+          },
+          yaxis: {
+            title: { text: 'Standardized Residuals (e_i / s)', font: { size: 10, color: tokens.textMuted } },
+            zeroline: true,
+            zerolinecolor: tokens.zeroLine,
+            gridcolor: tokens.grid,
+          },
+        },
+      };
+    }
+
+    if (activeTab === 'fitted') {
+      return {
+        isTimeSeries: false,
+        traces: [
+          {
+            type: 'scatter',
+            mode: 'markers',
+            name: 'Residuals vs Fitted',
+            x: residuals.map((r) => r.fitted * 100),
+            y: residuals.map((r) => r.residual * 100),
+            marker: { color: QUANT_COLORS.slate, size: 5.5, opacity: 0.72 },
+            hovertemplate: 'Fitted %{x:+.2f}% · Resid %{y:+.2f}%<extra></extra>',
+          },
+        ],
+        layout: {
+          shapes: [
+            {
+              type: 'line',
+              xref: 'paper',
+              yref: 'y',
+              x0: 0,
+              x1: 1,
+              y0: 0,
+              y1: 0,
+              line: { color: QUANT_COLORS.positive, width: 1.2, dash: 'dash' },
+            },
+          ],
+          xaxis: {
+            title: { text: 'Fitted Value (Ŷ_t)', font: { size: 10, color: tokens.textMuted } },
+            ticksuffix: '%',
+            gridcolor: tokens.grid,
+          },
+          yaxis: {
+            title: { text: 'Residual (e_t)', font: { size: 10, color: tokens.textMuted } },
+            ticksuffix: '%',
+            gridcolor: tokens.grid,
+          },
+        },
+      };
+    }
+
+    if (activeTab === 'histogram') {
+      return {
+        isTimeSeries: false,
+        traces: [
+          {
+            type: 'histogram',
+            name: 'Residual Frequency',
+            x: residuals.map((r) => r.residual * 100),
+            nbinsx: 30,
+            marker: {
+              color: 'rgba(139, 139, 147, 0.7)',
+              line: { color: QUANT_COLORS.goldLight, width: 0.6 },
+            },
+            hovertemplate: 'Bin %{x:.2f}% · %{y} obs<extra>Residuals</extra>',
+          },
+        ],
+        layout: {
+          bargap: 0.06,
+          xaxis: {
+            title: { text: 'Residual (e_t)', font: { size: 10, color: tokens.textMuted } },
+            ticksuffix: '%',
+            gridcolor: tokens.grid,
+          },
+          yaxis: {
+            title: { text: 'Count', font: { size: 10, color: tokens.textMuted } },
+            rangemode: 'tozero',
+            gridcolor: tokens.grid,
+          },
+        },
+      };
+    }
+
+    // Rolling Betas time series
+    const rb = rollingBetas ?? [];
+    const dates = rb.map((r) => r.date);
+    const betaTraces: Data[] = independentTickers.map((tkr, tIdx) => ({
+      type: 'scatter',
+      mode: 'lines',
+      name: `Beta (${tkr})`,
+      x: dates,
+      y: rb.map((r) => r.betas[tkr] ?? null),
+      line: { color: SERIES_COLORS[tIdx % SERIES_COLORS.length], width: 1.8 },
+      hovertemplate: `%{y:.3f}<extra>β (${tkr})</extra>`,
+    }));
+
+    return {
+      isTimeSeries: true,
+      traces: betaTraces,
+      layout: {
+        shapes: [
+          {
+            type: 'line',
+            xref: 'paper',
+            yref: 'y',
+            x0: 0,
+            x1: 1,
+            y0: 0,
+            y1: 0,
+            line: { color: tokens.zeroLine, width: 1, dash: 'dot' },
+          },
+          {
+            type: 'line',
+            xref: 'paper',
+            yref: 'y',
+            x0: 0,
+            x1: 1,
+            y0: 1,
+            y1: 1,
+            line: { color: QUANT_COLORS.goldLight, width: 1, dash: 'dot' },
+          },
+        ],
+        yaxis: {
+          title: { text: 'Rolling β', font: { size: 10, color: tokens.textMuted } },
+          gridcolor: tokens.grid,
+        },
+      },
+    };
+  }, [activeTab, residuals, rollingBetas, independentTickers, tokens]);
 
   if (!residuals || residuals.length === 0) return null;
-
-  // Q-Q Plot points
-  const qqPoints = residuals.map((r) => ({
-    theoretical: r.theoreticalQuantile,
-    sample: r.standardizedResidual,
-  }));
-
-  // Max bounds for Q-Q plot
-  const maxQ = Math.max(
-    3.5,
-    Math.max(...qqPoints.map((p) => Math.abs(p.sample))),
-    Math.max(...qqPoints.map((p) => Math.abs(p.theoretical)))
-  );
 
   return (
     <div className="panel p-5">
@@ -35,252 +203,84 @@ export function ResidualDiagnosticsChart({
         <div>
           <div className="flex items-center gap-2">
             <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm tracking-tight">
-              Model Diagnostics & Residual Analysis
+              Model Diagnostics &amp; Residual Analysis
             </h3>
-            <span className="text-xs text-zinc-500 dark:text-zinc-400">
-              · {regressionType}
-            </span>
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">· {regressionType}</span>
           </div>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
             Evaluate normality, homoskedasticity, and time-varying parameter stability
           </p>
         </div>
 
-        {/* Tab switch control */}
-        <div className="flex items-center gap-1 p-1 bg-zinc-100 dark:bg-zinc-800/80 rounded-lg text-xs">
-          <button
-            onClick={() => setActiveTab('qq')}
-            className={`px-3 py-1 font-medium rounded-md transition-colors ${
-              activeTab === 'qq'
-                ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-xs'
-                : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
-            }`}
-          >
-            Normal Q-Q Plot
-          </button>
-          <button
-            onClick={() => setActiveTab('fitted')}
-            className={`px-3 py-1 font-medium rounded-md transition-colors ${
-              activeTab === 'fitted'
-                ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-xs'
-                : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
-            }`}
-          >
-            Residual vs Fitted
-          </button>
-          <button
-            onClick={() => setActiveTab('histogram')}
-            className={`px-3 py-1 font-medium rounded-md transition-colors ${
-              activeTab === 'histogram'
-                ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-xs'
-                : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
-            }`}
-          >
-            Residual Distribution
-          </button>
-          {rollingBetas && rollingBetas.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1 p-1 bg-zinc-100 dark:bg-zinc-800/80 rounded-lg text-xs">
+          {(
+            [
+              { id: 'qq', label: 'Normal Q-Q Plot' },
+              { id: 'fitted', label: 'Residual vs Fitted' },
+              { id: 'histogram', label: 'Residual Distribution' },
+              ...(rollingBetas && rollingBetas.length > 0
+                ? [{ id: 'rolling', label: 'Rolling Betas' }]
+                : []),
+            ] as const
+          ).map((tab) => (
             <button
-              onClick={() => setActiveTab('rolling')}
-              className={`px-3 py-1 font-medium rounded-md transition-colors ${
-                activeTab === 'rolling'
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id as typeof activeTab)}
+              className={`px-3 py-1 font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                activeTab === tab.id
                   ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-xs'
                   : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
               }`}
             >
-              Rolling Betas
+              {tab.label}
             </button>
-          )}
+          ))}
         </div>
       </div>
 
-      {/* Viewport for Q-Q Plot */}
-      {activeTab === 'qq' && (
-        <div>
-          <div className="w-full aspect-[2/1] max-h-[300px] min-h-[200px]">
-            <svg viewBox="0 0 600 300" className="w-full h-full">
-              {/* Axes */}
-              <line x1="60" y1="150" x2="560" y2="150" stroke="#475569" strokeWidth="0.5" strokeDasharray="3 3" />
-              <line x1="310" y1="20" x2="310" y2="270" stroke="#475569" strokeWidth="0.5" strokeDasharray="3 3" />
-
-              {/* 45-degree reference line */}
-              <line
-                x1="80"
-                y1="250"
-                x2="540"
-                y2="40"
-                stroke="#DEC084"
-                strokeWidth="1.2"
-                strokeDasharray="4 2"
-              />
-
-              {/* Q-Q scatter points */}
-              {qqPoints.map((pt, i) => {
-                const cx = 310 + (pt.theoretical / maxQ) * 230;
-                const cy = 150 - (pt.sample / maxQ) * 115;
-                return (
-                  <circle
-                    key={i}
-                    cx={cx}
-                    cy={cy}
-                    r="2.8"
-                    fill="#8b8b93"
-                    opacity="0.75"
-                    className="hover:r-4 hover:fill-gold-300"
-                  />
-                );
-              })}
-
-              {/* Labels */}
-              <text x="560" y="145" textAnchor="end" className="text-[10px] font-mono fill-zinc-500">
-                Theoretical Quantiles N(0, 1) →
-              </text>
-              <text x="315" y="30" textAnchor="start" className="text-[10px] font-mono fill-zinc-500">
-                Standardized Residuals (e_i / s) ↑
-              </text>
-            </svg>
-          </div>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2 text-center">
-            Points conforming tightly to the diagonal line indicate normal residual distribution. Deviations in tails reflect market kurtosis/fat tails.
-          </p>
-        </div>
-      )}
-
-      {/* Viewport for Residual vs Fitted */}
-      {activeTab === 'fitted' && (
-        <div>
-          <div className="w-full aspect-[2/1] max-h-[300px] min-h-[200px]">
-            <svg viewBox="0 0 600 300" className="w-full h-full">
-              <line x1="60" y1="150" x2="560" y2="150" stroke="#3fb27f" strokeWidth="0.8" strokeDasharray="3 3" />
-
-              {residuals.map((r, i) => {
-                const cx = 310 + r.fitted * 2500;
-                const cy = 150 - r.residual * 2500;
-                return (
-                  <circle
-                    key={i}
-                    cx={Math.max(65, Math.min(555, cx))}
-                    cy={Math.max(25, Math.min(275, cy))}
-                    r="2.5"
-                    fill="#a1a1aa"
-                    opacity="0.65"
-                  />
-                );
-              })}
-
-              <text x="560" y="145" textAnchor="end" className="text-[10px] font-mono fill-zinc-500">
-                Fitted Value (Ŷ_t) →
-              </text>
-              <text x="65" y="30" textAnchor="start" className="text-[10px] font-mono fill-zinc-500">
-                Residual (e_t) ↑
-              </text>
-            </svg>
-          </div>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2 text-center">
-            Residuals randomly scattered around the zero line without a funnel shape signify homoskedasticity and absence of structural misspecification.
-          </p>
-        </div>
-      )}
-
-      {/* Viewport for Residual Histogram */}
       {activeTab === 'histogram' && (
-        <div className="p-2">
-          <div className="flex items-center justify-around text-xs mb-3 font-mono text-zinc-600 dark:text-zinc-400">
-            <span>Durbin-Watson: <strong className="text-zinc-900 dark:text-zinc-100">{summary.durbinWatson.toFixed(3)}</strong> (2.0 = no serial corr)</span>
-            <span>Regression SE: <strong className="text-zinc-900 dark:text-zinc-100">{(summary.standardErrorOfRegression * 100).toFixed(3)}%</strong></span>
-          </div>
-          <div className="w-full aspect-[2/0.9] max-h-[260px] flex items-center justify-center text-xs text-zinc-500">
-            <svg viewBox="0 0 600 220" className="w-full h-full">
-              {/* Binned bar distribution of residuals */}
-              {(() => {
-                const resVals = residuals.map((r) => r.residual);
-                const minR = Math.min(...resVals);
-                const maxR = Math.max(...resVals);
-                const rng = maxR - minR || 0.01;
-                const bCount = 28;
-                const bWidth = rng / bCount;
-                const counts = new Array(bCount).fill(0);
-                resVals.forEach((val) => {
-                  const idx = Math.min(bCount - 1, Math.max(0, Math.floor((val - minR) / bWidth)));
-                  counts[idx]++;
-                });
-                const maxC = Math.max(...counts, 1);
-
-                return counts.map((c, idx) => {
-                  const x = 60 + (idx / bCount) * 480;
-                  const h = (c / maxC) * 160;
-                  const y = 190 - h;
-                  return (
-                    <rect
-                      key={idx}
-                      x={x}
-                      y={y}
-                      width={480 / bCount - 2}
-                      height={h}
-                      fill="#8b8b93"
-                      opacity="0.8"
-                    />
-                  );
-                });
-              })()}
-              <line x1="60" y1="190" x2="540" y2="190" stroke="#64748b" strokeWidth="0.65" />
-            </svg>
-          </div>
+        <div className="flex flex-wrap items-center justify-around gap-2 text-xs mb-3 font-mono text-zinc-600 dark:text-zinc-400">
+          <span>
+            Durbin-Watson:{' '}
+            <strong className="text-zinc-900 dark:text-zinc-100 tabular-nums">
+              {summary.durbinWatson.toFixed(3)}
+            </strong>{' '}
+            (2.0 = no serial corr)
+          </span>
+          <span>
+            Regression SE:{' '}
+            <strong className="text-zinc-900 dark:text-zinc-100 tabular-nums">
+              {(summary.standardErrorOfRegression * 100).toFixed(3)}%
+            </strong>
+          </span>
         </div>
       )}
 
-      {/* Viewport for Rolling Betas */}
-      {activeTab === 'rolling' && rollingBetas && (
-        <div>
-          <div className="w-full aspect-[2/1] max-h-[300px] min-h-[200px]">
-            <svg viewBox="0 0 700 260" className="w-full h-full">
-              {/* Grid */}
-              <line x1="50" y1="130" x2="660" y2="130" stroke="#475569" strokeWidth="0.65" strokeDasharray="2 2" />
-              <text x="45" y="133" textAnchor="end" className="text-[9px] font-mono fill-zinc-500">β=0</text>
+      <PlotlyChart
+        data={traces}
+        layout={layout}
+        plotType="2d"
+        rangeSlider={isTimeSeries}
+        hovermode={isTimeSeries ? 'x unified' : 'closest'}
+        showLegend={isTimeSeries}
+        height={isTimeSeries ? 310 : 285}
+        exportFilename={`quantmetrics-residuals-${activeTab}`}
+        uirevisionKey={`resid-${activeTab}-${residuals.length}`}
+        showWheelHint
+      />
 
-              {/* Render beta lines for each independent ticker */}
-              {summary.independentTickers.map((ticker, tIdx) => {
-                const color = ['#DEC084', '#DEC084', '#3fb27f', '#f43f5e'][tIdx % 4];
-                const points = rollingBetas.map((rb, i) => {
-                  const x = 60 + (i / Math.max(1, rollingBetas.length - 1)) * 590;
-                  const bVal = rb.betas[ticker] ?? 1;
-                  // Center at 1.0 or 0
-                  const y = 130 - (bVal - 1.0) * 80;
-                  return `${x},${Math.max(20, Math.min(240, y))}`;
-                });
-
-                return (
-                  <path
-                    key={ticker}
-                    d={`M ${points.join(' L ')}`}
-                    fill="none"
-                    stroke={color}
-                    strokeWidth="1.3"
-                    strokeLinecap="round"
-                  />
-                );
-              })}
-
-              {/* First and last date */}
-              <text x="60" y="250" className="text-[9px] font-mono fill-zinc-500">
-                {rollingBetas[0]?.date}
-              </text>
-              <text x="650" y="250" textAnchor="end" className="text-[9px] font-mono fill-zinc-500">
-                {rollingBetas[rollingBetas.length - 1]?.date}
-              </text>
-            </svg>
-          </div>
-          <div className="flex items-center justify-center gap-4 text-xs mt-2">
-            {summary.independentTickers.map((ticker, tIdx) => (
-              <span key={ticker} className="flex items-center gap-1.5">
-                <span
-                  className="w-2.5 h-2.5 rounded-full inline-block"
-                  style={{ backgroundColor: ['#DEC084', '#DEC084', '#3fb27f', '#f43f5e'][tIdx % 4] }}
-                />
-                Beta ({ticker})
-              </span>
-            ))}
-          </div>
-        </div>
+      {activeTab === 'qq' && (
+        <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2 text-center">
+          Points conforming tightly to the diagonal line indicate normal residual distribution.
+          Deviations in tails reflect market kurtosis/fat tails.
+        </p>
+      )}
+      {activeTab === 'fitted' && (
+        <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2 text-center">
+          Residuals randomly scattered around the zero line without a funnel shape signify
+          homoskedasticity and absence of structural misspecification.
+        </p>
       )}
     </div>
   );

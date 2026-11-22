@@ -1,12 +1,14 @@
 'use client';
 
 import React, { useMemo } from 'react';
-import { ChartTooltip, useChartTooltip } from '@/components/ui/chart-tooltip';
+import type { Data, Layout } from 'plotly.js';
 import { EmptyState } from '@/components/ui/empty-state';
+import { PlotlyChart } from '@/components/charts/PlotlyChart';
+import { QUANT_COLORS } from '@/lib/plotly-theme';
 
 /**
- * Distribution of historical horizon |moves| with the option-market's implied
- * move overlaid as a gold rule. Answers "is the straddle rich or cheap right now?"
+ * Interactive Plotly distribution of historical horizon |moves| with implied
+ * straddle move and optional TCN-Attention move forecast rules.
  */
 export function MoveDistributionChart({
   samples,
@@ -19,105 +21,164 @@ export function MoveDistributionChart({
   tcnMovePct?: number | null;
   horizonLabel: string;
 }) {
-  const { tooltipState, showTooltip, hideTooltip } = useChartTooltip();
-  const width = 680;
-  const height = 190;
-  const pad = { l: 36, r: 14, t: 12, b: 24 };
-
-  const hist = useMemo(() => {
+  const { traces, layout, hasData } = useMemo(() => {
     if (samples.length < 20) {
-      return { bins: [] as { x0: number; x1: number; count: number }[], maxCount: 1, p25: 0, p50: 0, p75: 0, cap: 0 };
+      return { traces: [] as Data[], layout: {} as Partial<Layout>, hasData: false };
     }
+
     const sorted = [...samples].sort((a, b) => a - b);
-    const p25 = sorted[Math.floor(sorted.length * 0.25)];
-    const p50 = sorted[Math.floor(sorted.length * 0.5)];
-    const p75 = sorted[Math.floor(sorted.length * 0.75)];
-    const max = sorted[sorted.length - 1];
-    const cap = Math.min(max, p75 * 2.5);
+    const p25 = sorted[Math.floor(sorted.length * 0.25)] * 100;
+    const p50 = sorted[Math.floor(sorted.length * 0.5)] * 100;
+    const p75 = sorted[Math.floor(sorted.length * 0.75)] * 100;
+    const maxPct = sorted[sorted.length - 1] * 100;
+    const capPct = Math.min(maxPct, p75 * 2.5);
     const nBins = 30;
-    const binWidth = cap / nBins;
-    const bins = Array.from({ length: nBins }, (_, i) => ({ x0: i * binWidth, x1: (i + 1) * binWidth, count: 0 }));
+    const binWidth = Math.max(1e-4, capPct / nBins);
+    const bins = Array.from({ length: nBins }, (_, i) => ({
+      x0: i * binWidth,
+      x1: (i + 1) * binWidth,
+      mid: (i + 0.5) * binWidth,
+      count: 0,
+    }));
     for (const s of sorted) {
-      if (s >= cap) continue;
-      const idx = Math.min(nBins - 1, Math.floor(s / binWidth));
+      const pct = s * 100;
+      if (pct >= capPct) continue;
+      const idx = Math.min(nBins - 1, Math.floor(pct / binWidth));
       bins[idx].count++;
     }
-    return { bins, maxCount: Math.max(1, ...bins.map((b) => b.count)), p25, p50, p75, cap };
-  }, [samples]);
 
-  if (hist.bins.length === 0) {
+    const list: Data[] = [
+      {
+        type: 'bar',
+        name: 'Realized |Move|',
+        x: bins.map((b) => b.mid),
+        y: bins.map((b) => b.count),
+        customdata: bins.map((b) => [b.x0.toFixed(1), b.x1.toFixed(1)]),
+        marker: {
+          color: 'rgba(222, 192, 132, 0.42)',
+          line: { color: 'rgba(222, 192, 132, 0.7)', width: 0.7 },
+        },
+        hovertemplate:
+          '<b>|Move| %{customdata[0]}% – %{customdata[1]}%</b><br>%{y} windows<extra></extra>',
+      },
+    ];
+
+    const shapes: NonNullable<Layout['shapes']> = [];
+    const annotations: NonNullable<Layout['annotations']> = [];
+
+    [
+      { val: p25, label: 'P25' },
+      { val: p50, label: 'P50' },
+      { val: p75, label: 'P75' },
+    ].forEach((q) => {
+      shapes.push({
+        type: 'line',
+        xref: 'x',
+        yref: 'paper',
+        x0: q.val,
+        x1: q.val,
+        y0: 0,
+        y1: 1,
+        line: { color: 'rgba(148,148,160,0.28)', width: 1, dash: 'dot' },
+      });
+      annotations.push({
+        x: q.val,
+        y: 0.99,
+        xref: 'x',
+        yref: 'paper',
+        text: q.label,
+        showarrow: false,
+        yanchor: 'top',
+        font: { size: 9, color: QUANT_COLORS.slate },
+      });
+    });
+
+    if (impliedPct !== null && impliedPct > 0) {
+      const xPos = Math.min(impliedPct, capPct);
+      shapes.push({
+        type: 'line',
+        xref: 'x',
+        yref: 'paper',
+        x0: xPos,
+        x1: xPos,
+        y0: 0,
+        y1: 1,
+        line: { color: QUANT_COLORS.goldLight, width: 2 },
+      });
+      annotations.push({
+        x: xPos,
+        y: 0.88,
+        xref: 'x',
+        yref: 'paper',
+        text: `Implied ${impliedPct.toFixed(1)}%`,
+        showarrow: false,
+        xanchor: 'left',
+        xshift: 4,
+        font: { size: 9.5, color: QUANT_COLORS.goldLight },
+      });
+    }
+
+    if (tcnMovePct !== null && tcnMovePct > 0) {
+      const xPos = Math.min(tcnMovePct, capPct);
+      shapes.push({
+        type: 'line',
+        xref: 'x',
+        yref: 'paper',
+        x0: xPos,
+        x1: xPos,
+        y0: 0,
+        y1: 1,
+        line: { color: QUANT_COLORS.positive, width: 2, dash: 'dash' },
+      });
+      annotations.push({
+        x: xPos,
+        y: 0.76,
+        xref: 'x',
+        yref: 'paper',
+        text: `TCN ${tcnMovePct.toFixed(1)}%`,
+        showarrow: false,
+        xanchor: 'left',
+        xshift: 4,
+        font: { size: 9.5, color: QUANT_COLORS.positive },
+      });
+    }
+
+    return {
+      traces: list,
+      layout: { bargap: 0.08, shapes, annotations } as Partial<Layout>,
+      hasData: true,
+    };
+  }, [samples, impliedPct, tcnMovePct]);
+
+  if (!hasData) {
     return (
-      <EmptyState title="Not enough history in this sample" detail="Need at least 20 realized-move windows" className="h-40" />
+      <EmptyState
+        title="Not enough history in this sample"
+        detail="Need at least 20 realized-move windows"
+        className="h-40"
+      />
     );
   }
 
-  const xOf = (v: number) => pad.l + (v / hist.cap) * (width - pad.l - pad.r);
-  const yOf = (count: number) => pad.t + (1 - count / hist.maxCount) * (height - pad.t - pad.b);
-  const barW = Math.max(4, ((hist.bins[0].x1 - hist.bins[0].x0) / hist.cap) * (width - pad.l - pad.r) - 1);
-
   return (
-    <div className="relative w-full overflow-x-auto">
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[520px]" role="img" aria-label="Move distribution" onMouseLeave={hideTooltip}>
-        {/* P75 gridline */}
-        {[hist.p25, hist.p50, hist.p75].map((q, i) => (
-          <g key={i}>
-            <line x1={xOf(q)} x2={xOf(q)} y1={pad.t} y2={height - pad.b} stroke="rgba(236,236,241,0.13)" strokeDasharray="3 4" />
-            <text x={xOf(q)} y={pad.t - 2} fontSize="7.5" fill="#8b8b93" fontFamily="var(--font-mono)" textAnchor="middle">
-              P{[25, 50, 75][i]}
-            </text>
-          </g>
-        ))}
-        {/* bars */}
-        {hist.bins.map((b, i) => {
-          const x = xOf(b.x0);
-          const y = yOf(b.count);
-          return (
-            <rect
-              key={i} x={x} y={y} width={barW} height={height - pad.b - y}
-              fill="rgba(222,192,132,0.32)" stroke="rgba(222,192,132,0.4)" strokeWidth="0.3"
-              onMouseMove={(e) => showTooltip(e, [`|move| ${(b.x0 * 100).toFixed(1)}–${(b.x1 * 100).toFixed(1)}%`, `${b.count} sessions`])}
-            />
-          );
-        })}
-        {/* implied rule */}
-        {impliedPct !== null && impliedPct > 0 && (
-          <g>
-            <line x1={xOf(Math.min(impliedPct / 100, hist.cap))} x2={xOf(Math.min(impliedPct / 100, hist.cap))} y1={pad.t} y2={height - pad.b} stroke="#DEC084" strokeWidth="1.3" />
-            <text x={xOf(Math.min(impliedPct / 100, hist.cap))} y={height - 4} fontSize="8.5" fill="#DEC084" fontFamily="var(--font-mono)" textAnchor="middle">
-              implied {impliedPct.toFixed(1)}%
-            </text>
-          </g>
-        )}
-        {/* TCN-Attention forecast move rule */}
-        {tcnMovePct !== null && tcnMovePct > 0 && (
-          <g>
-            <line
-              x1={xOf(Math.min(tcnMovePct / 100, hist.cap))}
-              x2={xOf(Math.min(tcnMovePct / 100, hist.cap))}
-              y1={pad.t + 8}
-              y2={height - pad.b}
-              stroke="#3fb27f"
-              strokeWidth="1.3"
-              strokeDasharray="4 2"
-            />
-            <text
-              x={xOf(Math.min(tcnMovePct / 100, hist.cap))}
-              y={pad.t + 6}
-              fontSize="8"
-              fill="#3fb27f"
-              fontFamily="var(--font-mono)"
-              textAnchor="middle"
-            >
-              TCN {tcnMovePct.toFixed(1)}%
-            </text>
-          </g>
-        )}
-        <text x={pad.l} y={height - 4} fontSize="8" fill="#8b8b93" fontFamily="var(--font-mono)">0%</text>
-        <text x={width - pad.r} y={height - 4} fontSize="8" fill="#8b8b93" textAnchor="end" fontFamily="var(--font-mono)">{(hist.cap * 100).toFixed(0)}%+</text>
-      </svg>
-      <ChartTooltip state={tooltipState} />
-      <p className="mt-1 font-mono text-[9px] text-zinc-400">
-        {horizonLabel} · n = {samples.length.toLocaleString()} windows · histogram capped at P75×2.5 · implied = 0.8×ATM straddle{tcnMovePct !== null ? ' · TCN = 0.8×σ_TCN(T)√(T/252)' : ''}
+    <div>
+      <PlotlyChart
+        data={traces}
+        layout={layout}
+        plotType="2d"
+        hovermode="x unified"
+        xAxisTitle="Absolute Horizon Move (%)"
+        xTickSuffix="%"
+        yAxisTitle="Sessions"
+        height={240}
+        uirevisionKey={`move-dist-${horizonLabel}-${samples.length}`}
+        exportFilename="move-distribution"
+        showWheelHint
+      />
+      <p className="mt-1 font-mono text-[10px] text-zinc-500 dark:text-zinc-400">
+        {horizonLabel} · n = {samples.length.toLocaleString()} windows · capped at P75×2.5 ·
+        implied = 0.8×ATM straddle
+        {tcnMovePct !== null ? ' · TCN = 0.8×σ_TCN(T)√(T/252)' : ''}
       </p>
     </div>
   );

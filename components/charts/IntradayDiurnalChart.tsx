@@ -1,90 +1,133 @@
 'use client';
 
+import React, { useMemo } from 'react';
+import type { Annotations, Data, Layout, Shape } from 'plotly.js';
 import { EmptyState } from '@/components/ui/empty-state';
-
-import React, { useState } from 'react';
 import { DiurnalPoint } from '@/lib/quant-engine';
-import { useChartSize } from '@/lib/use-chart-size';
+import { PlotlyChart, usePlotlyDarkTheme } from '@/components/charts/PlotlyChart';
+import { getPlotlyThemeTokens, QUANT_COLORS } from '@/lib/plotly-theme';
 
 interface IntradayDiurnalChartProps {
   points: DiurnalPoint[];
   ticker: string;
 }
 
-export function IntradayDiurnalChart({
-  points,
-  ticker,
-}: IntradayDiurnalChartProps) {
-  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
-  const { ref, size } = useChartSize<HTMLDivElement>();
+const KEY_SESSION_TIMES = [
+  { minute: 0, label: '09:30 Open' },
+  { minute: 120, label: '11:30 EU Close' },
+  { minute: 210, label: '13:00 Lunch Lull' },
+  { minute: 360, label: '15:30 Power Hr' },
+  { minute: 389, label: '16:00 MOC' },
+];
+
+export function IntradayDiurnalChart({ points, ticker }: IntradayDiurnalChartProps) {
+  const isDark = usePlotlyDarkTheme();
+  const tokens = useMemo(() => getPlotlyThemeTokens(isDark), [isDark]);
+
+  const { traces, layout, peakRatio } = useMemo<{
+    traces: Data[];
+    layout: Partial<Layout>;
+    peakRatio: number;
+  }>(() => {
+    if (!points || points.length === 0) {
+      return { traces: [], layout: {}, peakRatio: 1 };
+    }
+    const mins = points.map((p) => p.minuteOfDay);
+    const labels = points.map((p) => p.timeLabel);
+    const upper = points.map((p) => p.upperBand * 100);
+    const lower = points.map((p) => p.lowerBand * 100);
+    const mean = points.map((p) => p.avgAnnualizedVol * 100);
+
+    const openVol = points[0]?.avgAnnualizedVol || 0.25;
+    const middayVol = points[Math.min(210, points.length - 1)]?.avgAnnualizedVol || 0.12;
+    const ratio = openVol / Math.max(middayVol, 1e-4);
+
+    const shapes: Partial<Shape>[] = KEY_SESSION_TIMES.map((k) => ({
+      type: 'line',
+      xref: 'x',
+      yref: 'paper',
+      x0: k.minute,
+      x1: k.minute,
+      y0: 0,
+      y1: 1,
+      line: { color: tokens.grid, width: 1, dash: 'dot' },
+    }));
+
+    const annotations: Partial<Annotations>[] = KEY_SESSION_TIMES.map((k, idx) => ({
+      x: k.minute,
+      y: 1.0,
+      xref: 'x',
+      yref: 'paper',
+      text: k.label,
+      showarrow: false,
+      xanchor: idx === 0 ? 'left' : idx === KEY_SESSION_TIMES.length - 1 ? 'right' : 'center',
+      yanchor: 'top',
+      font: { size: 9.5, color: tokens.textMuted },
+    }));
+
+    return {
+      traces: [
+        {
+          type: 'scatter',
+          mode: 'lines',
+          name: '−1σ Band',
+          x: mins,
+          y: lower,
+          customdata: labels,
+          line: { width: 0 },
+          showlegend: false,
+          hovertemplate: '%{y:.2f}%<extra>−1σ Band</extra>',
+        },
+        {
+          type: 'scatter',
+          mode: 'lines',
+          name: '±1σ Dispersion',
+          x: mins,
+          y: upper,
+          customdata: labels,
+          fill: 'tonexty',
+          fillcolor: 'rgba(222, 192, 132, 0.16)',
+          line: { width: 0 },
+          hovertemplate: '%{y:.2f}%<extra>+1σ Band</extra>',
+        },
+        {
+          type: 'scatter',
+          mode: 'lines',
+          name: 'Mean 1-Min Vol',
+          x: mins,
+          y: mean,
+          customdata: labels,
+          line: { color: QUANT_COLORS.goldLight, width: 2 },
+          hovertemplate: '%{customdata} · %{y:.2f}%<extra>Mean Vol</extra>',
+        },
+      ],
+      layout: {
+        shapes,
+        annotations,
+        xaxis: {
+          tickvals: [0, 60, 120, 195, 270, 330, 389],
+          ticktext: ['09:30', '10:30', '11:30', '12:45', '14:00', '15:00', '16:00'],
+          gridcolor: tokens.grid,
+        },
+        yaxis: {
+          ticksuffix: '%',
+          rangemode: 'tozero',
+          gridcolor: tokens.grid,
+        },
+      },
+      peakRatio: ratio,
+    };
+  }, [points, tokens]);
 
   if (!points || points.length === 0) {
     return (
-      <EmptyState title="No intraday observations" detail="1-minute bars are needed for the diurnal profile" className="h-64" />
+      <EmptyState
+        title="No intraday observations"
+        detail="1-minute bars are needed for the diurnal profile"
+        className="h-64"
+      />
     );
   }
-
-  const width = size.width || 0;
-  const height = size.height || 0;
-  const ready = width > 0;
-
-  const n = points.length;
-
-  let maxVol = 0;
-  for (const p of points) {
-    if (p.upperBand > maxVol) maxVol = p.upperBand;
-  }
-  maxVol = Math.max(0.15, maxVol * 1.15);
-
-  const padLeft = 46;
-  const padRight = 14;
-  const padTop = 14;
-  const padBottom = 30;
-
-  const chartW = width - padLeft - padRight;
-  const chartH = height - padTop - padBottom;
-
-  const getX = (m: number) => padLeft + (m / Math.max(1, n - 1)) * chartW;
-  const getY = (val: number) => padTop + chartH - (val / maxVol) * chartH;
-
-  // Build SVG path for confidence band and mean line
-  const upperPts: string[] = [];
-  const lowerPts: string[] = [];
-  const meanPts: string[] = [];
-
-  points.forEach((p) => {
-    const x = getX(p.minuteOfDay);
-    upperPts.push(`${x},${getY(p.upperBand)}`);
-    lowerPts.push(`${x},${getY(p.lowerBand)}`);
-    meanPts.push(`${x},${getY(p.avgAnnualizedVol)}`);
-  });
-
-  const bandArea = `M ${upperPts.join(' L ')} L ${lowerPts.reverse().join(' L ')} Z`;
-
-  const activeIndex = hoverIndex !== null ? hoverIndex : Math.floor(n / 2);
-  const activePt = points[activeIndex];
-
-  const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const clampedX = Math.max(padLeft, Math.min(width - padRight, mouseX));
-    const ratio = (clampedX - padLeft) / chartW;
-    const idx = Math.round(ratio * (n - 1));
-    setHoverIndex(Math.max(0, Math.min(n - 1, idx)));
-  };
-
-  // Specific time marker lines — thinned on xs so labels never collide
-  const keyTimes = [
-    { minute: 0, label: '09:30 Open' },
-    ...(width >= 640 ? [
-      { minute: 120, label: '11:30 EU Close' },
-      { minute: 210, label: '13:00 Lunch Lull' },
-      { minute: 360, label: '15:30 Power Hr' },
-    ] : [
-      { minute: 210, label: '13:00 Midday' },
-    ]),
-    { minute: 389, label: '16:00 MOC' },
-  ];
 
   return (
     <div className="panel p-5">
@@ -99,160 +142,30 @@ export function IntradayDiurnalChart({
             </span>
           </div>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-            Empirical minute-by-minute volatility profile showing opening price discovery, midday lull, and market-on-close auction
+            Empirical minute-by-minute volatility profile showing opening price discovery, midday
+            lull, and market-on-close auction
           </p>
         </div>
 
-        {activePt && (
-          <div className="shrink-0 rounded-lg border border-[var(--hairline)] bg-[var(--bg-inset)] px-3 py-1.5 text-right">
-            <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mr-1.5">
-              Time {activePt.timeLabel}
-            </span>
-            <span className="font-mono text-sm font-bold text-gold-600 dark:text-gold-300 tabular-nums">
-              {(activePt.avgAnnualizedVol * 100).toFixed(1)}% Vol
-            </span>
-          </div>
-        )}
-      </div>
-
-      <div ref={ref} className="chart-frame">
-        {ready && (
-        <svg
-          viewBox={`0 0 ${width} ${height}`}
-          width={width}
-          height={height}
-          className="block h-full w-full cursor-crosshair"
-          onMouseMove={handleMouseMove}
-          onMouseLeave={() => setHoverIndex(null)}
-        >
-          <defs>
-            <linearGradient id="diurnalGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#DEC084" stopOpacity="0.22" />
-              <stop offset="100%" stopColor="#DEC084" stopOpacity="0.04" />
-            </linearGradient>
-          </defs>
-
-          {/* Grid lines */}
-          {[0, 0.33, 0.66, 1].map((pct) => {
-            const val = pct * maxVol;
-            const yPos = getY(val);
-            return (
-              <g key={pct}>
-                <line
-                  x1={padLeft}
-                  y1={yPos}
-                  x2={width - padRight}
-                  y2={yPos}
-                  stroke="currentColor"
-                  className="text-zinc-200 dark:text-zinc-800/80"
-                  strokeDasharray="2 3"
-                />
-                <text
-                  x={padLeft - 6}
-                  y={yPos + 4}
-                  textAnchor="end"
-                  className="text-[10px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
-                >
-                  {(val * 100).toFixed(0)}%
-                </text>
-              </g>
-            );
-          })}
-
-          {/* Key session markers */}
-          {keyTimes.map(({ minute, label }) => {
-            const x = getX(minute);
-            return (
-              <g key={minute}>
-                <line
-                  x1={x}
-                  y1={padTop}
-                  x2={x}
-                  y2={padTop + chartH}
-                  stroke="currentColor"
-                  className="text-zinc-300 dark:text-zinc-700/80"
-                  strokeDasharray="3 3"
-                  strokeWidth="0.5"
-                />
-                <text
-                  x={x}
-                  y={padTop + 12}
-                  textAnchor="middle"
-                  className="text-[9px] font-mono fill-zinc-400 dark:fill-zinc-500"
-                >
-                  {label}
-                </text>
-              </g>
-            );
-          })}
-
-          {/* Confidence Band Fill */}
-          <path d={bandArea} fill="url(#diurnalGradient)" />
-
-          {/* Mean Curve Line */}
-          <path
-            d={`M ${meanPts.join(' L ')}`}
-            fill="none"
-            stroke="#DEC084"
-            strokeWidth="1.4"
-            strokeLinecap="round"
-          />
-
-          {/* Hover crosshair */}
-          {hoverIndex !== null && (
-            <g>
-              <line
-                x1={getX(activePt.minuteOfDay)}
-                y1={padTop}
-                x2={getX(activePt.minuteOfDay)}
-                y2={padTop + chartH}
-                stroke="#8b8b93"
-                strokeWidth="0.8"
-                strokeDasharray="2 2"
-              />
-              <circle
-                cx={getX(activePt.minuteOfDay)}
-                cy={getY(activePt.avgAnnualizedVol)}
-                r="4"
-                fill="#8b8b93"
-                stroke="#0E0E11"
-                strokeWidth="1.3"
-              />
-            </g>
-          )}
-
-          {/* X axis labels */}
-          <text x={getX(0)} y={height - 8} textAnchor="start" className="text-[10px] font-mono fill-zinc-500">
-            09:30 AM
-          </text>
-          <text x={getX(195)} y={height - 8} textAnchor="middle" className="text-[10px] font-mono fill-zinc-500">
-            12:45 PM (Midday Lull)
-          </text>
-          <text x={getX(389)} y={height - 8} textAnchor="end" className="text-[10px] font-mono fill-zinc-500">
-            16:00 PM (Close)
-          </text>
-        </svg>
-        )}
-      </div>
-
-      <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400 mt-2 pt-2 border-t border-zinc-100 dark:border-zinc-800/60">
-        <div className="flex items-center gap-4">
-          <span className="flex items-center gap-1.5">
-            <span className="w-3 h-0.5 bg-gold-500 inline-block" />
-            Mean 1-Min Annualized Volatility
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-xs bg-gold-500/20 inline-block" />
-            ±1σ Diurnal Dispersion Band
-          </span>
-        </div>
-        <div>
+        <div className="shrink-0 text-right font-mono text-xs text-zinc-500 dark:text-zinc-400 tabular-nums">
           <span>U-Shape Peak Ratio: </span>
-          <span className="font-mono font-bold text-zinc-800 dark:text-zinc-200">
-            {((points[0]?.avgAnnualizedVol || 0.25) / (points[210]?.avgAnnualizedVol || 0.12)).toFixed(1)}x Open vs Midday
-          </span>
+          <strong className="text-gold-600 dark:text-gold-300">
+            {peakRatio.toFixed(1)}× Open vs Midday
+          </strong>
         </div>
       </div>
+
+      <PlotlyChart
+        data={traces}
+        layout={layout}
+        plotType="2d"
+        hovermode="x unified"
+        showLegend
+        height={295}
+        exportFilename={`quantmetrics-diurnal-${ticker.toLowerCase()}`}
+        uirevisionKey={`diurnal-${ticker}-${points.length}`}
+        showWheelHint
+      />
     </div>
   );
 }

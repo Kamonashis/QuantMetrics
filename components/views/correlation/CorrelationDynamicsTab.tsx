@@ -26,14 +26,18 @@ import { AlgoSelect } from '@/components/ui/AlgoSelect';
 import { RegimeChip } from '@/components/ui/RegimeChip';
 import { RegimeTransitionMatrix } from '@/components/ui/RegimeTransitionMatrix';
 import { fitGaussianHmm, type HmmFit } from '@/lib/hmm';
-import {
-  buildRegimeBandSpans,
-  getHmmRegimeToken,
-} from '@/lib/hmm-regime-overlay';
+import type { Data, Layout } from 'plotly.js';
+import { getHmmRegimeToken } from '@/lib/hmm-regime-overlay';
 import {
   HmmRegimeOverlayToggle,
   HmmRegimeScorecard,
 } from '@/components/charts/HmmRegimeOverlayControls';
+import { PlotlyChart, usePlotlyDarkTheme } from '@/components/charts/PlotlyChart';
+import {
+  buildHmmRegimeShapes,
+  getPlotlyThemeTokens,
+  QUANT_COLORS,
+} from '@/lib/plotly-theme';
 import {
   Activity,
   Zap,
@@ -68,6 +72,8 @@ export function CorrelationDynamicsTab({
   );
 
   // Engine choice: DCC-GARCH vs EWMA vs TCN-Attention (Fisher-z)
+  const isDark = usePlotlyDarkTheme();
+  const tokens = useMemo(() => getPlotlyThemeTokens(isDark), [isDark]);
   const [modelType, setModelType] = useState<'dcc' | 'ewma' | 'tcn'>('dcc');
   const [ewmaLambda, setEwmaLambda] = useState<number>(0.94);
   const [rollingWindow, setRollingWindow] = useState<number>(60);
@@ -537,254 +543,272 @@ export function CorrelationDynamicsTab({
           );
         })()}
 
-        {/* SVG Time-Series Chart */}
+        {/* Interactive Plotly Dynamic Correlation Chart */}
         <ChartFullscreen title="Dynamic Correlation Path vs. Static Baseline">
-        <div className="w-full h-64 bg-zinc-50 dark:bg-zinc-900/60 rounded-xl border border-zinc-200 dark:border-zinc-800 relative p-3">
-          {activeSeries.length > 5 ? (
-            <svg
-              viewBox="0 0 800 220"
-              className="w-full h-full cursor-crosshair"
-              onMouseMove={(e) => {
-                if (modelType !== 'tcn' || !activeTcnCorr) return;
-                const rect = e.currentTarget.getBoundingClientRect();
-                const svgX = ((e.clientX - rect.left) / rect.width) * 800;
-                const clamped = Math.max(50, Math.min(700, svgX));
-                const idx = Math.round(((clamped - 50) / 650) * Math.max(1, activeSeries.length - 1));
-                setCorrHoverIdx(Math.max(0, Math.min(activeSeries.length - 1, idx)));
-              }}
-              onMouseLeave={() => setCorrHoverIdx(null)}
-            >
-              {/* Causal Joint HMM Regime Background Bands (TCN mode) */}
-              {modelType === 'tcn' && activeTcnCorr && activeTcnCorr.hmmStates.length > 0 && (() => {
-                const dyn = activeTcnCorr.dynamicCorrelations;
-                const totalPts = Math.max(1, dyn.length - 1);
-                const stepX = 650 / totalPts;
-                const spans = buildRegimeBandSpans(dyn.map((p) => p.hmmState));
-                const holdX = 50 + Math.min(totalPts, activeTcnCorr.holdoutStartIdx) * stepX;
-                return (
-                  <g
-                    style={{
-                      opacity: showRegimeOverlay ? 1 : 0,
-                      transition: 'opacity 150ms ease',
-                    }}
-                  >
-                    {spans.map((span) => {
-                      const tok = getHmmRegimeToken(span.state);
-                      const x0 = 50 + span.startIdx * stepX;
-                      const x1 = span.endIdx < dyn.length - 1 ? 50 + (span.endIdx + 1) * stepX : 700;
-                      return (
-                        <rect
-                          key={`corr-band-${span.startIdx}-${span.endIdx}-${span.state}`}
-                          x={x0}
-                          y={20}
-                          width={Math.max(1, x1 - x0)}
-                          height={180}
-                          fill={`rgba(${tok.rgb}, 0.12)`}
-                        />
-                      );
-                    })}
-                    {activeTcnCorr.holdoutStartIdx > 0 && activeTcnCorr.holdoutStartIdx < dyn.length && (
-                      <g>
-                        <line
-                          x1={holdX}
-                          y1={20}
-                          x2={holdX}
-                          y2={200}
-                          stroke="#DEC084"
-                          strokeWidth="0.8"
-                          strokeDasharray="2 3"
-                          opacity="0.7"
-                        />
-                        <text
-                          x={holdX + 4}
-                          y={31}
-                          className="text-[9px] font-mono fill-gold-600 dark:fill-gold-400"
-                        >
-                          OOS
-                        </text>
-                      </g>
-                    )}
-                  </g>
-                );
-              })()}
+          <div className="w-full rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/60 p-1.5">
+            {activeSeries.length > 5 ? (
+              <PlotlyChart
+                data={(() => {
+                  const xs = activeSeries.map((pt) => pt.date);
+                  const ys = activeSeries.map((pt) => pt.correlation);
+                  const traces: Data[] = [
+                    {
+                      type: 'scatter',
+                      mode: 'lines',
+                      name:
+                        modelType === 'dcc'
+                          ? 'DCC-GARCH ρ_t'
+                          : modelType === 'tcn'
+                            ? 'TCN-Attention ρ_t'
+                            : 'EWMA ρ_t',
+                      x: xs,
+                      y: ys,
+                      line: {
+                        color: modelType === 'ewma' ? '#94a3b8' : QUANT_COLORS.gold,
+                        width: 2,
+                      },
+                      hovertemplate: 'ρ_t: %{y:.3f}<extra></extra>',
+                    },
+                  ];
 
-              {/* Horizontal Reference Lines (-1, 0, +1) */}
-              <line x1="40" y1="20" x2="780" y2="20" stroke="#64748b" strokeWidth="0.3" strokeDasharray="3 3" />
-              <line x1="40" y1="110" x2="780" y2="110" stroke="#64748b" strokeWidth="0.65" strokeDasharray="2 2" />
-              <line x1="40" y1="200" x2="780" y2="200" stroke="#64748b" strokeWidth="0.3" strokeDasharray="3 3" />
-
-              {/* Zero & Bounds Labels */}
-              <text x="35" y="24" textAnchor="end" className="text-[10px] font-mono fill-zinc-400">+1.0</text>
-              <text x="35" y="114" textAnchor="end" className="text-[10px] font-mono fill-zinc-400">0.0</text>
-              <text x="35" y="204" textAnchor="end" className="text-[10px] font-mono fill-zinc-400">-1.0</text>
-
-              {/* Static Unconditional Line */}
-              <line
-                x1="45"
-                y1={110 - dccResult.unconditionalCorr * 90}
-                x2="780"
-                y2={110 - dccResult.unconditionalCorr * 90}
-                stroke="#94a3b8"
-                strokeWidth="0.8"
-                strokeDasharray="4 4"
-              />
-
-              {/* Dynamic Path Polyline */}
-              {(() => {
-                const totalPoints = activeSeries.length;
-                const stepX = 650 / Math.max(1, totalPoints - 1);
-                const pointsStr = activeSeries
-                  .map((pt, i) => {
-                    const x = 50 + i * stepX;
-                    const y = 110 - pt.correlation * 90;
-                    return `${x.toFixed(1)},${y.toFixed(1)}`;
-                  })
-                  .join(' ');
-
-                return (
-                  <polyline
-                    fill="none"
-                    stroke={modelType === 'ewma' ? '#94a3b8' : '#DEC084'}
-                    strokeWidth="1.4"
-                    points={pointsStr}
-                  />
-                );
-              })()}
-
-              {/* Color-coded OOS Prediction Points by Causal Joint HMM Regime (TCN mode) */}
-              {modelType === 'tcn' && activeTcnCorr && activeTcnCorr.hmmStates.length > 0 && (() => {
-                const dyn = activeTcnCorr.dynamicCorrelations;
-                const stepX = 650 / Math.max(1, dyn.length - 1);
-                const oosIndices: number[] = [];
-                for (let i = 0; i < dyn.length; i++) {
-                  if (dyn[i].isOos) oosIndices.push(i);
-                }
-                const stride = Math.max(1, Math.ceil(oosIndices.length / 44));
-                return (
-                  <g
-                    style={{
-                      opacity: showRegimeOverlay ? 1 : 0,
-                      transition: 'opacity 150ms ease',
-                    }}
-                  >
-                    {oosIndices.map((idx, k) => {
-                      if (k % stride !== 0 && idx !== oosIndices[oosIndices.length - 1]) return null;
+                  // OOS regime-colored markers in TCN mode
+                  if (
+                    modelType === 'tcn' &&
+                    activeTcnCorr &&
+                    activeTcnCorr.hmmStates.length > 0 &&
+                    showRegimeOverlay
+                  ) {
+                    const dyn = activeTcnCorr.dynamicCorrelations;
+                    const oosIndices: number[] = [];
+                    for (let i = 0; i < dyn.length; i++) {
+                      if (dyn[i].isOos) oosIndices.push(i);
+                    }
+                    const stride = Math.max(1, Math.ceil(oosIndices.length / 44));
+                    const mX: string[] = [];
+                    const mY: number[] = [];
+                    const mColor: string[] = [];
+                    const mText: string[] = [];
+                    for (let k = 0; k < oosIndices.length; k++) {
+                      const idx = oosIndices[k];
+                      if (k % stride !== 0 && idx !== oosIndices[oosIndices.length - 1]) continue;
                       const pt = dyn[idx];
                       const tok = getHmmRegimeToken(pt.hmmState);
-                      return (
-                        <circle
-                          key={`corr-oos-${idx}`}
-                          cx={50 + idx * stepX}
-                          cy={110 - pt.correlation * 90}
-                          r={2.7}
-                          fill={tok.color}
-                          stroke="#08080a"
-                          strokeWidth={0.9}
-                        />
+                      mX.push(pt.date);
+                      mY.push(pt.correlation);
+                      mColor.push(tok.color);
+                      mText.push(
+                        `${tok.label}${pt.hmmProb !== undefined ? ` (${Math.round(pt.hmmProb * 100)}%)` : ''}`
                       );
-                    })}
-                  </g>
-                );
-              })()}
+                    }
+                    traces.push({
+                      type: 'scatter',
+                      mode: 'markers',
+                      name: 'Joint HMM Regime (OOS)',
+                      x: mX,
+                      y: mY,
+                      marker: {
+                        size: 6,
+                        color: mColor,
+                        line: { color: isDark ? '#08080A' : '#FFFFFF', width: 1 },
+                      },
+                      text: mText,
+                      hovertemplate: 'OOS Regime: %{text}<extra></extra>',
+                      showlegend: false,
+                    });
+                  }
 
-              {/* Hover Crosshair & Active Marker (TCN mode) */}
-              {modelType === 'tcn' && activeTcnCorr && corrHoverIdx !== null && (() => {
-                const dyn = activeTcnCorr.dynamicCorrelations;
-                const pt = dyn[corrHoverIdx];
-                if (!pt) return null;
-                const stepX = 650 / Math.max(1, dyn.length - 1);
-                const cx = 50 + corrHoverIdx * stepX;
-                const cy = 110 - pt.correlation * 90;
-                const fill =
-                  showRegimeOverlay && pt.hmmState !== undefined
-                    ? getHmmRegimeToken(pt.hmmState).color
-                    : '#DEC084';
-                return (
-                  <g>
-                    <line
-                      x1={cx}
-                      y1={20}
-                      x2={cx}
-                      y2={200}
-                      stroke="#DEC084"
-                      strokeWidth="0.7"
-                      strokeDasharray="2 2"
-                      opacity="0.7"
-                    />
-                    <circle cx={cx} cy={cy} r={4.2} fill={fill} stroke="#08080a" strokeWidth={1.3} />
-                  </g>
-                );
-              })()}
+                  // Helper to generate future weekday ISO dates for forecast cones
+                  const buildFutureDates = (baseIso: string, count: number): string[] => {
+                    const parsed = Date.parse(baseIso);
+                    if (!Number.isFinite(parsed)) {
+                      return Array.from({ length: count }, (_, i) => `T+${i + 1}`);
+                    }
+                    const out: string[] = [];
+                    const d = new Date(parsed);
+                    while (out.length < count) {
+                      d.setUTCDate(d.getUTCDate() + 1);
+                      const day = d.getUTCDay();
+                      if (day !== 0 && day !== 6) {
+                        out.push(d.toISOString().slice(0, 10));
+                      }
+                    }
+                    return out;
+                  };
 
-              {/* Forecast Cone (DCC or TCN-Attention) */}
-              {modelType === 'dcc' && dccResult.forecastCone.length > 0 && (() => {
-                const startX = 700;
-                const endX = 770;
-                const cone = dccResult.forecastCone;
-                const topPath = cone
-                  .map((c, i) => `${startX + i * 2.3},${110 - c.upper95 * 90}`)
-                  .join(' ');
-                const bottomPath = cone
-                  .slice()
-                  .reverse()
-                  .map((c, i) => `${endX - i * 2.3},${110 - c.lower95 * 90}`)
-                  .join(' ');
+                  const lastHistDate = xs[xs.length - 1] ?? '';
+                  const lastHistVal = ys[ys.length - 1] ?? 0;
 
-                return (
-                  <polygon
-                    points={`${topPath} ${bottomPath}`}
-                    fill="#DEC084"
-                    fillOpacity="0.15"
-                    stroke="#DEC084"
-                    strokeWidth="0.5"
-                    strokeDasharray="2 2"
-                  />
-                );
-              })()}
+                  if (modelType === 'dcc' && dccResult.forecastCone.length > 0) {
+                    const cone = dccResult.forecastCone;
+                    const fDates = [lastHistDate, ...buildFutureDates(lastHistDate, cone.length)];
+                    traces.push(
+                      {
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: '95% Upper Cone',
+                        x: fDates,
+                        y: [lastHistVal, ...cone.map((c) => c.upper95)],
+                        line: { color: 'rgba(222,192,132,0.45)', width: 1, dash: 'dot' },
+                        hovertemplate: '95% Upper: %{y:.3f}<extra></extra>',
+                        showlegend: false,
+                      },
+                      {
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: '95% Forecast Cone',
+                        x: fDates,
+                        y: [lastHistVal, ...cone.map((c) => c.lower95)],
+                        fill: 'tonexty',
+                        fillcolor: 'rgba(222,192,132,0.16)',
+                        line: { color: 'rgba(222,192,132,0.45)', width: 1, dash: 'dot' },
+                        hovertemplate: '95% Lower: %{y:.3f}<extra></extra>',
+                      }
+                    );
+                  }
 
-              {modelType === 'tcn' && activeTcnCorr && activeTcnCorr.forecastCone.length > 0 && (() => {
-                const startX = 700;
-                const cone = activeTcnCorr.forecastCone;
-                const dx = 70 / Math.max(1, cone.length - 1);
-                const topPath = cone
-                  .map((c, i) => `${(startX + i * dx).toFixed(1)},${(110 - c.upper99 * 90).toFixed(1)}`)
-                  .join(' ');
-                const bottomPath = cone
-                  .slice()
-                  .reverse()
-                  .map((c, i) => `${(startX + (cone.length - 1 - i) * dx).toFixed(1)},${(110 - c.lower99 * 90).toFixed(1)}`)
-                  .join(' ');
-                const midPath = cone
-                  .map((c, i) => `${(startX + i * dx).toFixed(1)},${(110 - c.correlation * 90).toFixed(1)}`)
-                  .join(' ');
+                  if (modelType === 'tcn' && activeTcnCorr && activeTcnCorr.forecastCone.length > 0) {
+                    const cone = activeTcnCorr.forecastCone;
+                    const fDates = [lastHistDate, ...buildFutureDates(lastHistDate, cone.length)];
+                    traces.push(
+                      {
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: '99% Upper Cone',
+                        x: fDates,
+                        y: [lastHistVal, ...cone.map((c) => c.upper99)],
+                        line: { color: 'rgba(222,192,132,0.45)', width: 1, dash: 'dot' },
+                        hovertemplate: '99% Upper: %{y:.3f}<extra></extra>',
+                        showlegend: false,
+                      },
+                      {
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: '99% Fisher-z Cone',
+                        x: fDates,
+                        y: [lastHistVal, ...cone.map((c) => c.lower99)],
+                        fill: 'tonexty',
+                        fillcolor: 'rgba(222,192,132,0.16)',
+                        line: { color: 'rgba(222,192,132,0.45)', width: 1, dash: 'dot' },
+                        hovertemplate: '99% Lower: %{y:.3f}<extra></extra>',
+                      },
+                      {
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'TCN Forecast',
+                        x: fDates,
+                        y: [lastHistVal, ...cone.map((c) => c.correlation)],
+                        line: { color: '#3fb27f', width: 1.8, dash: 'dash' },
+                        hovertemplate: 'TCN Forecast: %{y:.3f}<extra></extra>',
+                      }
+                    );
+                  }
 
-                return (
-                  <g>
-                    <polygon
-                      points={`${topPath} ${bottomPath}`}
-                      fill="#DEC084"
-                      fillOpacity="0.16"
-                      stroke="#DEC084"
-                      strokeWidth="0.5"
-                      strokeDasharray="2 2"
-                    />
-                    <polyline
-                      fill="none"
-                      stroke="#3fb27f"
-                      strokeWidth="1.5"
-                      strokeDasharray="3 2"
-                      points={midPath}
-                    />
-                  </g>
-                );
-              })()}
-            </svg>
-          ) : (
-            <div className="h-full flex items-center justify-center text-xs text-zinc-400 font-mono">
-              Insufficient time series points to construct dynamic correlation path.
-            </div>
-          )}
-        </div>
+                  return traces;
+                })()}
+                layout={(() => {
+                  const shapes: NonNullable<Layout['shapes']> = [
+                    {
+                      type: 'line',
+                      xref: 'paper',
+                      x0: 0,
+                      x1: 1,
+                      yref: 'y',
+                      y0: 0,
+                      y1: 0,
+                      line: { color: tokens.zeroLine, width: 1, dash: 'dot' },
+                    },
+                    {
+                      type: 'line',
+                      xref: 'paper',
+                      x0: 0,
+                      x1: 1,
+                      yref: 'y',
+                      y0: dccResult.unconditionalCorr,
+                      y1: dccResult.unconditionalCorr,
+                      line: { color: '#94a3b8', width: 1.1, dash: 'dash' },
+                    },
+                  ];
+                  const annotations: NonNullable<Layout['annotations']> = [];
+
+                  if (
+                    modelType === 'tcn' &&
+                    activeTcnCorr &&
+                    activeTcnCorr.hmmStates.length > 0
+                  ) {
+                    const dyn = activeTcnCorr.dynamicCorrelations;
+                    shapes.unshift(
+                      ...buildHmmRegimeShapes(
+                        dyn.map((p) => p.date),
+                        dyn.map((p) => p.hmmState),
+                        showRegimeOverlay
+                      )
+                    );
+                    if (
+                      showRegimeOverlay &&
+                      activeTcnCorr.holdoutStartIdx > 0 &&
+                      activeTcnCorr.holdoutStartIdx < dyn.length
+                    ) {
+                      const oosDate = dyn[activeTcnCorr.holdoutStartIdx].date;
+                      shapes.push({
+                        type: 'line',
+                        xref: 'x',
+                        x0: oosDate,
+                        x1: oosDate,
+                        yref: 'paper',
+                        y0: 0,
+                        y1: 1,
+                        line: { color: QUANT_COLORS.gold, width: 1.1, dash: 'dot' },
+                      });
+                      annotations.push({
+                        x: oosDate,
+                        y: 0.96,
+                        xref: 'x',
+                        yref: 'paper',
+                        text: 'OOS',
+                        showarrow: false,
+                        xanchor: 'left',
+                        font: { size: 9, color: QUANT_COLORS.gold, family: 'IBM Plex Mono, monospace' },
+                      });
+                    }
+                  }
+
+                  return {
+                    margin: { l: 48, r: 16, t: 10, b: 36 },
+                    shapes,
+                    annotations,
+                    yaxis: {
+                      range: [-1.05, 1.05],
+                      dtick: 0.5,
+                      title: { text: 'Correlation (ρ)', font: { size: 10, color: tokens.textMuted } },
+                    },
+                  };
+                })()}
+                plotType="2d"
+                rangeSlider
+                hovermode="x unified"
+                showLegend={false}
+                height={270}
+                showWheelHint
+                exportFilename={`corr-dynamics-${selectedPairA}-${selectedPairB}-${modelType}`}
+                uirevisionKey={`corr-dyn-${selectedPairA}-${selectedPairB}-${modelType}-${showRegimeOverlay}`}
+                onHover={(ev) => {
+                  if (modelType !== 'tcn' || !activeTcnCorr) return;
+                  const pt = (ev as { points?: Array<{ x?: unknown }> })?.points?.[0];
+                  if (pt?.x !== undefined) {
+                    const idx = activeTcnCorr.dynamicCorrelations.findIndex(
+                      (p) => p.date === String(pt.x)
+                    );
+                    if (idx >= 0) setCorrHoverIdx(idx);
+                  }
+                }}
+                onUnhover={() => setCorrHoverIdx(null)}
+              />
+            ) : (
+              <div className="h-64 flex items-center justify-center text-xs text-zinc-400 font-mono">
+                Insufficient time series points to construct dynamic correlation path.
+              </div>
+            )}
+          </div>
         </ChartFullscreen>
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-500 font-mono">

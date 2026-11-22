@@ -1,9 +1,11 @@
 'use client';
 
+import React, { useMemo, useState } from 'react';
+import type { Data, Layout } from 'plotly.js';
 import { EmptyState } from '@/components/ui/empty-state';
-
-import React, { useState } from 'react';
 import { CorrelationMatrixResult } from '@/lib/quant-engine';
+import { PlotlyChart, usePlotlyDarkTheme } from '@/components/charts/PlotlyChart';
+import { getPlotlyThemeTokens, QUANT_COLORS } from '@/lib/plotly-theme';
 
 interface CorrelationHeatmapProps {
   result: CorrelationMatrixResult;
@@ -14,46 +16,143 @@ export function CorrelationHeatmap({
   result,
   returnsByTicker,
 }: CorrelationHeatmapProps) {
+  const isDark = usePlotlyDarkTheme();
+  const tokens = useMemo(() => getPlotlyThemeTokens(isDark), [isDark]);
   const [selectedPair, setSelectedPair] = useState<{ tA: string; tB: string } | null>(null);
 
   const { tickers, matrix, avgCorrelation, strongestPair, weakestPair } = result;
 
+  const activePair = useMemo(
+    () => selectedPair || (tickers.length >= 2 ? { tA: tickers[0], tB: tickers[1] } : null),
+    [selectedPair, tickers]
+  );
+
+  const { heatTraces, heatLayout } = useMemo<{
+    heatTraces: Data[];
+    heatLayout: Partial<Layout>;
+  }>(() => {
+    if (!tickers || tickers.length === 0) return { heatTraces: [], heatLayout: {} };
+    const textMatrix = matrix.map((row) => row.map((v) => v.toFixed(2)));
+    return {
+      heatTraces: [
+        {
+          type: 'heatmap',
+          x: tickers,
+          y: tickers,
+          z: matrix,
+          zmin: -1,
+          zmax: 1,
+          colorscale: [
+            [0, '#E0655F'],
+            [0.5, isDark ? '#1B1B22' : '#F4F4F5'],
+            [1, '#3FB27F'],
+          ],
+          text: textMatrix as unknown as string[],
+          texttemplate: '%{text}',
+          textfont: { size: 11, family: 'IBM Plex Mono, monospace' },
+          hovertemplate: '%{y} vs %{x}: <b>r = %{z:.3f}</b><extra></extra>',
+          showscale: true,
+          colorbar: {
+            thickness: 12,
+            len: 0.85,
+            tickfont: { size: 10, color: tokens.textMuted },
+          },
+        },
+      ],
+      heatLayout: {
+        margin: { l: 56, r: 24, t: 14, b: 44 },
+        xaxis: { side: 'bottom', tickfont: { size: 11, color: tokens.text } },
+        yaxis: { autorange: 'reversed', tickfont: { size: 11, color: tokens.text } },
+      },
+    };
+  }, [tickers, matrix, isDark, tokens]);
+
+  const { scatterTraces, scatterLayout, activeCorr } = useMemo<{
+    scatterTraces: Data[];
+    scatterLayout: Partial<Layout>;
+    activeCorr: number | null;
+  }>(() => {
+    if (!activePair) return { scatterTraces: [], scatterLayout: {}, activeCorr: null };
+    const pairReturnsA = returnsByTicker[activePair.tA] || [];
+    const pairReturnsB = returnsByTicker[activePair.tB] || [];
+    const len = Math.min(pairReturnsA.length, pairReturnsB.length);
+    const xs = pairReturnsA.slice(0, len).map((v) => v * 100);
+    const ys = pairReturnsB.slice(0, len).map((v) => v * 100);
+
+    // OLS slope fit for regression overlay
+    let meanX = 0;
+    let meanY = 0;
+    for (let i = 0; i < len; i++) {
+      meanX += xs[i];
+      meanY += ys[i];
+    }
+    meanX /= Math.max(1, len);
+    meanY /= Math.max(1, len);
+    let cov = 0;
+    let varX = 0;
+    for (let i = 0; i < len; i++) {
+      const dx = xs[i] - meanX;
+      cov += dx * (ys[i] - meanY);
+      varX += dx * dx;
+    }
+    const slope = varX > 1e-12 ? cov / varX : 0;
+    const intercept = meanY - slope * meanX;
+    const minX = xs.length ? Math.min(...xs) : -5;
+    const maxX = xs.length ? Math.max(...xs) : 5;
+
+    const corr =
+      matrix[tickers.indexOf(activePair.tA)]?.[tickers.indexOf(activePair.tB)] ?? null;
+
+    return {
+      activeCorr: corr,
+      scatterTraces: [
+        {
+          type: 'scatter',
+          mode: 'markers',
+          name: 'Daily Returns',
+          x: xs,
+          y: ys,
+          marker: { color: QUANT_COLORS.slate, size: 5.5, opacity: 0.7 },
+          hovertemplate: `${activePair.tA} %{x:+.2f}% · ${activePair.tB} %{y:+.2f}%<extra></extra>`,
+        },
+        {
+          type: 'scatter',
+          mode: 'lines',
+          name: `OLS Slope (${slope.toFixed(2)})`,
+          x: [minX, maxX],
+          y: [intercept + slope * minX, intercept + slope * maxX],
+          line: { color: QUANT_COLORS.goldLight, width: 2 },
+          hoverinfo: 'skip',
+        },
+      ],
+      scatterLayout: {
+        margin: { l: 50, r: 14, t: 12, b: 40 },
+        xaxis: {
+          title: { text: `${activePair.tA} Return`, font: { size: 10, color: tokens.textMuted } },
+          ticksuffix: '%',
+          zeroline: true,
+          zerolinecolor: tokens.zeroLine,
+          gridcolor: tokens.grid,
+        },
+        yaxis: {
+          title: { text: `${activePair.tB} Return`, font: { size: 10, color: tokens.textMuted } },
+          ticksuffix: '%',
+          zeroline: true,
+          zerolinecolor: tokens.zeroLine,
+          gridcolor: tokens.grid,
+        },
+      },
+    };
+  }, [activePair, returnsByTicker, matrix, tickers, tokens]);
+
   if (!tickers || tickers.length === 0) {
     return (
-      <EmptyState title="No correlation matrix available" detail="Input at least two tickers with overlapping history" className="h-64" />
+      <EmptyState
+        title="No correlation matrix available"
+        detail="Input at least two tickers with overlapping history"
+        className="h-64"
+      />
     );
-  }
-
-  // Color interpolator for correlation:
-  // -1.0 -> Rose (#f43f5e)
-  //  0.0 -> Slate (#64748b / transparent neutral)
-  // +1.0 -> Emerald (#3fb27f) or Sky (#DEC084)
-  const getCellBg = (corr: number) => {
-    if (corr >= 0) {
-      // 0 to 1 -> sky/emerald
-      const alpha = Math.min(0.9, Math.max(0.08, corr * 0.85));
-      return `rgba(14, 165, 233, ${alpha})`;
-    } else {
-      // -1 to 0 -> rose
-      const alpha = Math.min(0.9, Math.max(0.08, Math.abs(corr) * 0.85));
-      return `rgba(244, 63, 94, ${alpha})`;
-    }
-  };
-
-  const getTextColor = (corr: number) => {
-    if (Math.abs(corr) > 0.45) return '#ffffff';
-    return undefined; // inherit
-  };
-
-  // Compute scatter data if pair selected
-  const activePair = selectedPair || (tickers.length >= 2 ? { tA: tickers[0], tB: tickers[1] } : null);
-  const pairReturnsA = activePair ? returnsByTicker[activePair.tA] || [] : [];
-  const pairReturnsB = activePair ? returnsByTicker[activePair.tB] || [] : [];
-
-  const scatterLen = Math.min(pairReturnsA.length, pairReturnsB.length);
-  const scatterPoints: { x: number; y: number }[] = [];
-  for (let i = 0; i < scatterLen; i++) {
-    scatterPoints.push({ x: pairReturnsA[i], y: pairReturnsB[i] });
   }
 
   return (
@@ -69,109 +168,63 @@ export function CorrelationHeatmap({
             </span>
           </div>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-            Click any cell to inspect the pairwise co-movement scatter and regression slope
+            Click any cell on the Plotly heatmap to inspect the pairwise co-movement scatter and
+            OLS regression slope
           </p>
         </div>
 
-        <div className="flex items-center gap-3 text-xs">
+        <div className="flex flex-wrap items-center gap-3 text-xs">
           <div>
             <span className="text-zinc-500 dark:text-zinc-400">Avg Correlation:</span>{' '}
             <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100 tabular-nums">
               {avgCorrelation.toFixed(2)}
             </span>
           </div>
-          <span className="text-zinc-300 dark:text-zinc-700" aria-hidden="true">·</span>
+          <span className="text-zinc-300 dark:text-zinc-700" aria-hidden="true">
+            ·
+          </span>
           <div>
             <span className="text-zinc-500 dark:text-zinc-400">Max Co-movement:</span>{' '}
-            <span className="font-mono font-bold text-gold-600 dark:text-gold-300 dark:text-gold-600 dark:text-gold-300 tabular-nums">
+            <span className="font-mono font-bold text-gold-600 dark:text-gold-300 tabular-nums">
               {strongestPair.tickerA}/{strongestPair.tickerB} ({strongestPair.corr.toFixed(2)})
             </span>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Heatmap Matrix Table */}
-        <div className="lg:col-span-7 overflow-x-auto">
-          <div className="inline-block min-w-full align-middle">
-            <table className="min-w-full divide-y divide-zinc-200 dark:divide-zinc-800 border border-zinc-200 dark:border-zinc-800 rounded-lg overflow-hidden">
-              <thead className="bg-zinc-50 dark:bg-zinc-900/80">
-                <tr>
-                  <th className="py-2.5 px-3 text-left text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
-                    Asset
-                  </th>
-                  {tickers.map((t) => (
-                    <th
-                      key={t}
-                      className="py-2.5 px-3 text-center text-xs font-mono font-bold text-zinc-700 dark:text-zinc-300"
-                    >
-                      {t}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800 font-mono text-xs">
-                {tickers.map((rowTicker, i) => (
-                  <tr key={rowTicker} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30">
-                    <td className="py-2.5 px-3 whitespace-nowrap font-bold text-zinc-900 dark:text-zinc-100 bg-zinc-50/50 dark:bg-zinc-900/40">
-                      {rowTicker}
-                    </td>
-                    {tickers.map((colTicker, j) => {
-                      const corr = matrix[i]?.[j] ?? (i === j ? 1 : 0);
-                      const isSelf = i === j;
-                      const isSelected =
-                        activePair &&
-                        ((activePair.tA === rowTicker && activePair.tB === colTicker) ||
-                          (activePair.tA === colTicker && activePair.tB === rowTicker));
-
-                      return (
-                        <td
-                          key={colTicker}
-                          role={isSelf ? undefined : 'button'}
-                          tabIndex={isSelf ? undefined : 0}
-                          aria-label={isSelf ? undefined : `Correlation ${rowTicker} vs ${colTicker}: ${corr.toFixed(2)} — open scatter`}
-                          onClick={() => !isSelf && setSelectedPair({ tA: rowTicker, tB: colTicker })}
-                          onKeyDown={(e) => {
-                            if (isSelf) return;
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
-                              setSelectedPair({ tA: rowTicker, tB: colTicker });
-                            }
-                          }}
-                          style={{
-                            backgroundColor: getCellBg(corr),
-                            color: getTextColor(corr),
-                          }}
-                          className={`py-2.5 px-3 text-center font-bold tabular-nums cursor-pointer transition-all ${
-                            isSelected
-                              ? 'ring-2 ring-gold-400 font-extrabold z-10 scale-[1.03]'
-                              : 'hover:opacity-90'
-                          } ${isSelf ? 'cursor-default font-semibold opacity-60' : ''}`}
-                        >
-                          {corr.toFixed(2)}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400 mt-3">
-            <div className="flex items-center gap-2">
-              <span className="text-[11px]">Negative Correlation</span>
-              <span className="w-12 h-2.5 rounded-xs bg-rose-500 inline-block" />
-              <span className="w-12 h-2.5 rounded-xs bg-zinc-400 inline-block" />
-              <span className="w-12 h-2.5 rounded-xs bg-gold-500 inline-block" />
-              <span className="text-[11px]">Positive Correlation</span>
-            </div>
-            <span>Least Correlated: <span className="font-mono text-rose-500">{weakestPair.tickerA}/{weakestPair.tickerB} ({weakestPair.corr.toFixed(2)})</span></span>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* Interactive Plotly Correlation Heatmap */}
+        <div className="lg:col-span-7">
+          <PlotlyChart
+            data={heatTraces}
+            layout={heatLayout}
+            plotType="heatmap"
+            enableWheelPan={false}
+            hovermode="closest"
+            height={Math.max(290, Math.min(440, tickers.length * 46 + 70))}
+            exportFilename="quantmetrics-correlation-heatmap"
+            uirevisionKey={`corr-hm-${tickers.join('-')}`}
+            onClick={(ev) => {
+              const pts = (ev as { points?: Array<{ x?: string; y?: string }> })?.points;
+              const p = pts?.[0];
+              if (p?.x && p?.y && p.x !== p.y) {
+                setSelectedPair({ tA: String(p.y), tB: String(p.x) });
+              }
+            }}
+          />
+          <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400 mt-2">
+            <span>Click any off-diagonal cell to update scatter</span>
+            <span>
+              Least Correlated:{' '}
+              <span className="font-mono text-rose-500 tabular-nums">
+                {weakestPair.tickerA}/{weakestPair.tickerB} ({weakestPair.corr.toFixed(2)})
+              </span>
+            </span>
           </div>
         </div>
 
-        {/* Pairwise Scatter View */}
-        <div className="lg:col-span-5 bg-zinc-50 dark:bg-zinc-900/60 p-4 rounded-lg border border-zinc-200 dark:border-zinc-800">
+        {/* Interactive Plotly Pairwise Return Scatter */}
+        <div className="lg:col-span-5 panel-inset p-4 rounded-lg">
           {activePair ? (
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -179,49 +232,28 @@ export function CorrelationHeatmap({
                   {activePair.tA} vs {activePair.tB} Return Scatter
                 </span>
                 <span className="text-xs font-mono text-gold-600 dark:text-gold-300 font-bold tabular-nums">
-                  r = {matrix[tickers.indexOf(activePair.tA)]?.[tickers.indexOf(activePair.tB)]?.toFixed(3)}
+                  r = {activeCorr !== null ? activeCorr.toFixed(3) : '—'}
                 </span>
               </div>
 
-              {/* Mini Scatter Plot */}
-              <div className="w-full aspect-[4/3] bg-white dark:bg-[#101014] rounded-md border border-zinc-200 dark:border-zinc-800 relative p-2">
-                <svg viewBox="0 0 300 220" className="w-full h-full">
-                  {/* Axes */}
-                  <line x1="30" y1="110" x2="280" y2="110" stroke="#64748b" strokeWidth="0.5" strokeDasharray="2 2" />
-                  <line x1="155" y1="20" x2="155" y2="200" stroke="#64748b" strokeWidth="0.5" strokeDasharray="2 2" />
-
-                  {/* Scatter points */}
-                  {scatterPoints.slice(0, 180).map((pt, idx) => {
-                    const cx = 155 + pt.x * 2000;
-                    const cy = 110 - pt.y * 2000;
-                    return (
-                      <circle
-                        key={idx}
-                        cx={Math.max(35, Math.min(275, cx))}
-                        cy={Math.max(25, Math.min(195, cy))}
-                        r="2.5"
-                        fill="#8b8b93"
-                        opacity="0.65"
-                      />
-                    );
-                  })}
-
-                  {/* Axis labels */}
-                  <text x="280" y="105" textAnchor="end" className="text-[9px] font-mono fill-zinc-500">
-                    {activePair.tA} Return
-                  </text>
-                  <text x="160" y="25" textAnchor="start" className="text-[9px] font-mono fill-zinc-500">
-                    {activePair.tB} Return
-                  </text>
-                </svg>
-              </div>
+              <PlotlyChart
+                data={scatterTraces}
+                layout={scatterLayout}
+                plotType="2d"
+                hovermode="closest"
+                height={260}
+                exportFilename={`quantmetrics-scatter-${activePair.tA}-${activePair.tB}`}
+                uirevisionKey={`scat-${activePair.tA}-${activePair.tB}`}
+                showWheelHint
+              />
 
               <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-2">
-                Slope reflects sensitivity between {activePair.tA} and {activePair.tB}. High clustering along 45° indicates systemic co-movement.
+                OLS slope reflects return sensitivity between {activePair.tA} and {activePair.tB}.
+                Tight diagonal clustering indicates systemic co-movement.
               </p>
             </div>
           ) : (
-            <div className="h-full flex items-center justify-center text-xs text-zinc-400">
+            <div className="h-64 flex items-center justify-center text-xs text-zinc-400">
               Select an asset pair to view return scatter
             </div>
           )}

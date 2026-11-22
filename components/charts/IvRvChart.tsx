@@ -1,9 +1,10 @@
 'use client';
 
+import React, { useMemo } from 'react';
+import type { Data, Layout } from 'plotly.js';
 import { EmptyState } from '@/components/ui/empty-state';
-
-import React from 'react';
-import { useChartSize } from '@/lib/use-chart-size';
+import { PlotlyChart, usePlotlyDarkTheme } from '@/components/charts/PlotlyChart';
+import { getPlotlyThemeTokens, QUANT_COLORS } from '@/lib/plotly-theme';
 
 export interface IvRvPoint {
   date: string;
@@ -12,101 +13,162 @@ export interface IvRvPoint {
 }
 
 /**
- * IV vs RV, dual panel: vol lines on top, IV/RV ratio below shaded red where IV < RV.
- * Both series must be aligned by date by the caller.
+ * Interactive dual-panel Plotly chart: IV vs RV on top, IV/RV ratio below
+ * with shaded crimson regimes where IV < RV (underpriced risk).
  */
 export function IvRvChart({ points, ivLabel }: { points: IvRvPoint[]; ivLabel: string }) {
-  const { ref, size } = useChartSize<HTMLDivElement>();
-  const data = points.filter((p) => (p.iv !== null && isFinite(p.iv)) || (p.rv !== null && isFinite(p.rv)));
+  const isDark = usePlotlyDarkTheme();
+
+  const data = useMemo(
+    () =>
+      points.filter(
+        (p) => (p.iv !== null && Number.isFinite(p.iv)) || (p.rv !== null && Number.isFinite(p.rv))
+      ),
+    [points]
+  );
+
+  const { traces, layout } = useMemo(() => {
+    if (data.length < 30) {
+      return { traces: [] as Data[], layout: {} as Partial<Layout> };
+    }
+    const t = getPlotlyThemeTokens(isDark);
+    const dates = data.map((p) => p.date);
+    const ivs = data.map((p) => (p.iv !== null ? p.iv * 100 : null));
+    const rvs = data.map((p) => (p.rv !== null ? p.rv * 100 : null));
+    const ratios = data.map((p) =>
+      p.iv !== null && p.rv !== null && p.rv > 0 ? Number((p.iv / p.rv).toFixed(3)) : null
+    );
+
+    const list: Data[] = [
+      {
+        type: 'scatter',
+        mode: 'lines',
+        name: ivLabel,
+        x: dates,
+        y: ivs,
+        yaxis: 'y',
+        line: { color: QUANT_COLORS.goldLight, width: 2 },
+        hovertemplate: `${ivLabel}: %{y:.1f}%<extra></extra>`,
+      },
+      {
+        type: 'scatter',
+        mode: 'lines',
+        name: 'RV 20d',
+        x: dates,
+        y: rvs,
+        yaxis: 'y',
+        line: { color: QUANT_COLORS.sky, width: 1.5, dash: 'dash' },
+        hovertemplate: 'RV 20d: %{y:.1f}%<extra></extra>',
+      },
+      {
+        type: 'scatter',
+        mode: 'lines',
+        name: 'IV / RV Ratio',
+        x: dates,
+        y: ratios,
+        yaxis: 'y2',
+        line: { color: isDark ? 'rgba(236,236,241,0.72)' : 'rgba(24,24,27,0.68)', width: 1.3 },
+        hovertemplate: 'IV/RV: %{y:.2f}×<extra></extra>',
+      },
+    ];
+
+    // Shade IV < RV regimes on the bottom panel
+    const shapes: NonNullable<Layout['shapes']> = [
+      {
+        type: 'line',
+        xref: 'paper',
+        yref: 'y2',
+        x0: 0,
+        x1: 1,
+        y0: 1,
+        y1: 1,
+        line: { color: t.zeroLine, width: 1, dash: 'dash' },
+      },
+    ];
+
+    let startIdx: number | null = null;
+    for (let i = 0; i < data.length; i++) {
+      const r = ratios[i];
+      const below = r !== null && r < 1;
+      if (below && startIdx === null) startIdx = i;
+      if (!below && startIdx !== null) {
+        shapes.push({
+          type: 'rect',
+          xref: 'x',
+          yref: 'y2',
+          x0: dates[startIdx],
+          x1: dates[i],
+          y0: 0.5,
+          y1: 2.0,
+          fillcolor: 'rgba(224, 101, 95, 0.14)',
+          line: { width: 0 },
+          layer: 'below',
+        });
+        startIdx = null;
+      }
+    }
+    if (startIdx !== null) {
+      shapes.push({
+        type: 'rect',
+        xref: 'x',
+        yref: 'y2',
+        x0: dates[startIdx],
+        x1: dates[dates.length - 1],
+        y0: 0.5,
+        y1: 2.0,
+        fillcolor: 'rgba(224, 101, 95, 0.14)',
+        line: { width: 0 },
+        layer: 'below',
+      });
+    }
+
+    const chartLayout: Partial<Layout> = {
+      shapes,
+      margin: { l: 50, r: 16, t: 30, b: 22 },
+      yaxis: {
+        domain: [0.34, 1],
+        ticksuffix: '%',
+        title: { text: 'Vol %', font: { size: 10, color: t.textMuted } },
+        gridcolor: t.grid,
+      },
+      yaxis2: {
+        domain: [0, 0.26],
+        range: [0.55, 1.85],
+        title: { text: 'IV/RV', font: { size: 10, color: t.textMuted } },
+        gridcolor: t.grid,
+        tickfont: { size: 10, color: t.textMuted },
+      },
+    };
+
+    return { traces: list, layout: chartLayout };
+  }, [data, ivLabel, isDark]);
+
   if (data.length < 30) {
     return (
-      <EmptyState title="Not enough overlapping IV/RV history" detail="Need at least 30 aligned sessions" className="h-44" />
+      <EmptyState
+        title="Not enough overlapping IV/RV history"
+        detail="Need at least 30 aligned sessions"
+        className="h-44"
+      />
     );
   }
 
-  const width = size.width;
-  const height = size.height;
-  const ready = width > 0;
-  const s = height / 210;
-  const pad = { l: 38, r: 12, t: 10 * s, b: 22 * s };
-  const gap = 14 * s;
-  const topH = 140 * s;
-  const botH = height - topH - gap - pad.b;
-
-  const ivMax = Math.max(...data.map((p) => p.iv ?? 0));
-  const rvMax = Math.max(...data.map((p) => p.rv ?? 0));
-  const yMax = Math.max(ivMax, rvMax) * 1.12;
-  const yMin = 0;
-
-  const xOf = (i: number) => pad.l + (i / (data.length - 1)) * (width - pad.l - pad.r);
-  const yTop = (v: number) => pad.t + (1 - (v - yMin) / (yMax - yMin)) * topH;
-  const yBot = (ratio: number) => {
-    const rMax = 1.8;
-    const rMin = 0.6;
-    const c = Math.min(rMax, Math.max(rMin, ratio));
-    const top = pad.t + topH + gap;
-    return top + (1 - (c - rMin) / (rMax - rMin)) * botH;
-  };
-
-  const ivPath = data.map((p, i) => (p.iv === null ? null : `${i === 0 ? 'M' : 'L'}${xOf(i).toFixed(2)},${yTop(p.iv).toFixed(2)}`)).filter(Boolean).join(' ');
-  const rvPath = data.map((p, i) => (p.rv === null ? null : `${i === 0 ? 'M' : 'L'}${xOf(i).toFixed(2)},${yTop(p.rv).toFixed(2)}`)).filter(Boolean).join(' ');
-  const ratioPath = data.map((p, i) => {
-    if (p.iv === null || p.rv === null || p.rv === 0) return null;
-    return `${i === 0 ? 'M' : 'L'}${xOf(i).toFixed(2)},${yBot(p.iv / p.rv).toFixed(2)}`;
-  }).filter(Boolean).join(' ');
-
-  // Red shading where ratio < 1 (IV < RV)
-  const belowOne: string[] = [];
-  let bucketStart: number | null = null;
-  data.forEach((p, i) => {
-    const below = p.iv !== null && p.rv !== null && p.rv > 0 && p.iv / p.rv < 1;
-    if (below && bucketStart === null) bucketStart = i;
-    if (!below && bucketStart !== null) {
-      belowOne.push(`${xOf(bucketStart).toFixed(2)},${xOf(i - 1).toFixed(2)}`);
-      bucketStart = null;
-    }
-  });
-  if (bucketStart !== null) belowOne.push(`${xOf(bucketStart).toFixed(2)},${xOf(data.length - 1).toFixed(2)}`);
-
-  const top = pad.t + topH + gap;
-
   return (
     <div>
-      <div ref={ref} className="h-[190px] sm:h-[210px] 2xl:h-[240px] w-full contain-[layout_paint]">
-      {ready && (
-      <svg width={width} height={height} className="block h-full w-full" role="img" aria-label="Implied versus realized volatility">
-        {/* top panel gridlines */}
-        {[0.5, 1].map((f, i) => (
-          <g key={i}>
-            <line x1={pad.l} x2={width - pad.r} y1={pad.t + topH * f} y2={pad.t + topH * f} stroke="rgba(128,128,138,0.14)" strokeDasharray="3 4" />
-          </g>
-        ))}
-        {/* bottom panel ratio = 1 line */}
-        <line x1={pad.l} x2={width - pad.r} y1={yBot(1)} y2={yBot(1)} stroke="rgba(128,128,138,0.35)" strokeDasharray="4 3" />
-
-        {/* red shading for IV < RV regimes */}
-        {belowOne.map((seg, i) => {
-          const [x1, x2] = seg.split(',').map(Number);
-          return <rect key={i} x={x1} y={top} width={Math.max(1, x2 - x1)} height={botH} fill="rgba(224,101,95,0.12)" />;
-        })}
-
-        <path d={ivPath} fill="none" stroke="#DEC084" strokeWidth="1.2" strokeLinejoin="round" />
-        <path d={rvPath} fill="none" stroke="#7dd3fc" strokeWidth="1" strokeLinejoin="round" strokeDasharray="4 2.5" opacity="0.9" />
-        <path d={ratioPath} fill="none" stroke="rgba(236,236,241,0.6)" strokeWidth="0.8" />
-
-        {/* labels */}
-        <text x={pad.l - 6} y={pad.t + 8} fontSize="8.5" fill="#DEC084" textAnchor="end" fontFamily="var(--font-mono)">IV {(yMax * 100).toFixed(0)}%</text>
-        <text x={pad.l - 6} y={top + 8} fontSize="8.5" fill="#8b8b93" textAnchor="end" fontFamily="var(--font-mono)">ratio 1.8</text>
-        <text x={pad.l - 6} y={height - pad.b} fontSize="8.5" fill="#8b8b93" textAnchor="end" fontFamily="var(--font-mono)">0.6</text>
-        <text x={pad.l} y={height - 4} fontSize="8.5" fill="#8b8b93" fontFamily="var(--font-mono)">{data[0].date.slice(0, 7)}</text>
-        <text x={width - pad.r} y={height - 4} fontSize="8.5" fill="#8b8b93" fontFamily="var(--font-mono)" textAnchor="end">{data[data.length - 1].date.slice(0, 7)}</text>
-      </svg>
-      )}
-      </div>
-      <div className="mt-1.5 flex flex-wrap items-center gap-4 font-mono text-[9px] text-zinc-400">
-        <span className="flex items-center gap-1.5"><span className="inline-block h-0.5 w-4 rounded bg-[#DEC084]" /> {ivLabel}</span>
-        <span className="flex items-center gap-1.5"><span className="inline-block h-0 w-4 border-t border-dashed border-[#7dd3fc]" /> RV 20d (ticker)</span>
-        <span className="flex items-center gap-1.5"><span className="inline-block h-2 w-3 bg-rose-500/30" /> IV &lt; RV (underpriced risk)</span>
+      <PlotlyChart
+        data={traces}
+        layout={layout}
+        plotType="2d"
+        rangeSlider
+        hovermode="x unified"
+        showLegend
+        height={310}
+        uirevisionKey={`ivrv-${ivLabel}-${data.length}`}
+        exportFilename="iv-vs-rv"
+        showWheelHint
+      />
+      <div className="mt-1 flex flex-wrap items-center gap-3 font-mono text-[10px] text-zinc-500 dark:text-zinc-400">
+        <span>Crimson shading: IV &lt; RV (underpriced implied risk)</span>
       </div>
     </div>
   );

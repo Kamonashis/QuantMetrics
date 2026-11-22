@@ -360,3 +360,41 @@ math mo {
     animation: none;
   }
 }
+
+/* ---------- Plotly.js unified terminal styling ---------- */
+
+.qm-plotly-host .modebar-container {
+  opacity: 0;
+  transition: opacity 160ms ease;
+  z-index: 15 !important;
+}
+
+.qm-plotly-host:hover .modebar-container,
+.qm-plotly-host:focus-within .modebar-container {
+  opacity: 1;
+}
+
+.qm-plotly-host .modebar {
+  top: 4px !important;
+  right: 6px !important;
+  padding: 2px 4px !important;
+  border-radius: 8px !important;
+  border: 1px solid var(--hairline-strong) !important;
+  backdrop-filter: blur(8px);
+}
+
+.qm-plotly-host .modebar-group {
+  background: transparent !important;
+  padding-left: 4px !important;
+}
+
+.qm-plotly-host .modebar-btn svg {
+  width: 14px !important;
+  height: 14px !important;
+}
+
+.qm-plotly-host .js-plotly-plot .plotly .cursor-ew-resize,
+.qm-plotly-host .js-plotly-plot .plotly .cursor-ns-resize {
+  cursor: grab;
+}
+

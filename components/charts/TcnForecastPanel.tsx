@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useEffect, useId, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import type { Data, Layout, Shape } from 'plotly.js';
 import type { DecompositionResult } from '@/lib/quant-engine';
 import {
   DEFAULT_TCN_CONFIG,
@@ -22,14 +23,17 @@ import {
 } from '@/lib/tcn-attention';
 import { TcnAttentionEquation } from '@/components/math/MathEquations';
 import { ShimmerButton } from '@/components/ui/ShimmerButton';
-import {
-  buildRegimeBandSpans,
-  getHmmRegimeToken,
-} from '@/lib/hmm-regime-overlay';
+import { getHmmRegimeToken } from '@/lib/hmm-regime-overlay';
 import {
   HmmRegimeOverlayToggle,
   HmmRegimeScorecard,
 } from '@/components/charts/HmmRegimeOverlayControls';
+import { PlotlyChart, usePlotlyDarkTheme } from '@/components/charts/PlotlyChart';
+import {
+  buildHmmRegimeShapes,
+  getPlotlyThemeTokens,
+  QUANT_COLORS,
+} from '@/lib/plotly-theme';
 import {
   Brain,
   Play,
@@ -251,7 +255,7 @@ function PredictionIntervalBar({
   );
 }
 
-/** Pure SVG Attention Weight Bar Chart across lookback lags */
+/** Interactive Plotly Attention Weight Bar Chart across lookback lags */
 function AttentionBarChart({
   comp,
   selectedHead,
@@ -259,174 +263,170 @@ function AttentionBarChart({
   comp: ComponentForecast;
   selectedHead: 'mean' | number;
 }) {
-  const [hoverLag, setHoverLag] = useState<number | null>(null);
-  const weights =
-    selectedHead === 'mean'
-      ? comp.attentionWeights
-      : comp.attentionByHead[selectedHead] ?? comp.attentionWeights;
+  const isDark = usePlotlyDarkTheme();
+  const tokens = useMemo(() => getPlotlyThemeTokens(isDark), [isDark]);
 
-  const L = weights.length;
-  if (L === 0) return null;
+  const weights = useMemo(
+    () =>
+      selectedHead === 'mean'
+        ? comp.attentionWeights
+        : comp.attentionByHead[selectedHead] ?? comp.attentionWeights,
+    [comp.attentionWeights, comp.attentionByHead, selectedHead]
+  );
 
-  const maxW = Math.max(...weights, 1e-6);
-  // Identify top-3 lag indices for champagne gold highlight
-  const sortedIndices = weights
-    .map((w, idx) => ({ w, idx }))
-    .sort((a, b) => b.w - a.w)
-    .slice(0, 3);
-  const topSet = new Set(sortedIndices.map((x) => x.idx));
+  const { traces, layout, topLagLabel, topWeightPct } = useMemo<{
+    traces: Data[];
+    layout: Partial<Layout>;
+    topLagLabel: string;
+    topWeightPct: number;
+  }>(() => {
+    const L = weights.length;
+    if (L === 0) return { traces: [], layout: {}, topLagLabel: 't', topWeightPct: 0 };
 
-  const w = 420;
-  const h = 152;
-  const padL = 34;
-  const padR = 12;
-  const padT = 14;
-  const padB = 26;
-  const chartW = w - padL - padR;
-  const chartH = h - padT - padB;
-  const slotW = chartW / L;
-  const barW = Math.max(2, slotW * 0.72);
+    const sortedIndices = weights
+      .map((w, idx) => ({ w, idx }))
+      .sort((a, b) => b.w - a.w)
+      .slice(0, 3);
+    const topSet = new Set(sortedIndices.map((x) => x.idx));
 
-  const activeIdx = hoverLag !== null ? hoverLag : sortedIndices[0]?.idx ?? L - 1;
-  const activeLagSteps = L - activeIdx; // lag = L - idx => t-(L-1) .. t-0 (wait: idx L-1 is t-0)
-  const lagLabel = activeLagSteps - 1 === 0 ? 't' : `t-${activeLagSteps - 1}`;
+    const lagOffsets = weights.map((_, idx) => -(L - 1 - idx));
+    const labels = lagOffsets.map((off) => (off === 0 ? 't' : `t${off}`));
+    const pcts = weights.map((w) => w * 100);
+    const colors = weights.map((_, idx) =>
+      topSet.has(idx) ? QUANT_COLORS.goldLight : 'rgba(113, 113, 122, 0.55)'
+    );
+
+    const bestIdx = sortedIndices[0]?.idx ?? L - 1;
+    const bestOff = L - 1 - bestIdx;
+
+    return {
+      topLagLabel: bestOff === 0 ? 't' : `t-${bestOff}`,
+      topWeightPct: (weights[bestIdx] ?? 0) * 100,
+      traces: [
+        {
+          type: 'bar',
+          name: 'Attention Weight',
+          x: lagOffsets,
+          y: pcts,
+          customdata: labels,
+          marker: { color: colors },
+          hovertemplate: 'Lag %{customdata} · %{y:.1f}%<extra>Attention</extra>',
+        },
+      ],
+      layout: {
+        margin: { l: 40, r: 10, t: 8, b: 28 },
+        bargap: 0.22,
+        xaxis: {
+          title: { text: 'Lag offset', font: { size: 9.5, color: tokens.textMuted } },
+          gridcolor: tokens.grid,
+        },
+        yaxis: {
+          ticksuffix: '%',
+          rangemode: 'tozero',
+          nticks: 4,
+          gridcolor: tokens.grid,
+        },
+      },
+    };
+  }, [weights, tokens]);
+
+  if (weights.length === 0) return null;
 
   return (
     <div>
       <div className="flex items-center justify-between text-[11px] font-mono text-zinc-500 dark:text-zinc-400 mb-1.5 tabular-nums">
         <span>
-          Focus lag:{' '}
-          <strong className="text-gold-600 dark:text-gold-400">{lagLabel}</strong>
+          Peak lag:{' '}
+          <strong className="text-gold-600 dark:text-gold-400">{topLagLabel}</strong>
         </span>
         <span>
           Weight:{' '}
-          <strong className="text-zinc-900 dark:text-zinc-100">
-            {((weights[activeIdx] ?? 0) * 100).toFixed(1)}%
-          </strong>
+          <strong className="text-zinc-900 dark:text-zinc-100">{topWeightPct.toFixed(1)}%</strong>
         </span>
       </div>
 
-      <svg
-        viewBox={`0 0 ${w} ${h}`}
-        className="block w-full h-[152px] select-none"
-        onMouseLeave={() => setHoverLag(null)}
-      >
-        {/* Horizontal gridlines */}
-        {[0, 0.5, 1].map((frac, idx) => {
-          const y = padT + chartH * (1 - frac);
-          return (
-            <g key={idx}>
-              <line
-                x1={padL}
-                y1={y}
-                x2={w - padR}
-                y2={y}
-                stroke="currentColor"
-                className="text-zinc-200 dark:text-zinc-800/80"
-                strokeDasharray="2 3"
-                strokeWidth={0.75}
-              />
-              <text
-                x={padL - 5}
-                y={y + 3}
-                textAnchor="end"
-                className="text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
-              >
-                {(frac * maxW * 100).toFixed(0)}%
-              </text>
-            </g>
-          );
-        })}
-
-        {/* Bars */}
-        {weights.map((val, idx) => {
-          const barH = Math.max(1, (val / maxW) * chartH);
-          const x = padL + idx * slotW + (slotW - barW) / 2;
-          const y = padT + chartH - barH;
-          const isTop = topSet.has(idx);
-          const isHovered = hoverLag === idx;
-          return (
-            <g
-              key={idx}
-              onMouseEnter={() => setHoverLag(idx)}
-              className="cursor-pointer"
-            >
-              <rect
-                x={padL + idx * slotW}
-                y={padT}
-                width={slotW}
-                height={chartH}
-                fill="transparent"
-              />
-              <rect
-                x={x}
-                y={y}
-                width={barW}
-                height={barH}
-                rx={1.5}
-                fill={isTop || isHovered ? '#DEC084' : '#71717a'}
-                fillOpacity={isHovered ? 1 : isTop ? 0.9 : 0.45}
-              />
-            </g>
-          );
-        })}
-
-        {/* X-axis ticks */}
-        {[0, Math.floor((L - 1) / 2), L - 1].map((idx) => {
-          const lagOffset = L - 1 - idx;
-          const x = padL + idx * slotW + slotW / 2;
-          return (
-            <text
-              key={idx}
-              x={x}
-              y={h - 8}
-              textAnchor={idx === 0 ? 'start' : idx === L - 1 ? 'end' : 'middle'}
-              className="text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
-            >
-              {lagOffset === 0 ? 't (latest)' : `t-${lagOffset}`}
-            </text>
-          );
-        })}
-      </svg>
+      <PlotlyChart
+        data={traces}
+        layout={layout}
+        plotType="2d"
+        hovermode="x unified"
+        height={170}
+        exportFilename="quantmetrics-tcn-attention"
+        uirevisionKey={`att-${weights.length}-${String(selectedHead)}`}
+      />
     </div>
   );
 }
 
-/** Pure SVG Dual-Line Train vs Holdout Loss Convergence Curve */
+/** Interactive Plotly Dual-Line Train vs Holdout Loss Convergence Curve */
 function LossCurveChart({ comp }: { comp: ComponentForecast }) {
+  const isDark = usePlotlyDarkTheme();
+  const tokens = useMemo(() => getPlotlyThemeTokens(isDark), [isDark]);
+
   const train = comp.trainLossCurve;
   const holdout = comp.holdoutLossCurve;
   const n = train.length;
+
+  const { traces, layout, lastTrain, lastHold } = useMemo<{
+    traces: Data[];
+    layout: Partial<Layout>;
+    lastTrain: number;
+    lastHold: number;
+  }>(() => {
+    if (n === 0) return { traces: [], layout: {}, lastTrain: 0, lastHold: 0 };
+    const epochs = Array.from({ length: n }, (_, i) => i + 1);
+    const bestEpoch = Math.max(1, Math.min(n, comp.bestEpoch));
+
+    return {
+      lastTrain: train[n - 1] ?? 0,
+      lastHold: holdout[bestEpoch - 1] ?? holdout[holdout.length - 1] ?? 0,
+      traces: [
+        {
+          type: 'scatter',
+          mode: 'lines',
+          name: 'Holdout Loss',
+          x: epochs,
+          y: holdout,
+          line: { color: QUANT_COLORS.positive, width: 1.8 },
+          hovertemplate: '%{y:.4f}<extra>Holdout</extra>',
+        },
+        {
+          type: 'scatter',
+          mode: 'lines',
+          name: 'Train Loss',
+          x: epochs,
+          y: train,
+          line: { color: QUANT_COLORS.goldLight, width: 1.8 },
+          hovertemplate: '%{y:.4f}<extra>Train</extra>',
+        },
+      ],
+      layout: {
+        margin: { l: 42, r: 10, t: 8, b: 28 },
+        shapes: [
+          {
+            type: 'line',
+            xref: 'x',
+            yref: 'paper',
+            x0: bestEpoch,
+            x1: bestEpoch,
+            y0: 0,
+            y1: 1,
+            line: { color: QUANT_COLORS.positive, width: 1.1, dash: 'dot' },
+          },
+        ],
+        xaxis: {
+          title: { text: 'Epoch', font: { size: 9.5, color: tokens.textMuted } },
+          gridcolor: tokens.grid,
+        },
+        yaxis: {
+          nticks: 4,
+          gridcolor: tokens.grid,
+        },
+      },
+    };
+  }, [train, holdout, n, comp.bestEpoch, tokens]);
+
   if (n === 0) return null;
-
-  const allVals = [...train, ...holdout].filter((v) => Number.isFinite(v));
-  const minL = Math.min(...allVals);
-  const maxL = Math.max(...allVals);
-  const span = Math.max(maxL - minL, 1e-6);
-
-  const w = 420;
-  const h = 152;
-  const padL = 38;
-  const padR = 12;
-  const padT = 14;
-  const padB = 26;
-  const chartW = w - padL - padR;
-  const chartH = h - padT - padB;
-
-  const toX = (i: number) => padL + (i / Math.max(1, n - 1)) * chartW;
-  const toY = (v: number) => padT + chartH - ((v - minL) / span) * chartH;
-
-  const trainPath = train
-    .map((v, i) => `${i === 0 ? 'M' : 'L'} ${toX(i).toFixed(1)} ${toY(v).toFixed(1)}`)
-    .join(' ');
-  const holdoutPath = holdout
-    .map((v, i) => `${i === 0 ? 'M' : 'L'} ${toX(i).toFixed(1)} ${toY(v).toFixed(1)}`)
-    .join(' ');
-
-  const bestIdx = Math.max(0, Math.min(n - 1, comp.bestEpoch - 1));
-  const bestX = toX(bestIdx);
-  const lastTrain = train[n - 1] ?? 0;
-  const lastHold = holdout[bestIdx] ?? holdout[holdout.length - 1] ?? 0;
 
   return (
     <div>
@@ -446,135 +446,142 @@ function LossCurveChart({ comp }: { comp: ComponentForecast }) {
         </span>
       </div>
 
-      <svg viewBox={`0 0 ${w} ${h}`} className="block w-full h-[152px] select-none">
-        {/* Horizontal gridlines */}
-        {[0, 0.5, 1].map((frac, idx) => {
-          const val = minL + frac * span;
-          const y = toY(val);
-          return (
-            <g key={idx}>
-              <line
-                x1={padL}
-                y1={y}
-                x2={w - padR}
-                y2={y}
-                stroke="currentColor"
-                className="text-zinc-200 dark:text-zinc-800/80"
-                strokeDasharray="2 3"
-                strokeWidth={0.75}
-              />
-              <text
-                x={padL - 5}
-                y={y + 3}
-                textAnchor="end"
-                className="text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
-              >
-                {val.toFixed(2)}
-              </text>
-            </g>
-          );
-        })}
-
-        {/* Best epoch marker */}
-        <line
-          x1={bestX}
-          y1={padT}
-          x2={bestX}
-          y2={padT + chartH}
-          stroke="#3fb27f"
-          strokeOpacity={0.55}
-          strokeDasharray="3 2"
-          strokeWidth={1}
-        />
-
-        {/* Holdout curve */}
-        <path
-          d={holdoutPath}
-          fill="none"
-          stroke="#3fb27f"
-          strokeWidth={1.5}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-
-        {/* Train curve */}
-        <path
-          d={trainPath}
-          fill="none"
-          stroke="#DEC084"
-          strokeWidth={1.5}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-
-        {/* X-axis ticks */}
-        {[0, Math.floor((n - 1) / 2), n - 1].map((idx) => (
-          <text
-            key={idx}
-            x={toX(idx)}
-            y={h - 8}
-            textAnchor={idx === 0 ? 'start' : idx === n - 1 ? 'end' : 'middle'}
-            className="text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
-          >
-            ep {idx + 1}
-          </text>
-        ))}
-      </svg>
+      <PlotlyChart
+        data={traces}
+        layout={layout}
+        plotType="2d"
+        hovermode="x unified"
+        height={170}
+        exportFilename="quantmetrics-tcn-loss"
+        uirevisionKey={`loss-${n}-${comp.bestEpoch}`}
+      />
     </div>
   );
 }
 
-/** Pure SVG Lookback-vs-Price Stability Chart with 99% PI whiskers and interactive inspection */
+/** Interactive Plotly Lookback-vs-Price Stability Chart with 99% PI Error Whiskers */
 function LookbackSensitivityChart({
   sensitivity,
 }: {
   sensitivity: TcnSensitivityResult;
 }) {
-  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const isDark = usePlotlyDarkTheme();
+  const tokens = useMemo(() => getPlotlyThemeTokens(isDark), [isDark]);
   const [pinnedIdx, setPinnedIdx] = useState<number | null>(null);
 
   const { runs, summary, baseForecast } = sensitivity;
   const k = runs.length;
-  if (k === 0) return null;
-
   const baseIdx = Math.max(0, runs.findIndex((r) => r.isBase));
   const safePinned = pinnedIdx !== null && pinnedIdx < k ? pinnedIdx : null;
-  const activeIdx = hoverIdx !== null && hoverIdx < k ? hoverIdx : safePinned ?? baseIdx;
+  const activeIdx = safePinned ?? baseIdx;
   const activeRun = runs[activeIdx];
   const lastPrice = baseForecast.lastPrice;
 
-  let minY = Math.min(lastPrice, summary.minPrice);
-  let maxY = Math.max(lastPrice, summary.maxPrice);
-  for (const r of runs) {
-    if (r.forecast.lower99 < minY) minY = r.forecast.lower99;
-    if (r.forecast.upper99 > maxY) maxY = r.forecast.upper99;
-  }
-  const padY = Math.max((maxY - minY) * 0.14, lastPrice * 0.004, 0.25);
-  const domMin = minY - padY;
-  const domMax = maxY + padY;
-  const spanY = Math.max(domMax - domMin, 1e-6);
+  const { traces, layout } = useMemo<{ traces: Data[]; layout: Partial<Layout> }>(() => {
+    if (k === 0) return { traces: [], layout: {} };
+    const xs = runs.map((r) => r.lookback);
+    const ys = runs.map((r) => r.forecast.predictedPrice);
+    const errPlus = runs.map((r) => Math.max(0, r.forecast.upper99 - r.forecast.predictedPrice));
+    const errMinus = runs.map((r) => Math.max(0, r.forecast.predictedPrice - r.forecast.lower99));
+    const colors = runs.map((r) =>
+      r.isBase
+        ? QUANT_COLORS.goldLight
+        : r.forecast.deltaDollar >= 0
+        ? QUANT_COLORS.positive
+        : QUANT_COLORS.negative
+    );
+    const sizes = runs.map((r) =>
+      r.lookback === summary.bestRmseLookback ? 11 : r.isBase ? 10 : 8
+    );
+    const custom = runs.map((r) => [
+      r.forecast.lower99.toFixed(2),
+      r.forecast.upper99.toFixed(2),
+      r.forecast.holdoutPriceRmse.toFixed(2),
+      r.isBase ? ' (base)' : r.lookback === summary.bestRmseLookback ? ' (min RMSE)' : '',
+    ]);
 
-  const w = 680;
-  const h = 196;
-  const padL = 58;
-  const padR = 24;
-  const padT = 18;
-  const padB = 34;
-  const chartW = w - padL - padR;
-  const chartH = h - padT - padB;
+    return {
+      traces: [
+        {
+          type: 'scatter',
+          mode: 'lines+markers',
+          name: 'Predicted Price (99% PI)',
+          x: xs,
+          y: ys,
+          customdata: custom,
+          line: { color: QUANT_COLORS.gold, width: 1.7 },
+          marker: {
+            color: colors,
+            size: sizes,
+            line: { color: isDark ? '#08080A' : '#FFFFFF', width: 1.4 },
+          },
+          error_y: {
+            type: 'data',
+            symmetric: false,
+            array: errPlus,
+            arrayminus: errMinus,
+            color: 'rgba(222, 192, 132, 0.72)',
+            thickness: 1.5,
+            width: 5,
+          },
+          hovertemplate:
+            'L=%{x}d%{customdata[3]}<br>Pred: $%{y:.2f}<br>99% PI: [$%{customdata[0]}, $%{customdata[1]}]<br>OOS RMSE: $%{customdata[2]}<extra></extra>',
+        },
+      ],
+      layout: {
+        margin: { l: 56, r: 16, t: 12, b: 36 },
+        shapes: [
+          {
+            type: 'line',
+            xref: 'paper',
+            yref: 'y',
+            x0: 0,
+            x1: 1,
+            y0: lastPrice,
+            y1: lastPrice,
+            line: { color: tokens.textMuted, width: 1.1, dash: 'dash' },
+          },
+          {
+            type: 'line',
+            xref: 'paper',
+            yref: 'y',
+            x0: 0,
+            x1: 1,
+            y0: summary.meanPrice,
+            y1: summary.meanPrice,
+            line: { color: QUANT_COLORS.goldLight, width: 1.1, dash: 'dot' },
+          },
+        ],
+        annotations: [
+          {
+            xref: 'paper',
+            yref: 'y',
+            x: 1,
+            y: lastPrice,
+            text: `Last $${lastPrice.toFixed(2)}`,
+            showarrow: false,
+            xanchor: 'right',
+            yanchor: 'bottom',
+            font: { size: 9.5, color: tokens.textMuted },
+          },
+        ],
+        xaxis: {
+          title: { text: 'Lookback Window L (days)', font: { size: 10, color: tokens.textMuted } },
+          ticksuffix: 'd',
+          gridcolor: tokens.grid,
+        },
+        yaxis: {
+          tickprefix: '$',
+          gridcolor: tokens.grid,
+        },
+      },
+    };
+  }, [k, runs, summary.bestRmseLookback, summary.meanPrice, lastPrice, isDark, tokens]);
 
-  const toX = (i: number) =>
-    k === 1 ? padL + chartW / 2 : padL + ((i + 0.5) / k) * chartW;
-  const toY = (val: number) => padT + chartH - ((val - domMin) / spanY) * chartH;
-
-  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((f) => domMin + f * spanY);
-  const linePath = runs
-    .map((r, i) => `${i === 0 ? 'M' : 'L'} ${toX(i).toFixed(1)} ${toY(r.forecast.predictedPrice).toFixed(1)}`)
-    .join(' ');
+  if (k === 0 || !activeRun) return null;
 
   return (
     <div className="space-y-2">
-      {/* Interactive Run Readout Header */}
       <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono tabular-nums text-zinc-500 dark:text-zinc-400">
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
           <span>
@@ -622,191 +629,24 @@ function LookbackSensitivityChart({
         )}
       </div>
 
-      {/* Pure SVG Plot */}
-      <svg
-        viewBox={`0 0 ${w} ${h}`}
-        className="block w-full h-[196px] select-none"
-        role="img"
-        aria-label="Lookback window sensitivity chart showing next-day predicted prices and 99% prediction intervals across tested lookback lengths"
-        onMouseLeave={() => setHoverIdx(null)}
-      >
-        {/* Horizontal Gridlines & Price Axis */}
-        {yTicks.map((val, idx) => {
-          const y = toY(val);
-          return (
-            <g key={idx}>
-              <line
-                x1={padL}
-                y1={y}
-                x2={w - padR}
-                y2={y}
-                stroke="currentColor"
-                className="text-zinc-200 dark:text-zinc-800/80"
-                strokeDasharray="2 3"
-                strokeWidth={0.75}
-              />
-              <text
-                x={padL - 7}
-                y={y + 3}
-                textAnchor="end"
-                className="text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
-              >
-                ${val.toFixed(2)}
-              </text>
-            </g>
-          );
-        })}
+      <PlotlyChart
+        data={traces}
+        layout={layout}
+        plotType="2d"
+        hovermode="x unified"
+        height={220}
+        exportFilename="quantmetrics-tcn-lookback-sweep"
+        uirevisionKey={`sweep-${k}-${summary.meanPrice.toFixed(2)}`}
+        onClick={(ev) => {
+          const pts = (ev as { points?: Array<{ pointIndex?: number }> })?.points;
+          const idx = pts?.[0]?.pointIndex;
+          if (typeof idx === 'number' && idx >= 0 && idx < k) {
+            setPinnedIdx(idx);
+          }
+        }}
+        showWheelHint
+      />
 
-        {/* Last Close Horizontal Reference */}
-        <line
-          x1={padL}
-          y1={toY(lastPrice)}
-          x2={w - padR}
-          y2={toY(lastPrice)}
-          stroke="currentColor"
-          className="text-zinc-500 dark:text-zinc-400"
-          strokeDasharray="4 3"
-          strokeWidth={1}
-          opacity={0.75}
-        />
-        <text
-          x={w - padR}
-          y={toY(lastPrice) - 4}
-          textAnchor="end"
-          className="text-[8.5px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
-        >
-          Last ${lastPrice.toFixed(2)}
-        </text>
-
-        {/* Sweep Mean Horizontal Reference */}
-        <line
-          x1={padL}
-          y1={toY(summary.meanPrice)}
-          x2={w - padR}
-          y2={toY(summary.meanPrice)}
-          stroke="#DEC084"
-          strokeDasharray="2 2"
-          strokeWidth={1}
-          opacity={0.8}
-        />
-
-        {/* Predicted Trajectory Connector Across Lookbacks */}
-        {k > 1 && (
-          <path
-            d={linePath}
-            fill="none"
-            stroke="#DEC084"
-            strokeOpacity={0.7}
-            strokeWidth={1.5}
-          />
-        )}
-
-        {/* Per-Window 99% PI Whiskers + Point Markers */}
-        {runs.map((run, idx) => {
-          const cx = toX(idx);
-          const cy = toY(run.forecast.predictedPrice);
-          const yLow = toY(run.forecast.lower99);
-          const yHigh = toY(run.forecast.upper99);
-          const isActive = activeIdx === idx;
-          const isBestRmse = run.lookback === summary.bestRmseLookback;
-          const isUp = run.forecast.deltaDollar >= 0;
-          const slotW = chartW / Math.max(1, k);
-
-          return (
-            <g
-              key={run.lookback}
-              onMouseEnter={() => setHoverIdx(idx)}
-              onClick={() => setPinnedIdx(idx)}
-              className="cursor-pointer"
-            >
-              {/* Hit area + active subtle column highlight */}
-              <rect
-                x={cx - slotW / 2}
-                y={padT}
-                width={slotW}
-                height={chartH}
-                fill={isActive ? '#DEC084' : 'transparent'}
-                fillOpacity={isActive ? 0.07 : 0}
-              />
-
-              {/* 99% PI vertical bar */}
-              <line
-                x1={cx}
-                y1={yLow}
-                x2={cx}
-                y2={yHigh}
-                stroke={run.isBase ? '#DEC084' : '#71717a'}
-                strokeOpacity={isActive || run.isBase ? 0.9 : 0.55}
-                strokeWidth={run.isBase ? 2 : 1.5}
-              />
-              {/* Caps */}
-              <line
-                x1={cx - 6}
-                y1={yLow}
-                x2={cx + 6}
-                y2={yLow}
-                stroke={run.isBase ? '#DEC084' : '#71717a'}
-                strokeWidth={1.3}
-              />
-              <line
-                x1={cx - 6}
-                y1={yHigh}
-                x2={cx + 6}
-                y2={yHigh}
-                stroke={run.isBase ? '#DEC084' : '#71717a'}
-                strokeWidth={1.3}
-              />
-
-              {/* Best OOS RMSE outer ring */}
-              {isBestRmse && (
-                <circle
-                  cx={cx}
-                  cy={cy}
-                  r={8}
-                  fill="none"
-                  stroke="#3fb27f"
-                  strokeDasharray="2 2"
-                  strokeWidth={1.2}
-                />
-              )}
-
-              {/* Predicted price dot */}
-              <circle
-                cx={cx}
-                cy={cy}
-                r={run.isBase ? 5.5 : 4.5}
-                fill={run.isBase ? '#DEC084' : isUp ? '#3fb27f' : '#e0655f'}
-                stroke="#08080a"
-                strokeWidth={1.5}
-              />
-
-              {/* X-axis Lookback label */}
-              <text
-                x={cx}
-                y={h - 14}
-                textAnchor="middle"
-                className={`text-[10px] font-mono tabular-nums ${
-                  run.isBase
-                    ? 'fill-gold-600 dark:fill-gold-400 font-bold'
-                    : 'fill-zinc-600 dark:fill-zinc-400'
-                }`}
-              >
-                L={run.lookback}d
-              </text>
-              <text
-                x={cx}
-                y={h - 3}
-                textAnchor="middle"
-                className="text-[8.5px] font-mono fill-zinc-400 dark:fill-zinc-500 tabular-nums"
-              >
-                {run.isBase ? 'base' : isBestRmse ? 'min RMSE' : `$${run.forecast.predictedPrice.toFixed(1)}`}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
-
-      {/* Legend strip (unboxed middot metadata) */}
       <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono text-zinc-500 dark:text-zinc-400">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <span className="inline-flex items-center gap-1.5">
@@ -818,101 +658,168 @@ function LookbackSensitivityChart({
             Up / <span className="w-2 h-2 rounded-full bg-[#e0655f] inline-block" /> Down
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full border border-dashed border-[#3fb27f] inline-block" />
-            Lowest OOS RMSE
-          </span>
-          <span className="inline-flex items-center gap-1.5">
             <span className="w-3 border-t border-dotted border-[#DEC084] inline-block" />
             Sweep mean ${summary.meanPrice.toFixed(2)}
           </span>
         </div>
-        <span>Click any lookback column to pin readout</span>
+        <span>Click any lookback marker to pin readout</span>
       </div>
     </div>
   );
 }
 
-/** Pure SVG 30-Day Signal-Weighted Cumulative P&L vs Buy & Hold Chart with Conviction Bars */
+/** Interactive Plotly 30-Day Signal-Weighted Cumulative P&L vs Buy & Hold Chart with Conviction Bars & Causal HMM Overlay */
 function HistoricalBacktestChart({
   backtest,
 }: {
   backtest: HistoricalBacktestResult;
 }) {
-  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const isDark = usePlotlyDarkTheme();
+  const tokens = useMemo(() => getPlotlyThemeTokens(isDark), [isDark]);
   const [showRegimeOverlay, setShowRegimeOverlay] = useState(true);
-  const gradId = useId();
   const { days, costBps, regimeBreakdown } = backtest;
   const n = days.length;
-  if (n < 2) return null;
 
   const hasHmmRegimes = days.some(
     (d) => d.hmmState === 0 || d.hmmState === 1 || d.hmmState === 2
   );
-  const regimeBandSpans = hasHmmRegimes
-    ? buildRegimeBandSpans(days.map((d) => d.hmmState))
-    : [];
 
-  const activeIdx = hoverIdx !== null && hoverIdx < n ? hoverIdx : n - 1;
-  const activeDay = days[activeIdx];
-  const isHovering = hoverIdx !== null && hoverIdx < n;
+  const { traces, layout } = useMemo<{ traces: Data[]; layout: Partial<Layout> }>(() => {
+    if (n < 2) return { traces: [], layout: {} };
+    const dates = days.map((d) => d.date);
+    const stratCum = days.map((d) => d.strategyCumPct);
+    const benchCum = days.map((d) => d.benchmarkCumPct);
+    const weightsPct = days.map((d) => d.weight * 100);
+    const weightColors = days.map((d) =>
+      d.weight >= 0 ? 'rgba(63, 178, 127, 0.72)' : 'rgba(224, 101, 95, 0.72)'
+    );
 
-  // Include implicit Day 0 baseline (0.0%) so both curves start cleanly from 0%
-  const stratSeries = [0, ...days.map((d) => d.strategyCumPct)];
-  const benchSeries = [0, ...days.map((d) => d.benchmarkCumPct)];
+    const dayMeta = days.map((d) => {
+      const tok = d.hmmState !== undefined ? getHmmRegimeToken(d.hmmState) : null;
+      const regimeTxt = tok
+        ? `${tok.label}${d.hmmProb !== undefined ? ` (${Math.round(d.hmmProb * 100)}%)` : ''}`
+        : '—';
+      return [
+        formatSignedPct(d.predictedReturn * 100),
+        formatSignedPct(d.actualReturn * 100),
+        formatSignedPct(d.netReturn * 100),
+        regimeTxt,
+      ];
+    });
 
-  let minY = 0;
-  let maxY = 0;
-  for (const v of stratSeries) {
-    if (v < minY) minY = v;
-    if (v > maxY) maxY = v;
-  }
-  for (const v of benchSeries) {
-    if (v < minY) minY = v;
-    if (v > maxY) maxY = v;
-  }
-  const rawSpan = maxY - minY;
-  const padY = Math.max(rawSpan * 0.16, 0.4);
-  const domMin = minY - padY;
-  const domMax = maxY + padY;
-  const spanY = Math.max(domMax - domMin, 1e-6);
+    const dataTraces: Data[] = [
+      {
+        type: 'scatter',
+        mode: 'lines',
+        name: 'Buy & Hold Benchmark',
+        x: dates,
+        y: benchCum,
+        yaxis: 'y',
+        line: { color: tokens.textMuted, width: 1.5, dash: 'dash' },
+        hovertemplate: '%{y:+.2f}%<extra>Buy &amp; Hold</extra>',
+      },
+      {
+        type: 'scatter',
+        mode: 'lines',
+        name: `TCN Net (${costBps} bps)`,
+        x: dates,
+        y: stratCum,
+        customdata: dayMeta,
+        yaxis: 'y',
+        line: { color: QUANT_COLORS.goldLight, width: 2.1 },
+        fill: 'tozeroy',
+        fillcolor: 'rgba(222, 192, 132, 0.14)',
+        hovertemplate:
+          '<b>%{y:+.2f}%</b> · Day Net %{customdata[2]}<br>Pred %{customdata[0]} · Actual %{customdata[1]} · %{customdata[3]}<extra>TCN Net</extra>',
+      },
+      {
+        type: 'bar',
+        name: 'Conviction w_t',
+        x: dates,
+        y: weightsPct,
+        yaxis: 'y2',
+        marker: { color: weightColors },
+        hovertemplate: '%{y:+.0f}%<extra>Weight w_t</extra>',
+      },
+    ];
 
-  const w = 720;
-  const h = 228;
-  const padL = 54;
-  const padR = 18;
-  const padT = 14;
-  const pnlH = 142;
-  const barTop = padT + pnlH + 14;
-  const barH = 32;
-  const barMid = barTop + barH / 2;
-  const chartW = w - padL - padR;
+    // Color-coded Daily OOS Prediction Points by Origin HMM Regime
+    if (hasHmmRegimes && showRegimeOverlay) {
+      const rx: string[] = [];
+      const ry: number[] = [];
+      const rc: string[] = [];
+      const rl: string[] = [];
+      for (const d of days) {
+        if (d.hmmState === undefined) continue;
+        const tok = getHmmRegimeToken(d.hmmState);
+        rx.push(d.date);
+        ry.push(d.strategyCumPct);
+        rc.push(tok.color);
+        rl.push(`${tok.label}${d.hmmProb !== undefined ? ` (${Math.round(d.hmmProb * 100)}%)` : ''}`);
+      }
+      if (rx.length > 0) {
+        dataTraces.push({
+          type: 'scatter',
+          mode: 'markers',
+          name: 'Origin HMM State',
+          x: rx,
+          y: ry,
+          customdata: rl,
+          yaxis: 'y',
+          marker: {
+            color: rc,
+            size: 6.5,
+            line: { color: isDark ? '#08080A' : '#FFFFFF', width: 1 },
+          },
+          showlegend: false,
+          hoverinfo: 'skip',
+        });
+      }
+    }
 
-  const toX = (ptIdx: number) => padL + (ptIdx / n) * chartW;
-  const toY = (pct: number) => padT + pnlH - ((pct - domMin) / spanY) * pnlH;
+    const shapes: Partial<Shape>[] = [
+      ...buildHmmRegimeShapes(
+        dates,
+        days.map((d) => d.hmmState),
+        hasHmmRegimes && showRegimeOverlay,
+        0.13
+      ),
+      {
+        type: 'line',
+        xref: 'paper',
+        yref: 'y',
+        x0: 0,
+        x1: 1,
+        y0: 0,
+        y1: 0,
+        line: { color: tokens.zeroLine, width: 1 },
+      },
+    ];
 
-  const zeroY = toY(0);
-  const stratPath = stratSeries
-    .map((v, i) => `${i === 0 ? 'M' : 'L'} ${toX(i).toFixed(1)} ${toY(v).toFixed(1)}`)
-    .join(' ');
-  const benchPath = benchSeries
-    .map((v, i) => `${i === 0 ? 'M' : 'L'} ${toX(i).toFixed(1)} ${toY(v).toFixed(1)}`)
-    .join(' ');
-  const areaPath = `${stratPath} L ${toX(n).toFixed(1)} ${zeroY.toFixed(1)} L ${toX(0).toFixed(1)} ${zeroY.toFixed(1)} Z`;
+    return {
+      traces: dataTraces,
+      layout: {
+        shapes,
+        bargap: 0.25,
+        yaxis: {
+          domain: [0.28, 1],
+          ticksuffix: '%',
+          gridcolor: tokens.grid,
+        },
+        yaxis2: {
+          domain: [0, 0.2],
+          ticksuffix: '%',
+          nticks: 3,
+          zeroline: true,
+          zerolinecolor: tokens.zeroLine,
+          gridcolor: tokens.grid,
+          fixedrange: true,
+        },
+      },
+    };
+  }, [n, days, costBps, hasHmmRegimes, showRegimeOverlay, isDark, tokens]);
 
-  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((f) => domMin + f * spanY);
-  const slotW = chartW / n;
-  const barW = Math.max(3, Math.min(12, slotW * 0.58));
-
-  const xTickIndices = Array.from(
-    new Set([0, Math.floor((n - 1) / 3), Math.floor(((n - 1) * 2) / 3), n - 1])
-  );
-
-  const activeWeightPct = activeDay.weight * 100;
-  const weightDirLabel =
-    activeWeightPct > 0.5 ? 'Long' : activeWeightPct < -0.5 ? 'Short' : 'Flat';
-
-  const activeRegimeTok =
-    activeDay.hmmState !== undefined ? getHmmRegimeToken(activeDay.hmmState) : null;
+  if (n < 2) return null;
 
   return (
     <div className="space-y-2.5">
@@ -924,350 +831,18 @@ function HistoricalBacktestChart({
         />
       )}
 
-      {/* Interactive Session Readout Strip */}
-      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono tabular-nums text-zinc-500 dark:text-zinc-400">
-        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-          <span>
-            <strong className="text-zinc-900 dark:text-zinc-100">{activeDay.date}</strong>
-            {!isHovering && <span className="ml-1 text-[10px] text-zinc-400">(latest)</span>}
-          </span>
-          {activeRegimeTok && (
-            <>
-              <span>·</span>
-              <span className="inline-flex items-center gap-1.5">
-                <span
-                  className="w-2 h-2 rounded-full shrink-0"
-                  style={{ backgroundColor: activeRegimeTok.color }}
-                />
-                <strong className={activeRegimeTok.textClass}>
-                  {activeRegimeTok.label}
-                  {activeDay.hmmProb !== undefined
-                    ? ` (${Math.round(activeDay.hmmProb * 100)}%)`
-                    : ''}
-                </strong>
-              </span>
-            </>
-          )}
-          <span>·</span>
-          <span>
-            Pred r̂{' '}
-            <strong className={activeDay.predictedReturn >= 0 ? 'text-[#3fb27f]' : 'text-[#e0655f]'}>
-              {formatSignedPct(activeDay.predictedReturn * 100)}
-            </strong>
-          </span>
-          <span>·</span>
-          <span>
-            Actual r{' '}
-            <strong className={activeDay.actualReturn >= 0 ? 'text-[#3fb27f]' : 'text-[#e0655f]'}>
-              {formatSignedPct(activeDay.actualReturn * 100)}
-            </strong>
-          </span>
-          <span>·</span>
-          <span>
-            Weight w<sub>t</sub>{' '}
-            <strong
-              className={
-                activeWeightPct > 0.5
-                  ? 'text-[#3fb27f]'
-                  : activeWeightPct < -0.5
-                  ? 'text-[#e0655f]'
-                  : 'text-zinc-600 dark:text-zinc-300'
-              }
-            >
-              {activeWeightPct >= 0 ? '+' : ''}
-              {activeWeightPct.toFixed(0)}% {weightDirLabel}
-            </strong>
-          </span>
-          <span>·</span>
-          <span>
-            Day Net{' '}
-            <strong className={activeDay.netReturn >= 0 ? 'text-[#3fb27f]' : 'text-[#e0655f]'}>
-              {formatSignedPct(activeDay.netReturn * 100)}
-            </strong>
-          </span>
-        </div>
-
-        <div className="flex items-center gap-2.5">
-          <span>
-            Strat{' '}
-            <strong className="text-gold-600 dark:text-gold-400">
-              {formatSignedPct(activeDay.strategyCumPct)}
-            </strong>
-          </span>
-          <span>·</span>
-          <span>
-            B&amp;H{' '}
-            <strong className="text-zinc-700 dark:text-zinc-300">
-              {formatSignedPct(activeDay.benchmarkCumPct)}
-            </strong>
-          </span>
-        </div>
-      </div>
-
-      {/* Dual-Band Pure SVG: Cumulative P&L Curves + Daily Conviction Weight Bars */}
-      <svg
-        viewBox={`0 0 ${w} ${h}`}
-        className="block w-full h-[228px] select-none"
-        role="img"
-        aria-label={`Historical backtest cumulative P&L over the last ${n} trading days at ${costBps} bps transaction cost`}
-        onMouseLeave={() => setHoverIdx(null)}
-      >
-        <defs>
-          <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#DEC084" stopOpacity="0.22" />
-            <stop offset="100%" stopColor="#DEC084" stopOpacity="0.02" />
-          </linearGradient>
-        </defs>
-
-        {/* Causal HMM Volatility Regime Background Bands (run-length merged) */}
-        {hasHmmRegimes && regimeBandSpans.length > 0 && (
-          <g
-            style={{
-              opacity: showRegimeOverlay ? 1 : 0,
-              transition: 'opacity 150ms ease',
-            }}
-          >
-            {regimeBandSpans.map((span) => {
-              const tok = getHmmRegimeToken(span.state);
-              const x0 = span.startIdx === 0 ? padL : toX(span.startIdx + 0.5);
-              const x1 = span.endIdx === n - 1 ? w - padR : toX(span.endIdx + 1.5);
-              return (
-                <rect
-                  key={`bt-band-${span.startIdx}-${span.endIdx}-${span.state}`}
-                  x={x0}
-                  y={padT}
-                  width={Math.max(1, x1 - x0)}
-                  height={pnlH}
-                  fill={`rgba(${tok.rgb}, 0.12)`}
-                />
-              );
-            })}
-          </g>
-        )}
-
-        {/* Horizontal Gridlines & % Axis */}
-        {yTicks.map((val, idx) => {
-          const y = toY(val);
-          return (
-            <g key={idx}>
-              <line
-                x1={padL}
-                y1={y}
-                x2={w - padR}
-                y2={y}
-                stroke="currentColor"
-                className="text-zinc-200 dark:text-zinc-800/80"
-                strokeDasharray="2 3"
-                strokeWidth={0.75}
-              />
-              <text
-                x={padL - 7}
-                y={y + 3}
-                textAnchor="end"
-                className="text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
-              >
-                {val >= 0 ? '+' : ''}
-                {val.toFixed(1)}%
-              </text>
-            </g>
-          );
-        })}
-
-        {/* 0.0% P&L Baseline */}
-        <line
-          x1={padL}
-          y1={zeroY}
-          x2={w - padR}
-          y2={zeroY}
-          stroke="currentColor"
-          className="text-zinc-400 dark:text-zinc-600"
-          strokeWidth={1}
-          opacity={0.75}
-        />
-
-        {/* Strategy Net Area Fill */}
-        <path d={areaPath} fill={`url(#${gradId})`} />
-
-        {/* Buy & Hold Benchmark Curve (dashed zinc) */}
-        <path
-          d={benchPath}
-          fill="none"
-          stroke="#71717a"
-          strokeDasharray="4 3"
-          strokeWidth={1.5}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-
-        {/* TCN Strategy Net Cumulative P&L Curve (champagne gold) */}
-        <path
-          d={stratPath}
-          fill="none"
-          stroke="#DEC084"
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-
-        {/* Color-coded Daily OOS Prediction Points by Origin HMM Regime */}
-        {hasHmmRegimes && (
-          <g
-            style={{
-              opacity: showRegimeOverlay ? 1 : 0,
-              transition: 'opacity 150ms ease',
-            }}
-          >
-            {days.map((d, i) => {
-              if (d.hmmState === undefined) return null;
-              const tok = getHmmRegimeToken(d.hmmState);
-              const isAct = i === activeIdx;
-              return (
-                <circle
-                  key={`bt-pt-${d.date}-${i}`}
-                  cx={toX(i + 1)}
-                  cy={toY(d.strategyCumPct)}
-                  r={isAct ? 4.8 : 2.8}
-                  fill={tok.color}
-                  stroke="#08080a"
-                  strokeWidth={isAct ? 1.4 : 0.9}
-                />
-              );
-            })}
-          </g>
-        )}
-
-        {/* Lower Strip Divider & Conviction Weight Baseline */}
-        <line
-          x1={padL}
-          y1={barTop - 4}
-          x2={w - padR}
-          y2={barTop - 4}
-          stroke="currentColor"
-          className="text-zinc-200 dark:text-zinc-800"
-          strokeWidth={0.75}
-        />
-        <line
-          x1={padL}
-          y1={barMid}
-          x2={w - padR}
-          y2={barMid}
-          stroke="currentColor"
-          className="text-zinc-300 dark:text-zinc-700"
-          strokeWidth={0.75}
-        />
-        <text
-          x={padL - 7}
-          y={barMid + 3}
-          textAnchor="end"
-          className="text-[8.5px] font-mono fill-zinc-500 dark:fill-zinc-400"
-        >
-          w_t
-        </text>
-
-        {/* Signed Daily Conviction Weight Bars */}
-        {days.map((d, i) => {
-          const cx = toX(i + 1);
-          const halfMax = barH / 2 - 2;
-          const hVal = Math.max(1.5, Math.abs(d.weight) * halfMax);
-          const yRect = d.weight >= 0 ? barMid - hVal : barMid;
-          const isAct = i === activeIdx;
-          return (
-            <rect
-              key={d.date + i}
-              x={cx - barW / 2}
-              y={yRect}
-              width={barW}
-              height={hVal}
-              rx={1}
-              fill={d.weight >= 0 ? '#3fb27f' : '#e0655f'}
-              fillOpacity={isAct ? 0.95 : 0.45}
-            />
-          );
-        })}
-
-        {/* Active / Hovered Day Crosshair & Markers */}
-        <line
-          x1={toX(activeIdx + 1)}
-          y1={padT}
-          x2={toX(activeIdx + 1)}
-          y2={barTop + barH}
-          stroke="#DEC084"
-          strokeOpacity={isHovering ? 0.7 : 0.35}
-          strokeDasharray="2 2"
-          strokeWidth={1}
-        />
-        <circle
-          cx={toX(activeIdx + 1)}
-          cy={toY(activeDay.benchmarkCumPct)}
-          r={3.5}
-          fill="#71717a"
-          stroke="#08080a"
-          strokeWidth={1.2}
-        />
-        <circle
-          cx={toX(activeIdx + 1)}
-          cy={toY(activeDay.strategyCumPct)}
-          r={4.5}
-          fill={showRegimeOverlay && activeRegimeTok ? activeRegimeTok.color : '#DEC084'}
-          stroke="#08080a"
-          strokeWidth={1.4}
-        />
-
-        {/* Interactive Hover Hit Columns */}
-        {days.map((d, i) => {
-          const cx = toX(i + 1);
-          return (
-            <rect
-              key={`hit-${d.date}-${i}`}
-              x={cx - slotW / 2}
-              y={padT}
-              width={slotW}
-              height={barTop + barH - padT}
-              fill="transparent"
-              className="cursor-crosshair"
-              onMouseEnter={() => setHoverIdx(i)}
-            />
-          );
-        })}
-
-        {/* X-Axis Date Labels */}
-        {xTickIndices.map((idx) => {
-          const x = toX(idx + 1);
-          const rawDate = days[idx].date;
-          const shortDate = rawDate.length >= 10 ? rawDate.slice(5) : rawDate;
-          return (
-            <text
-              key={idx}
-              x={x}
-              y={h - 5}
-              textAnchor={idx === 0 ? 'start' : idx === n - 1 ? 'end' : 'middle'}
-              className="text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
-            >
-              {shortDate}
-            </text>
-          );
-        })}
-      </svg>
-
-      {/* Legend Strip */}
-      <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono text-zinc-500 dark:text-zinc-400">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <span className="inline-flex items-center gap-1.5">
-            <span className="w-3 h-0.5 bg-[#DEC084] inline-block" />
-            TCN Signal-Weighted Net ({costBps} bps)
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="w-3 border-t border-dashed border-[#71717a] inline-block" />
-            Buy &amp; Hold Benchmark
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-xs bg-[#3fb27f]/70 inline-block" />
-            Long / <span className="w-2 h-2 rounded-xs bg-[#e0655f]/70 inline-block" /> Short weight w
-            <sub>t</sub>
-          </span>
-        </div>
-        <span>Hover chart to inspect daily signals &amp; HMM regime</span>
-      </div>
+      <PlotlyChart
+        data={traces}
+        layout={layout}
+        plotType="2d"
+        rangeSlider
+        hovermode="x unified"
+        showLegend
+        height={310}
+        exportFilename={`quantmetrics-tcn-backtest-${costBps}bps`}
+        uirevisionKey={`bt-${n}-${costBps}`}
+        showWheelHint
+      />
 
       {/* Per-Regime 30-Day Backtest Accuracy Scorecard */}
       {hasHmmRegimes && regimeBreakdown.length > 0 && (

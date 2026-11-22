@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import type { Data, Layout } from 'plotly.js';
 import {
   AdvancedCorrelationMatrixResult,
   generateLatexCorrelationTable,
@@ -13,6 +14,8 @@ import {
   PartialCorrelationEquation,
 } from '@/components/math/MathEquations';
 import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
+import { PlotlyChart, usePlotlyDarkTheme } from '@/components/charts/PlotlyChart';
+import { getPlotlyThemeTokens, QUANT_COLORS } from '@/lib/plotly-theme';
 import {
   Download,
   Copy,
@@ -89,9 +92,12 @@ export function CorrelationOverviewTab({
   const displayMatrix = getActiveMatrix();
 
   // Active pair selection
-  const activePair =
-    selectedPair ||
-    (activeTickers.length >= 2 ? { tA: activeTickers[0], tB: activeTickers[1] } : null);
+  const activePair = useMemo(
+    () =>
+      selectedPair ||
+      (activeTickers.length >= 2 ? { tA: activeTickers[0], tB: activeTickers[1] } : null),
+    [selectedPair, activeTickers]
+  );
 
   const idxA = activePair ? tickers.indexOf(activePair.tA) : 0;
   const idxB = activePair ? tickers.indexOf(activePair.tB) : 1;
@@ -101,15 +107,18 @@ export function CorrelationOverviewTab({
   const pairPVal = pValues[idxA]?.[idxB] ?? 0.05;
   const isFdrSig = fdrSignificantMask[idxA]?.[idxB] ?? true;
 
-  const retA = activePair ? returnsByTicker[activePair.tA] || [] : [];
-  const retB = activePair ? returnsByTicker[activePair.tB] || [] : [];
-  const scatterLen = Math.min(retA.length, retB.length);
+  const isDark = usePlotlyDarkTheme();
+  const tokens = useMemo(() => getPlotlyThemeTokens(isDark), [isDark]);
 
-  // Scatter points
-  const scatterPoints: { x: number; y: number }[] = [];
-  for (let i = 0; i < scatterLen; i++) {
-    scatterPoints.push({ x: retA[i], y: retB[i] });
-  }
+  const retA = useMemo(
+    () => (activePair ? returnsByTicker[activePair.tA] || [] : []),
+    [activePair, returnsByTicker]
+  );
+  const retB = useMemo(
+    () => (activePair ? returnsByTicker[activePair.tB] || [] : []),
+    [activePair, returnsByTicker]
+  );
+  const scatterLen = Math.min(retA.length, retB.length);
 
   // Linear regression slope for scatter plot
   let sXY = 0;
@@ -131,6 +140,59 @@ export function CorrelationOverviewTab({
   }
   const slope = sXX > 1e-12 ? sXY / sXX : 1.0;
   const intercept = mB - slope * mA;
+
+  const { scatterTraces, scatterLayout } = useMemo<{
+    scatterTraces: Data[];
+    scatterLayout: Partial<Layout>;
+  }>(() => {
+    if (!activePair || scatterLen === 0) return { scatterTraces: [], scatterLayout: {} };
+    const xs = retA.slice(0, scatterLen).map((v) => v * 100);
+    const ys = retB.slice(0, scatterLen).map((v) => v * 100);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const interceptPct = intercept * 100;
+    return {
+      scatterTraces: [
+        {
+          type: 'scatter',
+          mode: 'markers',
+          name: 'Daily Returns',
+          x: xs,
+          y: ys,
+          marker: {
+            size: 5.5,
+            color: 'rgba(222,192,132,0.62)',
+            line: { color: QUANT_COLORS.gold, width: 0.6 },
+          },
+          hovertemplate: `${activePair.tA}: %{x:+.2f}%<br>${activePair.tB}: %{y:+.2f}%<extra></extra>`,
+        },
+        {
+          type: 'scatter',
+          mode: 'lines',
+          name: `OLS (β = ${slope.toFixed(2)})`,
+          x: [minX, maxX],
+          y: [slope * minX + interceptPct, slope * maxX + interceptPct],
+          line: { color: '#10b981', width: 2 },
+          hovertemplate: `OLS fit: %{y:+.2f}%<extra></extra>`,
+        },
+      ],
+      scatterLayout: {
+        margin: { l: 50, r: 16, t: 10, b: 42 },
+        xaxis: {
+          title: { text: `${activePair.tA} Return (%)`, font: { size: 10, color: tokens.textMuted } },
+          ticksuffix: '%',
+          zeroline: true,
+          zerolinecolor: tokens.zeroLine,
+        },
+        yaxis: {
+          title: { text: `${activePair.tB} Return (%)`, font: { size: 10, color: tokens.textMuted } },
+          ticksuffix: '%',
+          zeroline: true,
+          zerolinecolor: tokens.zeroLine,
+        },
+      },
+    };
+  }, [activePair, retA, retB, scatterLen, slope, intercept, tokens]);
 
   // Color interpolator for correlation:
   const getCellBg = (corr: number, isMasked: boolean) => {
@@ -467,47 +529,19 @@ export function CorrelationOverviewTab({
                     <span className="font-mono">β = {slope.toFixed(3)}</span>
                   </div>
                   <ChartFullscreen title="Synchronized Return Scatter & Regression Slope">
-                  <div className="w-full aspect-[4/3] bg-zinc-50 dark:bg-zinc-900/80 rounded-lg border border-zinc-200 dark:border-zinc-800 relative p-2">
-                    <svg viewBox="0 0 300 200" className="w-full h-full">
-                      {/* Zero Crosshairs */}
-                      <line x1="20" y1="100" x2="280" y2="100" stroke="#64748b" strokeWidth="0.5" strokeDasharray="2 2" />
-                      <line x1="150" y1="20" x2="150" y2="180" stroke="#64748b" strokeWidth="0.5" strokeDasharray="2 2" />
-
-                      {/* Regression Line */}
-                      <line
-                        x1="30"
-                        y1={100 - (slope * (-0.05) + intercept) * 1200}
-                        x2="270"
-                        y2={100 - (slope * 0.05 + intercept) * 1200}
-                        stroke="#10b981"
-                        strokeWidth="1"
+                    <div className="w-full rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/80 p-1.5">
+                      <PlotlyChart
+                        data={scatterTraces}
+                        layout={scatterLayout}
+                        plotType="2d"
+                        hovermode="closest"
+                        showLegend={false}
+                        height={240}
+                        showWheelHint
+                        exportFilename={`scatter-${activePair.tA}-${activePair.tB}`}
+                        uirevisionKey={`corr-ov-scatter-${activePair.tA}-${activePair.tB}`}
                       />
-
-                      {/* Scatter points */}
-                      {scatterPoints.slice(0, 180).map((pt, idx) => {
-                        const cx = 150 + pt.x * 1200;
-                        const cy = 100 - pt.y * 1200;
-                        return (
-                          <circle
-                            key={idx}
-                            cx={Math.max(25, Math.min(275, cx))}
-                            cy={Math.max(25, Math.min(175, cy))}
-                            r="2.5"
-                            fill="#38bdf8"
-                            opacity="0.65"
-                          />
-                        );
-                      })}
-
-                      {/* Axis Labels */}
-                      <text x="275" y="95" textAnchor="end" className="text-[9px] font-mono fill-zinc-500">
-                        {activePair.tA} Return
-                      </text>
-                      <text x="155" y="25" textAnchor="start" className="text-[9px] font-mono fill-zinc-500">
-                        {activePair.tB} Return
-                      </text>
-                    </svg>
-                  </div>
+                    </div>
                   </ChartFullscreen>
                 </div>
 

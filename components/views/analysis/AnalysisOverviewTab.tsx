@@ -19,9 +19,11 @@ import { ReturnsChart } from '@/components/charts/ReturnsChart';
 import { RollingVolatilityChart } from '@/components/charts/RollingVolatilityChart';
 import { DecompositionChart } from '@/components/charts/DecompositionChart';
 import { RegimeTimeline, regimeNames } from '@/components/charts/RegimeTimeline';
+import type { Data, Layout } from 'plotly.js';
 import { RegimeChip } from '@/components/ui/RegimeChip';
 import { RegimeTransitionMatrix } from '@/components/ui/RegimeTransitionMatrix';
-import { useChartSize } from '@/lib/use-chart-size';
+import { PlotlyChart, usePlotlyDarkTheme } from '@/components/charts/PlotlyChart';
+import { getPlotlyThemeTokens } from '@/lib/plotly-theme';
 import { AlgoSelect } from '@/components/ui/AlgoSelect';
 import type { HmmFit } from '@/lib/hmm';
 import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
@@ -118,39 +120,74 @@ export function AnalysisOverviewTab({
     }));
   }, [filteredBars]);
 
-  // Rolling skew data scaling for pure SVG
+  const isDark = usePlotlyDarkTheme();
+  const tokens = React.useMemo(() => getPlotlyThemeTokens(isDark), [isDark]);
+
+  // Rolling skew data for Plotly
   const skewData = rollingMoments.rollingSkew;
   const nSkew = skewData.length;
-  const { ref: skewRef, size: skewSize } = useChartSize<HTMLDivElement>();
-  let minSkew = -2.5;
-  let maxSkew = 2.5;
-  if (nSkew > 0) {
-    for (const d of skewData) {
-      if (d.lowerCi < minSkew) minSkew = d.lowerCi;
-      if (d.upperCi > maxSkew) maxSkew = d.upperCi;
-    }
-  }
-  const skewRange = maxSkew - minSkew || 1;
-  const svgW = skewSize.width;
-  const svgH = skewSize.height;
-  const skewReady = svgW > 0;
-  const padL = 46;
-  const padR = 16;
-  const padT = 14;
-  const padB = 34;
-  const cW = Math.max(1, svgW - padL - padR);
-  const cH = Math.max(1, svgH - padT - padB);
-
-  const getSkewX = (i: number) => padL + (i / Math.max(1, nSkew - 1)) * cW;
-  const getSkewY = (val: number) => padT + cH - ((val - minSkew) / skewRange) * cH;
-
-  // Axis ticks: 5 linear y-ticks (skew units) + date x-ticks (3 on xs, 5 otherwise)
-  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((pct) => minSkew + pct * skewRange);
-  const xTickPcts = skewSize.width > 0 && skewSize.width < 640 ? [0, 0.5, 1] : [0, 0.25, 0.5, 0.75, 1];
-  const xTicks = xTickPcts.map((pct) => Math.round(pct * Math.max(0, nSkew - 1)));
-
-  const skewActiveIdx = skewHoverIdx !== null ? skewHoverIdx : nSkew - 1;
+  const skewActiveIdx = skewHoverIdx !== null && skewHoverIdx < nSkew ? skewHoverIdx : nSkew - 1;
   const activeSkewPoint = skewData[skewActiveIdx] || { date: '', skew: 0, lowerCi: 0, upperCi: 0 };
+
+  const { skewTraces, skewLayout } = React.useMemo<{
+    skewTraces: Data[];
+    skewLayout: Partial<Layout>;
+  }>(() => {
+    if (skewData.length === 0) return { skewTraces: [], skewLayout: {} };
+    const xs = skewData.map((d) => d.date);
+    return {
+      skewTraces: [
+        {
+          type: 'scatter',
+          mode: 'lines',
+          name: 'Upper 95% CI',
+          x: xs,
+          y: skewData.map((d) => d.upperCi),
+          line: { color: '#64748b', width: 1, dash: 'dot' },
+          hovertemplate: 'Upper CI: %{y:.3f}<extra></extra>',
+          showlegend: false,
+        },
+        {
+          type: 'scatter',
+          mode: 'lines',
+          name: '95% Confidence Band',
+          x: xs,
+          y: skewData.map((d) => d.lowerCi),
+          fill: 'tonexty',
+          fillcolor: 'rgba(16,185,129,0.12)',
+          line: { color: '#64748b', width: 1, dash: 'dot' },
+          hovertemplate: 'Lower CI: %{y:.3f}<extra></extra>',
+        },
+        {
+          type: 'scatter',
+          mode: 'lines',
+          name: '60d Skew',
+          x: xs,
+          y: skewData.map((d) => d.skew),
+          line: { color: '#10b981', width: 1.8 },
+          hovertemplate: '60d Skew: %{y:.3f}<extra></extra>',
+        },
+      ],
+      skewLayout: {
+        margin: { l: 48, r: 16, t: 10, b: 36 },
+        shapes: [
+          {
+            type: 'line',
+            xref: 'paper',
+            x0: 0,
+            x1: 1,
+            yref: 'y',
+            y0: 0,
+            y1: 0,
+            line: { color: tokens.zeroLine, width: 1, dash: 'dot' },
+          },
+        ],
+        yaxis: {
+          title: { text: 'Skewness', font: { size: 10, color: tokens.textMuted } },
+        },
+      },
+    };
+  }, [skewData, tokens]);
 
   return (
     <div className="space-y-6">
@@ -409,153 +446,23 @@ export function AnalysisOverviewTab({
 
           <div className="mt-4">
             <ChartFullscreen title="Rolling Skewness (60-Day) & Lo (2002) Confidence Bands">
-            <div ref={skewRef} className="chart-frame">
-            {skewReady && (
-            <svg
-              width={svgW}
-              height={svgH}
-              className="block h-full w-full select-none"
-              onMouseMove={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                const mouseX = e.clientX - rect.left;
-                const ratio = Math.max(0, Math.min(1, (mouseX - padL) / cW));
-                const idx = Math.round(ratio * (nSkew - 1));
-                setSkewHoverIdx(idx);
-              }}
-              onMouseLeave={() => setSkewHoverIdx(null)}
-            >
-              {/* Y-axis gridlines + tick labels */}
-              {yTicks.map((v, i) => (
-                <g key={`ytick-${i}`}>
-                  <line
-                    x1={padL}
-                    y1={getSkewY(v)}
-                    x2={svgW - padR}
-                    y2={getSkewY(v)}
-                    stroke="currentColor"
-                    className="text-zinc-200 dark:text-zinc-800/70"
-                    strokeDasharray="2 3"
-                    strokeWidth={0.65}
-                  />
-                  <text
-                    x={padL - 6}
-                    y={getSkewY(v) + 3.5}
-                    textAnchor="end"
-                    className="text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
-                  >
-                    {v.toFixed(1)}
-                  </text>
-                </g>
-              ))}
-
-              {/* Y-axis title (rotated) */}
-              <text
-                x={12}
-                y={padT + cH / 2}
-                textAnchor="middle"
-                transform={`rotate(-90 12 ${padT + cH / 2})`}
-                className="text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 uppercase tracking-wider"
-              >
-                Skewness
-              </text>
-
-              {/* X-axis baseline + date tick labels */}
-              <line
-                x1={padL}
-                y1={svgH - padB}
-                x2={svgW - padR}
-                y2={svgH - padB}
-                stroke="currentColor"
-                className="text-zinc-200 dark:text-zinc-800"
-                strokeWidth={1}
+              <PlotlyChart
+                data={skewTraces}
+                layout={skewLayout}
+                plotType="2d"
+                rangeSlider
+                hovermode="x unified"
+                showLegend={false}
+                height={240}
+                showWheelHint
+                exportFilename={`${ticker}-rolling-skewness`}
+                uirevisionKey={`skew-${ticker}-${nSkew}`}
+                onHover={(ev) => {
+                  const pt = (ev as { points?: Array<{ pointIndex?: number }> })?.points?.[0];
+                  if (pt && typeof pt.pointIndex === 'number') setSkewHoverIdx(pt.pointIndex);
+                }}
+                onUnhover={() => setSkewHoverIdx(null)}
               />
-              {xTicks.map((idx, i) =>
-                skewData[idx] ? (
-                  <text
-                    key={`xtick-${i}`}
-                    x={getSkewX(idx)}
-                    y={svgH - padB + 12}
-                    textAnchor={i === 0 ? 'start' : i === xTicks.length - 1 ? 'end' : 'middle'}
-                    className="text-[8px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
-                  >
-                    {skewData[idx].date}
-                  </text>
-                ) : null
-              )}
-
-              {/* Zero line */}
-              <line
-                x1={padL}
-                y1={getSkewY(0)}
-                x2={svgW - padR}
-                y2={getSkewY(0)}
-                stroke="#64748b"
-                strokeDasharray="2 2"
-                strokeWidth={0.65}
-                opacity={0.4}
-              />
-
-              {/* Confidence Band Polygon */}
-              {nSkew > 1 && (
-                <path
-                  d={`
-                    M ${getSkewX(0)} ${getSkewY(skewData[0].upperCi)}
-                    ${skewData.map((d, i) => `L ${getSkewX(i)} ${getSkewY(d.upperCi)}`).join(' ')}
-                    ${skewData.slice().reverse().map((d, i) => `L ${getSkewX(nSkew - 1 - i)} ${getSkewY(d.lowerCi)}`).join(' ')}
-                    Z
-                  `}
-                  fill="#10b981"
-                  fillOpacity={0.12}
-                />
-              )}
-
-              {/* Lower CI line */}
-              {nSkew > 1 && (
-                <path
-                  d={skewData.map((d, i) => `${i === 0 ? 'M' : 'L'} ${getSkewX(i)} ${getSkewY(d.lowerCi)}`).join(' ')}
-                  fill="none"
-                  stroke="#64748b"
-                  strokeDasharray="3 3"
-                  strokeWidth={0.65}
-                />
-              )}
-
-              {/* Upper CI line */}
-              {nSkew > 1 && (
-                <path
-                  d={skewData.map((d, i) => `${i === 0 ? 'M' : 'L'} ${getSkewX(i)} ${getSkewY(d.upperCi)}`).join(' ')}
-                  fill="none"
-                  stroke="#64748b"
-                  strokeDasharray="3 3"
-                  strokeWidth={0.65}
-                />
-              )}
-
-              {/* Center Skew line */}
-              {nSkew > 1 && (
-                <path
-                  d={skewData.map((d, i) => `${i === 0 ? 'M' : 'L'} ${getSkewX(i)} ${getSkewY(d.skew)}`).join(' ')}
-                  fill="none"
-                  stroke="#10b981"
-                  strokeWidth={1.3}
-                />
-              )}
-
-              {/* Active hover vertical line */}
-              {skewActiveIdx >= 0 && skewActiveIdx < nSkew && (
-                <line
-                  x1={getSkewX(skewActiveIdx)}
-                  y1={padT}
-                  x2={getSkewX(skewActiveIdx)}
-                  y2={svgH - padB}
-                  stroke="#94a3b8"
-                  strokeWidth={0.65}
-                  strokeDasharray="2 2"
-                />
-              )}
-            </svg>
-            )}
-            </div>
             </ChartFullscreen>
           </div>
 

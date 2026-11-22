@@ -1,7 +1,9 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
-import { useChartSize } from '@/lib/use-chart-size';
+import React, { useMemo } from 'react';
+import type { Data, Layout } from 'plotly.js';
+import { PlotlyChart, usePlotlyDarkTheme } from '@/components/charts/PlotlyChart';
+import { getPlotlyThemeTokens } from '@/lib/plotly-theme';
 
 export const REGIME_PALETTES: Record<number, string[]> = {
   2: ['rgba(63,178,127,0.9)', 'rgba(224,101,95,0.9)'],
@@ -38,98 +40,86 @@ interface RegimeTimelineProps {
   dates?: string[];
 }
 
-const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
-
-export function RegimeTimeline({ posteriors, labels, className, height = 44, maxBars = 500, dates }: RegimeTimelineProps) {
-  const [hover, setHover] = useState<{ idx: number; x: number; maxX: number } | null>(null);
+export function RegimeTimeline({
+  posteriors,
+  labels,
+  className,
+  height = 84,
+  maxBars = 600,
+  dates,
+}: RegimeTimelineProps) {
+  const isDark = usePlotlyDarkTheme();
+  const tokens = useMemo(() => getPlotlyThemeTokens(isDark), [isDark]);
 
   const K = posteriors[0]?.length ?? 0;
-  const names = labels ?? regimeNames(K);
-  const palette = regimePalette(K);
+  const names = useMemo(() => labels ?? regimeNames(K), [labels, K]);
+  const palette = useMemo(() => regimePalette(K), [K]);
 
-  const stride = Math.max(1, Math.ceil(posteriors.length / maxBars));
-  const bars = useMemo(() => {
-    const out: { start: number; dominant: number; color: string; label: string }[] = [];
+  const { traces, layout } = useMemo<{ traces: Data[]; layout: Partial<Layout> }>(() => {
+    if (posteriors.length === 0 || K === 0) return { traces: [], layout: {} };
+    const stride = Math.max(1, Math.ceil(posteriors.length / maxBars));
+    const xs: (string | number)[] = [];
+    const perState: number[][] = Array.from({ length: K }, () => []);
+
     for (let i = 0; i < posteriors.length; i += stride) {
+      xs.push(dates?.[i] ?? i);
       const row = posteriors[i];
-      let dominant = 0;
-      let best = -Infinity;
       for (let k = 0; k < K; k++) {
-        const p = row[k] ?? 0;
-        if (p > best) { best = p; dominant = k; }
+        perState[k].push((row[k] ?? 0) * 100);
       }
-      const base = palette[dominant].match(/[\d.]+/g)!.map(Number);
-      const alpha = 0.25 + 0.75 * (row[dominant] ?? 0);
-      out.push({ start: i, dominant, color: `rgba(${base[0]},${base[1]},${base[2]},${alpha.toFixed(2)})`, label: names[dominant] });
     }
-    return out;
-  }, [posteriors, K, stride, names, palette]);
 
-  const { ref, size } = useChartSize<HTMLDivElement>();
-  const width = Math.max(1, size.width);
-  const ready = size.width > 0;
-  // Fractional geometry — flooring the bar width left an unpainted black
-  // tail on the right whenever width % bars.length !== 0.
-  const step = width / Math.max(1, bars.length);
+    const dataTraces: Data[] = Array.from({ length: K }, (_, k) => ({
+      type: 'scatter',
+      mode: 'none',
+      stackgroup: 'regime',
+      groupnorm: 'percent',
+      name: names[k] ?? `State ${k + 1}`,
+      x: xs,
+      y: perState[k],
+      fillcolor: palette[k],
+      line: { width: 0, color: palette[k] },
+      hovertemplate: `%{y:.1f}%<extra>${names[k] ?? `State ${k + 1}`}</extra>`,
+    }));
 
-  const onMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const idx = clamp(Math.floor((x / Math.max(1, rect.width)) * posteriors.length), 0, posteriors.length - 1);
-    setHover({ idx, x, maxX: Math.max(90, rect.width - 90) });
-  };
+    return {
+      traces: dataTraces,
+      layout: {
+        margin: { l: 30, r: 8, t: 6, b: 22 },
+        yaxis: {
+          range: [0, 100],
+          tickvals: [0, 50, 100],
+          ticksuffix: '%',
+          gridcolor: tokens.grid,
+          fixedrange: true,
+        },
+      },
+    };
+  }, [posteriors, K, maxBars, dates, names, palette, tokens]);
+
+  const effectiveHeight = Math.max(96, height);
 
   return (
-    <div ref={ref} className={`relative w-full ${className ?? ''}`} style={{ height }}>
-      {ready && (
-      <svg
-        width={width}
-        height={height}
-        className="block w-full select-none"
-        onMouseMove={onMouseMove}
-        onMouseLeave={() => setHover(null)}
-        role="img"
-        aria-label="Volatility regime timeline"
-      >
-        {bars.map((b, i) => (
-          <rect
-            key={i}
-            x={i * step}
-            y={0}
-            width={step + 0.5}
-            height={height}
-            fill={b.color}
-          />
-        ))}
-      </svg>
-      )}
-
-      {hover && (
-        <div
-          className="pointer-events-none absolute z-10 -translate-x-1/2 rounded-md border border-gold-500/40 bg-zinc-950/95 px-2 py-1.5 font-mono text-[9px] leading-snug text-zinc-200 shadow-lg"
-          style={{ left: clamp(hover.x, 90, hover.maxX), bottom: '110%' }}
-        >
-          <div className="mb-0.5 text-zinc-400">
-            {dates?.[hover.idx] ?? `t = ${hover.idx}`}
-          </div>
-          {names.map((n, k) => (
-            <div key={k} className="flex items-center justify-between gap-3">
-              <span className="flex items-center gap-1.5">
-                <span className="inline-block h-2 w-2 rounded-sm" style={{ background: palette[k] }} />
-                {n}
-              </span>
-              <span style={{ color: palette[k] }}>{((posteriors[hover.idx][k] ?? 0) * 100).toFixed(0)}%</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className="mt-1 flex items-center justify-between font-mono text-[9px] text-zinc-500">
-        <span>{posteriors.length} obs</span>
-        <div className="flex items-center gap-2">
+    <div className={`w-full ${className ?? ''}`}>
+      <PlotlyChart
+        data={traces}
+        layout={layout}
+        plotType="2d"
+        hovermode="x unified"
+        autoScaleYOnWheel={false}
+        height={effectiveHeight}
+        exportFilename="quantmetrics-hmm-regime-timeline"
+        uirevisionKey={`reg-${posteriors.length}-${K}`}
+      />
+      <div className="mt-1 flex flex-wrap items-center justify-between gap-2 font-mono text-[10px] text-zinc-500">
+        <span>{posteriors.length.toLocaleString()} obs · Wheel: Pan X · Ctrl+Wheel: Zoom</span>
+        <div className="flex items-center gap-2.5">
           {names.map((n, k) => (
             <span key={k} className="flex items-center gap-1">
-              <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: palette[k] }} />
+              <span
+                className="inline-block h-2 w-2 rounded-full"
+                style={{ background: palette[k] }}
+              />
               {n}
             </span>
           ))}

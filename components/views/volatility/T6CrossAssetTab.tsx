@@ -10,6 +10,8 @@ import { RegimeChip } from '@/components/ui/RegimeChip';
 import { RegimeTransitionMatrix } from '@/components/ui/RegimeTransitionMatrix';
 import { fitGaussianHmm, type HmmFit } from '@/lib/hmm';
 import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
+import { PlotlyChart } from '@/components/charts/PlotlyChart';
+import { QUANT_COLORS } from '@/lib/plotly-theme';
 
 const f2 = (v: number | null | undefined, d = 2) =>
   v === null || v === undefined || !isFinite(v) ? '—' : v.toFixed(d);
@@ -360,49 +362,129 @@ export function T6CrossAssetTab({
           <RegimeTransitionMatrix fit={hmmFragility} className="mb-3 border-b border-[var(--hairline)] pb-3" showStats={false} />
         )}
         {regime ? (
-          <div className="w-full overflow-x-auto">
+          <div className="w-full">
             <ChartFullscreen title="^VIX × ^VVIX Vol Regime Map — 2y Daily">
-            <svg viewBox="0 0 640 260" className="w-full min-w-[520px]" role="img" aria-label="Vol regime scatter">
-              {/* quadrant shading */}
-              <rect x={40} y={10} width={280} height={110} fill="rgba(63,178,127,0.10)" />
-              <rect x={320} y={10} width={280} height={110} fill="rgba(224,101,95,0.10)" />
-              <rect x={40} y={120} width={280} height={110} fill="rgba(222,192,132,0.10)" />
-              <rect x={320} y={120} width={280} height={110} fill="rgba(224,101,95,0.17)" />
-              {/* median split lines */}
-              <line x1={320} x2={320} y1={10} y2={230} stroke="rgba(236,236,241,0.15)" strokeDasharray="3 4" />
-              <line x1={40} x2={600} y1={120} y2={120} stroke="rgba(236,236,241,0.15)" strokeDasharray="3 4" />
-              {/* points */}
-              {regime.pts.map((p, i) => {
-                if (i % 2 !== 0 && p.date !== regime.today?.date) return null;
-                const x = 40 + (p.x / 60) * 560;
-                const y = 230 - (Math.min(160, p.y) / 160) * 220;
-                const isToday = p.date === regime.today?.date;
-                return (
-                  <circle
-                    key={i}
-                    cx={x}
-                    cy={y}
-                    r={isToday ? 6 : 2}
-                    fill={isToday ? '#DEC084' : 'rgba(148,148,158,0.6)'}
-                    stroke={isToday ? '#0B0B0D' : 'none'}
-                    strokeWidth={isToday ? 1.05 : 0}
-                  >
-                    {isToday && <title>{`today: VIX ${p.x.toFixed(1)} / VVIX ${p.y.toFixed(0)}`}</title>}
-                  </circle>
-                );
-              })}
-              {/* labels */}
-              <text x={48} y={24} fontSize="9" fill="rgba(63,178,127,0.8)" fontFamily="var(--font-mono)">COMPLACENT (low VIX / low VVIX)</text>
-              <text x={592} y={24} fontSize="9" fill="rgba(224,101,95,0.85)" textAnchor="end" fontFamily="var(--font-mono)">TRENDING (vol rising, forecast unstable)</text>
-              <text x={48} y={226} fontSize="9" fill="rgba(222,192,132,0.85)" fontFamily="var(--font-mono)">HEDGING (rich puts, orderly)</text>
-              <text x={592} y={226} fontSize="9" fill="rgba(224,101,95,1)" textAnchor="end" fontFamily="var(--font-mono)">PANIC (high VIX / high VVIX)</text>
-              {/* axes */}
-              <text x={40} y={248} fontSize="8.5" fill="#8b8b93" fontFamily="var(--font-mono)">^VIX {vix[vix.length - 1].close.toFixed(1)} today →</text>
-              <text x={600} y={248} fontSize="8.5" fill="#8b8b93" textAnchor="end" fontFamily="var(--font-mono)">x: level of vol · y: fragility of vol</text>
-            </svg>
+              <PlotlyChart
+                data={[
+                  {
+                    type: 'scatter',
+                    mode: 'markers',
+                    name: 'Historical Sessions',
+                    x: regime.pts.filter((p) => p.date !== regime.today?.date).map((p) => p.x),
+                    y: regime.pts.filter((p) => p.date !== regime.today?.date).map((p) => p.y),
+                    text: regime.pts.filter((p) => p.date !== regime.today?.date).map((p) => p.date),
+                    marker: { size: 5, color: 'rgba(148,148,158,0.55)' },
+                    hovertemplate: '<b>%{text}</b><br>^VIX %{x:.1f} · ^VVIX %{y:.1f}<extra></extra>',
+                  },
+                  ...(regime.today
+                    ? [
+                        {
+                          type: 'scatter' as const,
+                          mode: 'markers' as const,
+                          name: `Today (${regime.today.date})`,
+                          x: [regime.today.x],
+                          y: [regime.today.y],
+                          marker: {
+                            size: 11,
+                            color: QUANT_COLORS.goldLight,
+                            line: { color: '#0B0B0D', width: 1.5 },
+                          },
+                          hovertemplate: `<b>Today (${regime.today.date})</b><br>^VIX %{x:.1f} · ^VVIX %{y:.1f}<extra></extra>`,
+                        },
+                      ]
+                    : []),
+                ]}
+                layout={{
+                  shapes: [
+                    {
+                      type: 'rect',
+                      xref: 'x',
+                      yref: 'y',
+                      x0: 0,
+                      x1: regime.xMid,
+                      y0: 0,
+                      y1: regime.yMid,
+                      fillcolor: 'rgba(63,178,127,0.08)',
+                      line: { width: 0 },
+                      layer: 'below',
+                    },
+                    {
+                      type: 'rect',
+                      xref: 'x',
+                      yref: 'y',
+                      x0: regime.xMid,
+                      x1: 90,
+                      y0: 0,
+                      y1: regime.yMid,
+                      fillcolor: 'rgba(222,192,132,0.09)',
+                      line: { width: 0 },
+                      layer: 'below',
+                    },
+                    {
+                      type: 'rect',
+                      xref: 'x',
+                      yref: 'y',
+                      x0: 0,
+                      x1: regime.xMid,
+                      y0: regime.yMid,
+                      y1: 200,
+                      fillcolor: 'rgba(224,101,95,0.08)',
+                      line: { width: 0 },
+                      layer: 'below',
+                    },
+                    {
+                      type: 'rect',
+                      xref: 'x',
+                      yref: 'y',
+                      x0: regime.xMid,
+                      x1: 90,
+                      y0: regime.yMid,
+                      y1: 200,
+                      fillcolor: 'rgba(224,101,95,0.16)',
+                      line: { width: 0 },
+                      layer: 'below',
+                    },
+                    {
+                      type: 'line',
+                      xref: 'x',
+                      yref: 'paper',
+                      x0: regime.xMid,
+                      x1: regime.xMid,
+                      y0: 0,
+                      y1: 1,
+                      line: { color: 'rgba(148,148,160,0.35)', width: 1, dash: 'dot' },
+                    },
+                    {
+                      type: 'line',
+                      xref: 'paper',
+                      yref: 'y',
+                      x0: 0,
+                      x1: 1,
+                      y0: regime.yMid,
+                      y1: regime.yMid,
+                      line: { color: 'rgba(148,148,160,0.35)', width: 1, dash: 'dot' },
+                    },
+                  ],
+                  annotations: [
+                    { x: 0.02, y: 0.04, xref: 'paper', yref: 'paper', text: 'COMPLACENT', showarrow: false, font: { size: 9, color: QUANT_COLORS.positive }, xanchor: 'left' },
+                    { x: 0.98, y: 0.04, xref: 'paper', yref: 'paper', text: 'HEDGING', showarrow: false, font: { size: 9, color: QUANT_COLORS.goldLight }, xanchor: 'right' },
+                    { x: 0.02, y: 0.96, xref: 'paper', yref: 'paper', text: 'TRENDING', showarrow: false, font: { size: 9, color: QUANT_COLORS.negative }, xanchor: 'left' },
+                    { x: 0.98, y: 0.96, xref: 'paper', yref: 'paper', text: 'PANIC', showarrow: false, font: { size: 9, color: QUANT_COLORS.negative }, xanchor: 'right' },
+                  ],
+                }}
+                plotType="2d"
+                hovermode="closest"
+                showLegend
+                xAxisTitle="^VIX Level"
+                yAxisTitle="^VVIX Fragility"
+                height={300}
+                uirevisionKey={`vix-vvix-${regime.pts.length}`}
+                exportFilename="vix-vvix-regime-map"
+                showWheelHint
+              />
             </ChartFullscreen>
-            <div className="mt-2 flex items-center gap-3 font-mono text-[9px] text-zinc-400">
-              <span className="flex items-center gap-1.5"><span className="inline-block h-2 w-2 rounded-full bg-[#DEC084]" /> today ({regime.today?.date})</span>
+            <div className="mt-2 flex items-center gap-3 font-mono text-[10px] text-zinc-500 dark:text-zinc-400">
+              <span>Today ({regime.today?.date}): ^VIX {regime.today?.x.toFixed(1)} · ^VVIX {regime.today?.y.toFixed(0)}</span>
               <span>· quadrant split at 1y medians (^VIX {regime.xMid.toFixed(1)}, ^VVIX {regime.yMid.toFixed(0)})</span>
             </div>
           </div>

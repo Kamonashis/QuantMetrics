@@ -29,14 +29,18 @@ import {
   type OosScorecardRow,
 } from '@/lib/tcn-diagnostics';
 import { computeHistoricalBacktest } from '@/lib/tcn-attention';
-import {
-  buildRegimeBandSpans,
-  getHmmRegimeToken,
-} from '@/lib/hmm-regime-overlay';
+import type { Data, Layout } from 'plotly.js';
+import { getHmmRegimeToken } from '@/lib/hmm-regime-overlay';
 import {
   HmmRegimeOverlayToggle,
   HmmRegimeScorecard,
 } from '@/components/charts/HmmRegimeOverlayControls';
+import { PlotlyChart, usePlotlyDarkTheme } from '@/components/charts/PlotlyChart';
+import {
+  buildHmmRegimeShapes,
+  getPlotlyThemeTokens,
+  QUANT_COLORS,
+} from '@/lib/plotly-theme';
 
 type DashboardPanel = 'scorecard' | 'matrix' | 'attention' | 'cache';
 type AttentionFilter = 'all' | 'volatility' | 'risk_var' | 'regression';
@@ -73,32 +77,7 @@ const ATTN_FILTERS: { id: AttentionFilter; label: string }[] = [
   { id: 'regression', label: 'Regression' },
 ];
 
-const ATTN_CHART_W = 720;
-const ATTN_CHART_H = 168;
-const ATTN_PAD_L = 38;
-const ATTN_PAD_R = 16;
-const ATTN_PAD_T = 14;
-const ATTN_PAD_B = 26;
-const ATTN_INNER_W = ATTN_CHART_W - ATTN_PAD_L - ATTN_PAD_R;
-const ATTN_INNER_H = ATTN_CHART_H - ATTN_PAD_T - ATTN_PAD_B;
 
-function buildAttentionPolyline(
-  pts: { volWeight: number | null; riskWeight: number | null; regWeight: number | null }[],
-  field: 'volWeight' | 'riskWeight' | 'regWeight',
-  maxWeight: number
-): string {
-  if (pts.length === 0) return '';
-  const denom = Math.max(1, pts.length - 1);
-  const coords: string[] = [];
-  for (let i = 0; i < pts.length; i++) {
-    const val = pts[i][field];
-    if (val === null) continue;
-    const x = ATTN_PAD_L + (i / denom) * ATTN_INNER_W;
-    const y = ATTN_PAD_T + ATTN_INNER_H - (val / maxWeight) * ATTN_INNER_H;
-    coords.push(`${x.toFixed(1)},${y.toFixed(1)}`);
-  }
-  return coords.join(' ');
-}
 
 function fmtPct(v: number | null | undefined, digits = 1): string {
   if (v === null || v === undefined || !Number.isFinite(v)) return '—';
@@ -255,11 +234,13 @@ export function TcnUnifiedDashboard({
     (r) => r.volCount > 0 || r.riskCount > 0 || r.regCount > 0 || r.decompCount > 0
   );
 
-  const attentionRegimeBandSpans = useMemo(
-    () => buildRegimeBandSpans(attentionData.lagCurves.map((pt) => pt.hmmState)),
+  const isDark = usePlotlyDarkTheme();
+  const tokens = useMemo(() => getPlotlyThemeTokens(isDark), [isDark]);
+
+  const hasAttentionRegimes = useMemo(
+    () => attentionData.lagCurves.some((pt) => pt.hmmState !== null),
     [attentionData.lagCurves]
   );
-  const hasAttentionRegimes = attentionRegimeBandSpans.length > 0;
 
   const filteredShockDates = useMemo(() => {
     if (attentionFilter === 'all') return attentionData.jointShockDates;
@@ -274,37 +255,134 @@ export function TcnUnifiedDashboard({
     (bundle.regression ? 1 : 0) +
     (bundle.confluence.hasVolArtifact ? 1 : 0);
 
-  // SVG chart geometry for Causal Attention Overlay
-  const chartW = ATTN_CHART_W;
-  const chartH = ATTN_CHART_H;
-  const padL = ATTN_PAD_L;
-  const padR = ATTN_PAD_R;
-  const padT = ATTN_PAD_T;
-  const innerW = ATTN_INNER_W;
-  const innerH = ATTN_INNER_H;
+  const { attnTraces, attnLayout } = useMemo<{
+    attnTraces: Data[];
+    attnLayout: Partial<Layout>;
+  }>(() => {
+    const pts = attentionData.lagCurves;
+    if (pts.length === 0) return { attnTraces: [], attnLayout: {} };
 
-  const maxWeight = useMemo(() => {
-    let m = 0.12;
-    for (const pt of attentionData.lagCurves) {
-      if (pt.volWeight !== null) m = Math.max(m, pt.volWeight);
-      if (pt.riskWeight !== null) m = Math.max(m, pt.riskWeight);
-      if (pt.regWeight !== null) m = Math.max(m, pt.regWeight);
+    const labels = pts.map((pt) => `t−${pt.lag}`);
+    const consensusPct = pts.map((pt) => pt.consensusWeight * 100);
+    const barColors = pts.map((pt) => {
+      const tok = pt.hmmState !== null ? getHmmRegimeToken(pt.hmmState) : null;
+      const base = showAttentionRegimeOverlay && tok ? tok.color : QUANT_COLORS.gold;
+      const alpha = hoveredLag === pt.lag ? 0.55 : 0.24;
+      if (base.startsWith('#') && base.length === 7) {
+        const r = parseInt(base.slice(1, 3), 16);
+        const g = parseInt(base.slice(3, 5), 16);
+        const b = parseInt(base.slice(5, 7), 16);
+        return `rgba(${r},${g},${b},${alpha})`;
+      }
+      return base;
+    });
+
+    const traces: Data[] = [
+      {
+        type: 'bar',
+        name: 'Consensus',
+        x: labels,
+        y: consensusPct,
+        marker: { color: barColors },
+        hovertemplate: 'Consensus: %{y:.1f}%<extra></extra>',
+      },
+    ];
+
+    if (showAttentionRegimeOverlay && hasAttentionRegimes) {
+      traces.push({
+        type: 'scatter',
+        mode: 'markers',
+        name: 'HMM Origin Regime',
+        x: labels,
+        y: consensusPct,
+        marker: {
+          size: pts.map((pt) => (hoveredLag === pt.lag ? 8 : 5)),
+          color: pts.map((pt) =>
+            pt.hmmState !== null ? getHmmRegimeToken(pt.hmmState).color : QUANT_COLORS.gold
+          ),
+          line: { color: isDark ? '#08080A' : '#FFFFFF', width: 1 },
+        },
+        text: pts.map((pt) =>
+          pt.hmmState !== null
+            ? `${getHmmRegimeToken(pt.hmmState).label}${pt.hmmProb !== null ? ` (${Math.round(pt.hmmProb * 100)}%)` : ''}`
+            : 'N/A'
+        ),
+        hovertemplate: 'Regime: %{text}<extra></extra>',
+        showlegend: false,
+      });
     }
-    return Math.min(1, m * 1.15);
-  }, [attentionData.lagCurves]);
 
-  const volLine = useMemo(
-    () => buildAttentionPolyline(attentionData.lagCurves, 'volWeight', maxWeight),
-    [attentionData.lagCurves, maxWeight]
-  );
-  const riskLine = useMemo(
-    () => buildAttentionPolyline(attentionData.lagCurves, 'riskWeight', maxWeight),
-    [attentionData.lagCurves, maxWeight]
-  );
-  const regLine = useMemo(
-    () => buildAttentionPolyline(attentionData.lagCurves, 'regWeight', maxWeight),
-    [attentionData.lagCurves, maxWeight]
-  );
+    if (attentionFilter === 'all' || attentionFilter === 'volatility') {
+      traces.push({
+        type: 'scatter',
+        mode: 'lines',
+        name: 'Volatility',
+        x: labels,
+        y: pts.map((pt) => (pt.volWeight !== null ? pt.volWeight * 100 : null)),
+        line: { color: QUANT_COLORS.gold, width: 2 },
+        connectgaps: true,
+        hovertemplate: 'Volatility: %{y:.1f}%<extra></extra>',
+      });
+    }
+
+    if (attentionFilter === 'all' || attentionFilter === 'risk_var') {
+      traces.push({
+        type: 'scatter',
+        mode: 'lines',
+        name: 'Risk VaR',
+        x: labels,
+        y: pts.map((pt) => (pt.riskWeight !== null ? pt.riskWeight * 100 : null)),
+        line: { color: '#E11D48', width: 1.8, dash: 'dot' },
+        connectgaps: true,
+        hovertemplate: 'Risk VaR: %{y:.1f}%<extra></extra>',
+      });
+    }
+
+    if (attentionFilter === 'all' || attentionFilter === 'regression') {
+      traces.push({
+        type: 'scatter',
+        mode: 'lines',
+        name: 'Regression',
+        x: labels,
+        y: pts.map((pt) => (pt.regWeight !== null ? pt.regWeight * 100 : null)),
+        line: { color: '#10B981', width: 1.8 },
+        connectgaps: true,
+        hovertemplate: 'Regression: %{y:.1f}%<extra></extra>',
+      });
+    }
+
+    const shapes = buildHmmRegimeShapes(
+      labels,
+      pts.map((pt) => pt.hmmState),
+      showAttentionRegimeOverlay && hasAttentionRegimes
+    );
+
+    return {
+      attnTraces: traces,
+      attnLayout: {
+        margin: { l: 44, r: 14, t: 10, b: 32 },
+        barmode: 'overlay',
+        shapes,
+        xaxis: {
+          type: 'category',
+          tickfont: { size: 9.5, color: tokens.textMuted },
+        },
+        yaxis: {
+          ticksuffix: '%',
+          rangemode: 'tozero',
+          tickfont: { size: 9.5, color: tokens.textMuted },
+        },
+      },
+    };
+  }, [
+    attentionData.lagCurves,
+    attentionFilter,
+    hoveredLag,
+    showAttentionRegimeOverlay,
+    hasAttentionRegimes,
+    isDark,
+    tokens,
+  ]);
 
   const activeLagPoint =
     hoveredLag !== null
@@ -888,183 +966,26 @@ export function TcnUnifiedDashboard({
                       )}
                     </span>
                   </div>
-                  <div className="w-full overflow-x-auto border border-[var(--hairline)] bg-[var(--bg-inset)]/40 p-2">
-                    <svg
-                      viewBox={`0 0 ${chartW} ${chartH}`}
-                      className="h-44 w-full min-w-[460px]"
-                      role="img"
-                      aria-label="Cross-module causal self-attention lag weights with HMM volatility regime overlay"
-                      onMouseLeave={() => setHoveredLag(null)}
-                    >
-                      {/* Causal HMM Regime Background Bands across lookback lags */}
-                      {hasAttentionRegimes && (() => {
-                        const totalLags = attentionData.lagCurves.length;
-                        const denom = Math.max(1, totalLags - 1);
-                        const slotW = totalLags > 1 ? innerW / denom : innerW;
-                        return (
-                          <g
-                            style={{
-                              opacity: showAttentionRegimeOverlay ? 1 : 0,
-                              transition: 'opacity 150ms ease',
-                            }}
-                          >
-                            {attentionRegimeBandSpans.map((span) => {
-                              const tok = getHmmRegimeToken(span.state);
-                              const x0 =
-                                span.startIdx === 0
-                                  ? padL
-                                  : padL + (span.startIdx / denom) * innerW - slotW / 2;
-                              const x1 =
-                                span.endIdx === totalLags - 1
-                                  ? chartW - padR
-                                  : padL + (span.endIdx / denom) * innerW + slotW / 2;
-                              return (
-                                <rect
-                                  key={`attn-band-${span.startIdx}-${span.endIdx}-${span.state}`}
-                                  x={x0}
-                                  y={padT}
-                                  width={Math.max(1, x1 - x0)}
-                                  height={innerH}
-                                  fill={`rgba(${tok.rgb}, 0.12)`}
-                                />
-                              );
-                            })}
-                          </g>
-                        );
-                      })()}
-
-                      {/* Horizontal gridlines */}
-                      {[0, 0.5, 1].map((frac) => {
-                        const y = padT + innerH - frac * innerH;
-                        const labelVal = frac * maxWeight * 100;
-                        return (
-                          <g key={frac}>
-                            <line
-                              x1={padL}
-                              x2={chartW - padR}
-                              y1={y}
-                              y2={y}
-                              stroke="currentColor"
-                              strokeOpacity={0.12}
-                              strokeDasharray="2 3"
-                            />
-                            <text
-                              x={padL - 6}
-                              y={y + 3}
-                              textAnchor="end"
-                              className="fill-zinc-500 font-mono text-[9px]"
-                            >
-                              {labelVal.toFixed(0)}%
-                            </text>
-                          </g>
-                        );
-                      })}
-
-                      {/* Consensus shaded bars & regime-colored consensus dots */}
-                      {attentionData.lagCurves.map((pt, idx) => {
-                        const denom = Math.max(1, attentionData.lagCurves.length - 1);
-                        const x = padL + (idx / denom) * innerW;
-                        const barW = Math.max(6, innerW / attentionData.lagCurves.length - 4);
-                        const barH = (pt.consensusWeight / maxWeight) * innerH;
-                        const isHov = hoveredLag === pt.lag;
-                        const tok = pt.hmmState !== null ? getHmmRegimeToken(pt.hmmState) : null;
-                        return (
-                          <g
-                            key={pt.lag}
-                            onMouseEnter={() => setHoveredLag(pt.lag)}
-                            className="cursor-crosshair"
-                          >
-                            <rect
-                              x={x - barW / 2}
-                              y={padT + innerH - barH}
-                              width={barW}
-                              height={Math.max(1, barH)}
-                              fill={showAttentionRegimeOverlay && tok ? tok.color : '#DEC084'}
-                              fillOpacity={isHov ? 0.42 : 0.18}
-                            />
-                            {showAttentionRegimeOverlay && tok && (
-                              <circle
-                                cx={x}
-                                cy={padT + innerH - barH}
-                                r={isHov ? 4.0 : 2.5}
-                                fill={tok.color}
-                                stroke="#08080a"
-                                strokeWidth={isHov ? 1.2 : 0.8}
-                              />
-                            )}
-                            <rect
-                              x={x - barW / 2}
-                              y={padT}
-                              width={barW}
-                              height={innerH}
-                              fill="transparent"
-                            />
-                          </g>
-                        );
-                      })}
-
-                      {/* Volatility curve */}
-                      {(attentionFilter === 'all' || attentionFilter === 'volatility') &&
-                        volLine && (
-                          <polyline
-                            fill="none"
-                            stroke="#DEC084"
-                            strokeWidth={2}
-                            strokeLinejoin="round"
-                            points={volLine}
-                          />
-                        )}
-                      {/* Risk VaR curve */}
-                      {(attentionFilter === 'all' || attentionFilter === 'risk_var') &&
-                        riskLine && (
-                          <polyline
-                            fill="none"
-                            stroke="#E11D48"
-                            strokeWidth={1.75}
-                            strokeLinejoin="round"
-                            strokeDasharray="4 2"
-                            points={riskLine}
-                          />
-                        )}
-                      {/* Regression curve */}
-                      {(attentionFilter === 'all' || attentionFilter === 'regression') &&
-                        regLine && (
-                          <polyline
-                            fill="none"
-                            stroke="#10B981"
-                            strokeWidth={1.75}
-                            strokeLinejoin="round"
-                            points={regLine}
-                          />
-                        )}
-
-                      {/* X-axis lag ticks */}
-                      {attentionData.lagCurves
-                        .filter(
-                          (pt, idx) =>
-                            idx === 0 ||
-                            idx === attentionData.lagCurves.length - 1 ||
-                            pt.lag % 5 === 0
-                        )
-                        .map((pt) => {
-                          const idx = attentionData.lagCurves.findIndex(
-                            (p) => p.lag === pt.lag
-                          );
-                          const denom = Math.max(1, attentionData.lagCurves.length - 1);
-                          const x = padL + (idx / denom) * innerW;
-                          return (
-                            <text
-                              key={pt.lag}
-                              x={x}
-                              y={chartH - 6}
-                              textAnchor="middle"
-                              className="fill-zinc-500 font-mono text-[9px]"
-                            >
-                              t−{pt.lag}
-                            </text>
-                          );
-                        })}
-                    </svg>
+                  <div className="w-full border border-[var(--hairline)] bg-[var(--bg-inset)]/40 p-1.5">
+                    <PlotlyChart
+                      data={attnTraces}
+                      layout={attnLayout}
+                      plotType="categorical"
+                      hovermode="x unified"
+                      showLegend={false}
+                      height={208}
+                      showWheelHint
+                      exportFilename={`${ticker}-tcn-attention-profile`}
+                      uirevisionKey={`tcn-attn-${ticker}-${attentionFilter}-${showAttentionRegimeOverlay}`}
+                      onHover={(ev) => {
+                        const pt = (ev as { points?: Array<{ pointIndex?: number }> })?.points?.[0];
+                        if (pt && typeof pt.pointIndex === 'number') {
+                          const item = attentionData.lagCurves[pt.pointIndex];
+                          if (item) setHoveredLag(item.lag);
+                        }
+                      }}
+                      onUnhover={() => setHoveredLag(null)}
+                    />
                   </div>
                 </div>
 

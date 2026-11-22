@@ -1,14 +1,14 @@
 'use client';
 
+import React, { useMemo } from 'react';
+import type { Data, Layout } from 'plotly.js';
 import { EmptyState } from '@/components/ui/empty-state';
-
-import React from 'react';
-import { useChartSize } from '@/lib/use-chart-size';
+import { PlotlyChart, usePlotlyDarkTheme } from '@/components/charts/PlotlyChart';
+import { QUANT_COLORS } from '@/lib/plotly-theme';
 
 /**
- * Daily close line with the three dealer levels etched in:
- * call wall (gold dash), put wall (rose dash), gamma flip (zinc dotted).
- * Deliberately minimal — the point is the proximity, not the price history.
+ * Interactive Plotly daily close series with dealer levels:
+ * Call Wall (gold dash), Put Wall (crimson dash), and Zero-Gamma Flip (slate dot).
  */
 export function TrapPriceChart({
   closes,
@@ -23,65 +23,111 @@ export function TrapPriceChart({
   putWall: number | null;
   flip: number | null;
 }) {
-  const { ref, size } = useChartSize<HTMLDivElement>();
-  if (closes.length < 10) {
+  const isDark = usePlotlyDarkTheme();
+
+  const dataSlice = useMemo(() => closes.slice(-180), [closes]);
+
+  const { traces, layout } = useMemo(() => {
+    if (dataSlice.length < 10) {
+      return { traces: [] as Data[], layout: {} as Partial<Layout> };
+    }
+
+    const xs = dataSlice.map((d) => d.date);
+    const ys = dataSlice.map((d) => d.close);
+
+    const list: Data[] = [
+      {
+        type: 'scatter',
+        mode: 'lines',
+        name: 'Daily Close',
+        x: xs,
+        y: ys,
+        line: {
+          color: isDark ? '#ECECF1' : '#18181B',
+          width: 1.8,
+        },
+        fill: 'tozeroy',
+        fillcolor: 'rgba(222, 192, 132, 0.08)',
+        hovertemplate: '<b>%{x}</b><br>Close: $%{y:.2f}<extra></extra>',
+      },
+      {
+        type: 'scatter',
+        mode: 'markers',
+        name: 'Spot',
+        x: [xs[xs.length - 1]],
+        y: [spot],
+        marker: {
+          size: 7,
+          color: QUANT_COLORS.goldLight,
+          line: { color: isDark ? '#0B0B0D' : '#FFFFFF', width: 1.5 },
+        },
+        hovertemplate: '<b>Current Spot</b><br>$%{y:.2f}<extra></extra>',
+      },
+    ];
+
+    const shapes: NonNullable<Layout['shapes']> = [];
+    const annotations: NonNullable<Layout['annotations']> = [];
+
+    const addLevel = (val: number | null, color: string, label: string, dash: 'dash' | 'dot') => {
+      if (val === null || !Number.isFinite(val)) return;
+      shapes.push({
+        type: 'line',
+        xref: 'paper',
+        yref: 'y',
+        x0: 0,
+        x1: 1,
+        y0: val,
+        y1: val,
+        line: { color, width: 1.2, dash },
+      });
+      annotations.push({
+        x: 0.99,
+        y: val,
+        xref: 'paper',
+        yref: 'y',
+        text: `${label} $${val.toFixed(1)}`,
+        showarrow: false,
+        xanchor: 'right',
+        yanchor: 'bottom',
+        font: { size: 9.5, color },
+      });
+    };
+
+    addLevel(callWall, QUANT_COLORS.goldLight, 'CW', 'dash');
+    addLevel(putWall, QUANT_COLORS.negative, 'PW', 'dash');
+    addLevel(flip, QUANT_COLORS.slate, 'FLIP', 'dot');
+
+    return {
+      traces: list,
+      layout: {
+        shapes,
+        annotations,
+        margin: { l: 50, r: 16, t: 14, b: 30 },
+      } as Partial<Layout>,
+    };
+  }, [dataSlice, spot, callWall, putWall, flip, isDark]);
+
+  if (dataSlice.length < 10) {
     return (
-      <EmptyState title="Not enough price history" detail="The trap overlay needs a daily close series" className="h-44" />
+      <EmptyState
+        title="Not enough price history"
+        detail="The trap overlay needs a daily close series"
+        className="h-44"
+      />
     );
   }
 
-  const data = closes.slice(-120);
-  const width = size.width;
-  const height = size.height;
-  const ready = width > 0;
-  const pad = { l: 38, r: 26, t: 12, b: 20 };
-
-  const levels = [callWall, putWall, flip, spot].filter((v): v is number => v !== null && isFinite(v));
-  const all = data.map((d) => d.close).concat(levels);
-  const yMin = Math.min(...all) * 0.985;
-  const yMax = Math.max(...all) * 1.015;
-  const span = Math.max(1e-6, yMax - yMin);
-
-  const xOf = (i: number) => pad.l + (i / (data.length - 1)) * (width - pad.l - pad.r);
-  const yOf = (v: number) => pad.t + (1 - (v - yMin) / span) * (height - pad.t - pad.b);
-
-  const linePath = data.map((d, i) => `${i === 0 ? 'M' : 'L'}${xOf(i).toFixed(2)},${yOf(d.close).toFixed(2)}`).join(' ');
-  const areaPath = `${linePath} L${xOf(data.length - 1).toFixed(2)},${height - pad.b} L${xOf(0).toFixed(2)},${height - pad.b} Z`;
-
-  const levelLine = (v: number | null, color: string, label: string, dash = '5 4') => {
-    if (v === null || !isFinite(v)) return null;
-    const y = yOf(v);
-    return (
-      <g key={label}>
-        <line x1={pad.l} x2={width - pad.r} y1={y} y2={y} stroke={color} strokeWidth="0.85" strokeDasharray={dash} opacity="0.85" />
-        <text x={width - pad.r + 2} y={y + 3} fontSize="8" fill={color} fontFamily="var(--font-mono)" textAnchor="start">
-          {label}
-        </text>
-      </g>
-    );
-  };
-
   return (
-    <div ref={ref} className="h-[170px] sm:h-[190px] 2xl:h-[220px] w-full contain-[layout_paint]">
-      {ready && (
-      <svg width={width} height={height} className="block h-full w-full" role="img" aria-label="Price with dealer levels">
-        <path d={areaPath} fill="rgba(222,192,132,0.07)" stroke="none" />
-        {levelLine(callWall, '#DEC084', 'CW')}
-        {levelLine(putWall, '#e0655f', 'PW')}
-        {levelLine(flip, '#a1a1ad', 'FLIP', '2 3')}
-        <path d={linePath} fill="none" stroke="#ececf1" strokeWidth="1.05" strokeLinejoin="round" strokeLinecap="round" />
-        <circle cx={xOf(data.length - 1)} cy={yOf(spot)} r="3" fill="#DEC084" stroke="#0B0B0D" strokeWidth="0.9" />
-        {/* y bounds */}
-        <text x={pad.l - 5} y={pad.t + 6} fontSize="8.5" fill="#8b8b93" textAnchor="end" fontFamily="var(--font-mono)">
-          {yMax.toFixed(1)}
-        </text>
-        <text x={pad.l - 5} y={height - pad.b} fontSize="8.5" fill="#8b8b93" textAnchor="end" fontFamily="var(--font-mono)">
-          {yMin.toFixed(1)}
-        </text>
-        <text x={pad.l} y={height - 4} fontSize="8.5" fill="#8b8b93" fontFamily="var(--font-mono)">{data[0].date.slice(0, 7)}</text>
-        <text x={width - pad.r} y={height - 4} fontSize="8.5" fill="#8b8b93" fontFamily="var(--font-mono)" textAnchor="end">{data[data.length - 1].date.slice(0, 7)}</text>
-      </svg>
-      )}
-    </div>
+    <PlotlyChart
+      data={traces}
+      layout={layout}
+      plotType="2d"
+      hovermode="x unified"
+      yTickPrefix="$"
+      height={220}
+      uirevisionKey={`trap-${dataSlice.length}-${spot.toFixed(1)}`}
+      exportFilename="trap-price-levels"
+      showWheelHint
+    />
   );
 }

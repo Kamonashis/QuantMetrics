@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import type { Data, Layout } from 'plotly.js';
 import { MicrostructureResult } from '@/lib/analysis-engine';
 import {
   RollSpreadEquation,
@@ -8,7 +9,8 @@ import {
   RealizedSemivarianceEquation,
 } from '@/components/math/MathEquations';
 import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
-import { useChartSize } from '@/lib/use-chart-size';
+import { PlotlyChart, usePlotlyDarkTheme } from '@/components/charts/PlotlyChart';
+import { getPlotlyThemeTokens } from '@/lib/plotly-theme';
 import {
   Waves,
   Clock,
@@ -24,38 +26,49 @@ export function AnalysisMicrostructureTab({
   microstructure,
   ticker,
 }: AnalysisMicrostructureTabProps) {
+  const isDark = usePlotlyDarkTheme();
+  const tokens = useMemo(() => getPlotlyThemeTokens(isDark), [isDark]);
   const [spreadHoverIdx, setSpreadHoverIdx] = useState<number | null>(null);
-  const { ref: spreadRef, size: spreadSize } = useChartSize<HTMLDivElement>();
 
-  // Pure SVG Intraday spread curve scaling
   const curveData = microstructure.intradaySpreadCurve;
   const nCurve = curveData.length;
-  let minSpread = Infinity;
-  let maxSpread = -Infinity;
-  for (const c of curveData) {
-    if (c.estimatedSpreadBps < minSpread) minSpread = c.estimatedSpreadBps;
-    if (c.estimatedSpreadBps > maxSpread) maxSpread = c.estimatedSpreadBps;
-  }
-  const sPad = (maxSpread - minSpread) * 0.2 || 2;
-  const sprMin = Math.max(0, minSpread - sPad);
-  const sprMax = maxSpread + sPad;
-  const sprRange = sprMax - sprMin || 1;
-
-  const spW = spreadSize.width;
-  const spH = spreadSize.height;
-  const spreadReady = spW > 0;
-  const pL = 46;
-  const pR = 14;
-  const pT = 14;
-  const pB = 28;
-  const cW = Math.max(1, spW - pL - pR);
-  const cH = Math.max(1, spH - pT - pB);
-
-  const getSpX = (i: number) => pL + (i / Math.max(1, nCurve - 1)) * cW;
-  const getSpY = (val: number) => pT + cH - ((val - sprMin) / sprRange) * cH;
-
-  const activeIdx = spreadHoverIdx !== null ? spreadHoverIdx : 0;
+  const activeIdx = spreadHoverIdx !== null && spreadHoverIdx < nCurve ? spreadHoverIdx : 0;
   const activePoint = curveData[activeIdx] || { timeStr: '09:30', estimatedSpreadBps: 10 };
+
+  const { spreadTraces, spreadLayout } = useMemo<{
+    spreadTraces: Data[];
+    spreadLayout: Partial<Layout>;
+  }>(() => {
+    if (curveData.length === 0) return { spreadTraces: [], spreadLayout: {} };
+    return {
+      spreadTraces: [
+        {
+          type: 'scatter',
+          mode: 'lines',
+          name: 'Estimated Spread',
+          x: curveData.map((c) => c.timeStr),
+          y: curveData.map((c) => c.estimatedSpreadBps),
+          fill: 'tozeroy',
+          fillcolor: 'rgba(16,185,129,0.14)',
+          line: { color: '#10b981', width: 2 },
+          hovertemplate: '%{x}: <b>%{y:.1f} bps</b><extra></extra>',
+        },
+      ],
+      spreadLayout: {
+        margin: { l: 54, r: 16, t: 10, b: 36 },
+        xaxis: {
+          type: 'category',
+          nticks: 6,
+          tickfont: { size: 10, color: tokens.textMuted },
+        },
+        yaxis: {
+          title: { text: 'Spread (bps)', font: { size: 10, color: tokens.textMuted } },
+          ticksuffix: ' bps',
+          rangemode: 'tozero',
+        },
+      },
+    };
+  }, [curveData, tokens]);
 
   return (
     <div className="space-y-6">
@@ -142,103 +155,22 @@ export function AnalysisMicrostructureTab({
 
         <div className="mt-4">
           <ChartFullscreen title="Estimated Intraday Spread Curve">
-          <div ref={spreadRef} className="chart-frame">
-          {spreadReady && (
-          <svg
-            width={spW}
-            height={spH}
-            className="block h-full w-full select-none"
-            onMouseMove={(e) => {
-              const rect = e.currentTarget.getBoundingClientRect();
-              const mouseX = e.clientX - rect.left;
-              const ratio = Math.max(0, Math.min(1, (mouseX - pL) / cW));
-              const idx = Math.round(ratio * (nCurve - 1));
-              setSpreadHoverIdx(idx);
-            }}
-            onMouseLeave={() => setSpreadHoverIdx(null)}
-          >
-            {/* Gridlines */}
-            {[0, 0.33, 0.66, 1].map((pct) => {
-              const val = sprMin + pct * sprRange;
-              const yPos = getSpY(val);
-              return (
-                <g key={pct}>
-                  <line x1={pL} y1={yPos} x2={spW - pR} y2={yPos} stroke="#334155" strokeDasharray="2 2" strokeWidth={0.5} opacity={0.3} />
-                  <text x={pL - 8} y={yPos + 3} textAnchor="end" fontSize="10" fill="#64748b" className="font-mono">
-                    {val.toFixed(1)} bps
-                  </text>
-                </g>
-              );
-            })}
-
-            {/* Spread Area fill */}
-            {nCurve > 1 && (
-              <path
-                d={`
-                  M ${getSpX(0)} ${pT + cH}
-                  ${curveData.map((c, i) => `L ${getSpX(i)} ${getSpY(c.estimatedSpreadBps)}`).join(' ')}
-                  L ${getSpX(nCurve - 1)} ${pT + cH}
-                  Z
-                `}
-                fill="#10b981"
-                fillOpacity={0.12}
-              />
-            )}
-
-            {/* Spread line */}
-            {nCurve > 1 && (
-              <path
-                d={curveData.map((c, i) => `${i === 0 ? 'M' : 'L'} ${getSpX(i)} ${getSpY(c.estimatedSpreadBps)}`).join(' ')}
-                fill="none"
-                stroke="#10b981"
-                strokeWidth={1.4}
-              />
-            )}
-
-            {/* Y-axis title */}
-            <text
-              x={10}
-              y={pT + cH / 2}
-              textAnchor="middle"
-              transform={`rotate(-90 10 ${pT + cH / 2})`}
-              className="text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 uppercase"
-            >
-              bps
-            </text>
-
-            {/* X-axis baseline + time ticks */}
-            <line
-              x1={pL}
-              y1={spH - pB}
-              x2={spW - pR}
-              y2={spH - pB}
-              stroke="currentColor"
-              className="text-zinc-200 dark:text-zinc-800"
-              strokeWidth={1}
+            <PlotlyChart
+              data={spreadTraces}
+              layout={spreadLayout}
+              plotType="categorical"
+              hovermode="x unified"
+              showLegend={false}
+              height={240}
+              showWheelHint
+              exportFilename={`${ticker}-intraday-spread-smile`}
+              uirevisionKey={`spread-smile-${ticker}-${nCurve}`}
+              onHover={(ev) => {
+                const pt = (ev as { points?: Array<{ pointIndex?: number }> })?.points?.[0];
+                if (pt && typeof pt.pointIndex === 'number') setSpreadHoverIdx(pt.pointIndex);
+              }}
+              onUnhover={() => setSpreadHoverIdx(null)}
             />
-            {[0, 0.25, 0.5, 0.75, 1].map((pct) => {
-              const i = Math.round(pct * Math.max(0, nCurve - 1));
-              const pt = curveData[i];
-              return pt ? (
-                <text
-                  key={`xtick-${i}`}
-                  x={getSpX(i)}
-                  y={spH - pB + 13}
-                  textAnchor={pct === 0 ? 'start' : pct === 1 ? 'end' : 'middle'}
-                  className="text-[8px] sm:text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
-                >
-                  {pt.timeStr}
-                </text>
-              ) : null;
-            })}
-
-            {/* Hover marker */}
-            {activeIdx >= 0 && activeIdx < nCurve && (
-              <circle cx={getSpX(activeIdx)} cy={getSpY(activePoint.estimatedSpreadBps)} r="4" fill="#10b981" />
-            )}
-          </svg>
-          )}
-          </div>
           </ChartFullscreen>
         </div>
 

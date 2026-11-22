@@ -1,9 +1,10 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo } from 'react';
+import type { Data, Layout } from 'plotly.js';
 import { DailyRealizedVol } from '@/lib/quant-engine';
-import { useChartSize } from '@/lib/use-chart-size';
-import { Zap, AlertTriangle } from 'lucide-react';
+import { PlotlyChart, usePlotlyDarkTheme } from '@/components/charts/PlotlyChart';
+import { getPlotlyThemeTokens, QUANT_COLORS } from '@/lib/plotly-theme';
 
 interface JumpDecompositionChartProps {
   dailyRV: DailyRealizedVol[];
@@ -14,51 +15,113 @@ export function JumpDecompositionChart({
   dailyRV,
   ticker,
 }: JumpDecompositionChartProps) {
-  const { ref, size } = useChartSize<HTMLDivElement>();
+  const isDark = usePlotlyDarkTheme();
+  const tokens = useMemo(() => getPlotlyThemeTokens(isDark), [isDark]);
+
+  const { traces, layout, avgJumpRatio, jumpDayCount } = useMemo<{
+    traces: Data[];
+    layout: Partial<Layout>;
+    avgJumpRatio: number;
+    jumpDayCount: number;
+  }>(() => {
+    if (!dailyRV || dailyRV.length === 0) {
+      return { traces: [], layout: {}, avgJumpRatio: 0, jumpDayCount: 0 };
+    }
+
+    let totalRv = 0;
+    let totalJump = 0;
+    let sigCount = 0;
+    for (const d of dailyRV) {
+      totalRv += d.realizedVariance;
+      totalJump += d.jumpComponent;
+      if (d.hasSignificantJump) sigCount++;
+    }
+    const ratio = totalRv > 0 ? (totalJump / totalRv) * 100 : 0;
+
+    const dates = dailyRV.map((d) => d.date);
+    const contVolPct = dailyRV.map((d) => d.annualizedContinuousVol * 100);
+    const jumpDeltaPct = dailyRV.map((d) =>
+      Math.max(0, (d.annualizedRealizedVol - d.annualizedContinuousVol) * 100)
+    );
+    const normalJump = dailyRV.map((d, i) => (d.hasSignificantJump ? 0 : jumpDeltaPct[i]));
+    const sigJump = dailyRV.map((d, i) => (d.hasSignificantJump ? jumpDeltaPct[i] : 0));
+
+    const sigDates: string[] = [];
+    const sigTopY: number[] = [];
+    dailyRV.forEach((d) => {
+      if (d.hasSignificantJump) {
+        sigDates.push(d.date);
+        sigTopY.push(d.annualizedRealizedVol * 100 + 1.2);
+      }
+    });
+
+    const dataTraces: Data[] = [
+      {
+        type: 'bar',
+        name: 'Continuous Diffusion (BV_t)',
+        x: dates,
+        y: contVolPct,
+        marker: { color: 'rgba(201, 164, 92, 0.78)' },
+        hovertemplate: '%{y:.2f}%<extra>Continuous BV_t</extra>',
+      },
+      {
+        type: 'bar',
+        name: 'Normal Jump Noise',
+        x: dates,
+        y: normalJump,
+        marker: { color: 'rgba(222, 192, 132, 0.45)' },
+        hovertemplate: '+%{y:.2f}%<extra>Jump Noise</extra>',
+      },
+      {
+        type: 'bar',
+        name: 'Significant Jump (Z > 1.96)',
+        x: dates,
+        y: sigJump,
+        marker: { color: QUANT_COLORS.negative },
+        hovertemplate: '+%{y:.2f}%<extra>Significant Jump</extra>',
+      },
+    ];
+
+    if (sigDates.length > 0) {
+      dataTraces.push({
+        type: 'scatter',
+        mode: 'markers',
+        name: 'Jump Anomaly Flag',
+        x: sigDates,
+        y: sigTopY,
+        marker: {
+          symbol: 'triangle-up',
+          size: 8,
+          color: QUANT_COLORS.negative,
+        },
+        showlegend: false,
+        hovertemplate: 'Significant Jump (p < 0.05)<extra></extra>',
+      });
+    }
+
+    return {
+      traces: dataTraces,
+      layout: {
+        barmode: 'stack',
+        bargap: 0.25,
+        yaxis: {
+          ticksuffix: '%',
+          rangemode: 'tozero',
+          gridcolor: tokens.grid,
+        },
+      },
+      avgJumpRatio: ratio,
+      jumpDayCount: sigCount,
+    };
+  }, [dailyRV, tokens]);
+
   if (!dailyRV || dailyRV.length === 0) {
     return (
-      <div className="h-60 flex items-center justify-center border border-zinc-200 dark:border-zinc-800 rounded-lg text-zinc-500 text-xs">
+      <div className="h-60 flex items-center justify-center border border-[var(--hairline)] rounded-lg text-zinc-500 text-xs">
         No realized volatility days computed
       </div>
     );
   }
-
-  const n = dailyRV.length;
-
-  let maxAnnVol = 0;
-  for (const d of dailyRV) {
-    if (d.annualizedRealizedVol > maxAnnVol) maxAnnVol = d.annualizedRealizedVol;
-  }
-  maxAnnVol = Math.max(0.2, maxAnnVol * 1.2);
-
-  const width = size.width;
-  const height = size.height;
-  const ready = width > 0;
-  const padLeft = 46;
-  const padRight = 14;
-  const padTop = 16;
-  const padBottom = 26;
-
-  const chartW = width - padLeft - padRight;
-  const chartH = height - padTop - padBottom;
-
-  const getY = (val: number) => padTop + chartH - (val / maxAnnVol) * chartH;
-
-  const slotW = chartW / n;
-  const barW = Math.min(48, Math.max(16, slotW * 0.55));
-
-  // Compute jump statistics
-  let totalRv = 0;
-  let totalJump = 0;
-  let jumpDayCount = 0;
-
-  for (const d of dailyRV) {
-    totalRv += d.realizedVariance;
-    totalJump += d.jumpComponent;
-    if (d.hasSignificantJump) jumpDayCount++;
-  }
-
-  const avgJumpRatio = totalRv > 0 ? (totalJump / totalRv) * 100 : 0;
 
   return (
     <div className="panel p-5">
@@ -69,7 +132,7 @@ export function JumpDecompositionChart({
               Realized Volatility &amp; Jump Decomposition (Barndorff-Nielsen &amp; Shephard)
             </h3>
             <span className="text-xs text-zinc-500 dark:text-zinc-400">
-              · {ticker} (Recent {n} Sessions)
+              · {ticker} (Recent {dailyRV.length} Sessions)
             </span>
           </div>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
@@ -84,139 +147,32 @@ export function JumpDecompositionChart({
               {avgJumpRatio.toFixed(1)}% of Total RV
             </span>
           </div>
-          <span className="text-zinc-300 dark:text-zinc-700" aria-hidden="true">·</span>
+          <span className="text-zinc-300 dark:text-zinc-700" aria-hidden="true">
+            ·
+          </span>
           <div>
             <span className="text-zinc-500 dark:text-zinc-400">Significant Jumps (p &lt; 0.05):</span>{' '}
             <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100 tabular-nums">
-              {jumpDayCount} of {n} days
+              {jumpDayCount} of {dailyRV.length} days
             </span>
           </div>
         </div>
       </div>
 
-      <div ref={ref} className="chart-frame">
-        {ready && (
-        <svg width={width} height={height} className="block h-full w-full">
-          {/* Grid lines */}
-          {[0, 0.33, 0.66, 1].map((pct) => {
-            const val = pct * maxAnnVol;
-            const yPos = getY(val);
-            return (
-              <g key={pct}>
-                <line
-                  x1={padLeft}
-                  y1={yPos}
-                  x2={width - padRight}
-                  y2={yPos}
-                  stroke="currentColor"
-                  className="text-zinc-200 dark:text-zinc-800/80"
-                  strokeDasharray="2 3"
-                />
-                <text
-                  x={padLeft - 6}
-                  y={yPos + 4}
-                  textAnchor="end"
-                  className="text-[10px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
-                >
-                  {(val * 100).toFixed(0)}%
-                </text>
-              </g>
-            );
-          })}
+      <PlotlyChart
+        data={traces}
+        layout={layout}
+        plotType="2d"
+        hovermode="x unified"
+        showLegend
+        height={290}
+        exportFilename={`quantmetrics-jump-decomp-${ticker.toLowerCase()}`}
+        uirevisionKey={`jump-${ticker}-${dailyRV.length}`}
+        showWheelHint
+      />
 
-          {/* Stacked Bars per Day */}
-          {dailyRV.map((d, i) => {
-            const centerX = padLeft + (i + 0.5) * slotW;
-            const x0 = centerX - barW / 2;
-
-            // Continuous diffusion portion (Bipower Variation)
-            const contVol = d.annualizedContinuousVol;
-            const totalVol = d.annualizedRealizedVol;
-
-            const yTotal = getY(totalVol);
-            const yCont = getY(contVol);
-            const baseZero = padTop + chartH;
-
-            const hCont = Math.max(0, baseZero - yCont);
-            const hJump = Math.max(0, yCont - yTotal);
-
-            return (
-              <g key={d.date} className="group cursor-pointer">
-                {/* Continuous Diffusion bar bottom */}
-                <rect
-                  x={x0}
-                  y={yCont}
-                  width={barW}
-                  height={hCont}
-                  fill="#DEC084"
-                  className="opacity-80 group-hover:opacity-100 transition-opacity"
-                  rx="1"
-                />
-
-                {/* Jump Component bar top */}
-                {hJump > 0 && (
-                  <rect
-                    x={x0}
-                    y={yTotal}
-                    width={barW}
-                    height={hJump}
-                    fill={d.hasSignificantJump ? '#f43f5e' : '#DEC084'}
-                    className="opacity-90 group-hover:opacity-100 transition-opacity"
-                    rx="1"
-                  />
-                )}
-
-                {/* Jump Alert Marker on Top if significant */}
-                {d.hasSignificantJump && (
-                  <g transform={`translate(${centerX - 5}, ${yTotal - 14})`}>
-                    <polygon points="5,0 10,9 0,9" fill="#f43f5e" />
-                  </g>
-                )}
-
-                {/* Total Vol readout on top of bar */}
-                <text
-                  x={centerX}
-                  y={yTotal - 4}
-                  textAnchor="middle"
-                  className="pointer-events-none text-[9px] font-mono fill-zinc-600 dark:fill-zinc-400 font-bold tabular-nums opacity-0 group-hover:opacity-100 transition-opacity"
-                >
-                  {(totalVol * 100).toFixed(1)}%
-                </text>
-
-                {/* Date on X axis */}
-                <text
-                  x={centerX}
-                  y={height - 8}
-                  textAnchor="middle"
-                  className="text-[10px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
-                >
-                  {d.date.slice(5)}
-                </text>
-              </g>
-            );
-          })}
-        </svg>
-        )}
-      </div>
-
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs text-zinc-500 dark:text-zinc-400 mt-2 pt-2 border-t border-zinc-100 dark:border-zinc-800/60 gap-2">
-        <div className="flex items-center gap-4">
-          <span className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-xs bg-gold-500 inline-block" />
-            Continuous Diffusion (Bipower Variation BV_t)
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-xs bg-gold-500 inline-block" />
-            Normal Jump Noise
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-xs bg-rose-500 inline-block" />
-            Significant Jump Anomaly (Z &gt; 1.96)
-          </span>
-        </div>
-        <div className="flex items-center gap-1 font-mono text-[11px]">
-          <span>Bars/Day: ~390 mins</span>
-        </div>
+      <div className="flex items-center justify-end text-xs text-zinc-500 dark:text-zinc-400 mt-2 pt-2 border-t border-[var(--hairline)] font-mono text-[11px]">
+        <span>Bars/Day: ~390 mins</span>
       </div>
     </div>
   );

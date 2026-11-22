@@ -1,13 +1,9 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
+import type { Annotations, Data, Layout, Shape } from 'plotly.js';
+import { GarchModelSummary, GarchForecastPoint } from '@/lib/quant-engine';
 import {
-  GarchModelSummary,
-  GarchForecastPoint,
-} from '@/lib/quant-engine';
-import { useChartSize } from '@/lib/use-chart-size';
-import {
-  buildRegimeBandSpans,
   getHmmRegimeToken,
   type HmmStateIdx,
   type VolRegimePerfRow,
@@ -16,6 +12,12 @@ import {
   HmmRegimeOverlayToggle,
   HmmRegimeScorecard,
 } from '@/components/charts/HmmRegimeOverlayControls';
+import { PlotlyChart, usePlotlyDarkTheme } from '@/components/charts/PlotlyChart';
+import {
+  buildHmmRegimeShapes,
+  getPlotlyThemeTokens,
+  QUANT_COLORS,
+} from '@/lib/plotly-theme';
 
 interface VolatilityForecastChartProps {
   dates: string[];
@@ -37,7 +39,7 @@ interface VolatilityForecastChartProps {
 
 /**
  * Forward projection chart: 30d historical vol, the selected model's conditional vol line,
- * and the forward variance cone (68% / 95%). One model line only — no dual-model comparison.
+ * forward variance cones (68% / 95%), and causal HMM volatility regime overlays.
  */
 export function VolatilityForecastChart({
   dates,
@@ -51,100 +53,284 @@ export function VolatilityForecastChart({
   holdoutStartIdx,
   regimePerformance,
 }: VolatilityForecastChartProps) {
+  const isDark = usePlotlyDarkTheme();
+  const tokens = useMemo(() => getPlotlyThemeTokens(isDark), [isDark]);
   const [showModel, setShowModel] = useState(true);
   const [showHist, setShowHist] = useState(true);
   const [showRegimeOverlay, setShowRegimeOverlay] = useState(true);
-  const [hoverIndex, setHoverIndex] = useState<{ type: 'hist' | 'fc'; idx: number } | null>(null);
-  const { ref, size } = useChartSize<HTMLDivElement>();
 
   const hasHmmOverlay = Boolean(hmmStates && hmmStates.length > 0);
-  const regimeBandSpans = useMemo(() => {
-    if (!hmmStates || hmmStates.length === 0) return [];
-    return buildRegimeBandSpans(hmmStates.slice(0, dates.length));
-  }, [hmmStates, dates.length]);
-
   const nHist = dates.length;
   const nFc = forecastPoints.length;
   const totalPoints = nHist + nFc;
+  const flatProjection = modelSummary.persistence >= 1;
+  const lastModelVol = modelVol[nHist - 1] || forecastPoints[0]?.annualizedVol || 0.2;
+
+  const { traces, layout } = useMemo<{ traces: Data[]; layout: Partial<Layout> }>(() => {
+    if (totalPoints === 0) return { traces: [], layout: {} };
+
+    const splitDate = dates[nHist - 1];
+    const fcDates = [splitDate, ...forecastPoints.map((p) => p.date)];
+    const fcMid = [lastModelVol * 100, ...forecastPoints.map((p) => p.annualizedVol * 100)];
+    const fcUp95 = [lastModelVol * 100, ...forecastPoints.map((p) => p.upper95 * 100)];
+    const fcLo95 = [lastModelVol * 100, ...forecastPoints.map((p) => p.lower95 * 100)];
+    const fcUp68 = [lastModelVol * 100, ...forecastPoints.map((p) => p.upper68 * 100)];
+    const fcLo68 = [lastModelVol * 100, ...forecastPoints.map((p) => p.lower68 * 100)];
+
+    const dataTraces: Data[] = [
+      // 95% confidence band
+      {
+        type: 'scatter',
+        mode: 'lines',
+        name: '95% Lower',
+        x: fcDates,
+        y: fcLo95,
+        line: { width: 0 },
+        showlegend: false,
+        hoverinfo: 'skip',
+      },
+      {
+        type: 'scatter',
+        mode: 'lines',
+        name: '95% Cone',
+        x: fcDates,
+        y: fcUp95,
+        fill: 'tonexty',
+        fillcolor: 'rgba(222, 192, 132, 0.14)',
+        line: { width: 0 },
+        hovertemplate: '%{y:.2f}%<extra>95% Upper</extra>',
+      },
+      // 68% confidence band
+      {
+        type: 'scatter',
+        mode: 'lines',
+        name: '68% Lower',
+        x: fcDates,
+        y: fcLo68,
+        line: { width: 0 },
+        showlegend: false,
+        hoverinfo: 'skip',
+      },
+      {
+        type: 'scatter',
+        mode: 'lines',
+        name: '68% Cone',
+        x: fcDates,
+        y: fcUp68,
+        fill: 'tonexty',
+        fillcolor: 'rgba(222, 192, 132, 0.24)',
+        line: { width: 0 },
+        hovertemplate: '%{y:.2f}%<extra>68% Upper</extra>',
+      },
+    ];
+
+    if (showHist) {
+      dataTraces.push({
+        type: 'scatter',
+        mode: 'lines',
+        name: 'Historical (30d RV)',
+        x: dates,
+        y: historicalVol.map((v) => (v !== null ? v * 100 : null)),
+        line: { color: tokens.textMuted, width: 1.2, dash: 'dot' },
+        connectgaps: false,
+        hovertemplate: '%{y:.2f}%<extra>RV30</extra>',
+      });
+    }
+
+    if (showModel) {
+      const regimeCustom = dates.map((_, i) => {
+        const st = hmmStates?.[i];
+        const pr = hmmProbs?.[i];
+        if (st === undefined) return '';
+        const tok = getHmmRegimeToken(st);
+        const pct = pr !== undefined ? ` (${Math.round(pr * 100)}%)` : '';
+        return ` · ${tok.label}${pct}`;
+      });
+
+      dataTraces.push({
+        type: 'scatter',
+        mode: 'lines',
+        name: modelLabel,
+        x: dates,
+        y: modelVol.map((v) => v * 100),
+        customdata: regimeCustom,
+        line: { color: QUANT_COLORS.goldLight, width: 1.9 },
+        hovertemplate: `%{y:.2f}%%{customdata}<extra>${modelLabel}</extra>`,
+      });
+
+      // Color-coded OOS Prediction Points by Causal HMM Regime
+      if (hasHmmOverlay && showRegimeOverlay && hmmStates && holdoutStartIdx !== undefined) {
+        const start = Math.max(0, holdoutStartIdx);
+        const oosLen = Math.max(1, nHist - start);
+        const stride = Math.max(1, Math.ceil(oosLen / 56));
+        const ox: string[] = [];
+        const oy: number[] = [];
+        const oc: string[] = [];
+        const ot: string[] = [];
+        for (let i = start; i < nHist; i += stride) {
+          const st = hmmStates[i];
+          const val = modelVol[i];
+          if (st === undefined || !Number.isFinite(val)) continue;
+          const tok = getHmmRegimeToken(st);
+          ox.push(dates[i]);
+          oy.push(val * 100);
+          oc.push(tok.color);
+          const pr = hmmProbs?.[i];
+          ot.push(`${tok.label}${pr !== undefined ? ` (${Math.round(pr * 100)}%)` : ''}`);
+        }
+        if (ox.length > 0) {
+          dataTraces.push({
+            type: 'scatter',
+            mode: 'markers',
+            name: 'OOS Regime Origin',
+            x: ox,
+            y: oy,
+            customdata: ot,
+            marker: {
+              color: oc,
+              size: 6,
+              line: { color: isDark ? '#08080A' : '#FFFFFF', width: 1 },
+            },
+            hovertemplate: '%{y:.2f}% · %{customdata}<extra>OOS Origin</extra>',
+          });
+        }
+      }
+    }
+
+    // Forward trajectory dashed line
+    dataTraces.push({
+      type: 'scatter',
+      mode: 'lines',
+      name: `${nFc}d Forecast`,
+      x: fcDates,
+      y: fcMid,
+      line: { color: QUANT_COLORS.gold, width: 2, dash: 'dash' },
+      hovertemplate: '%{y:.2f}%<extra>Forecast</extra>',
+    });
+
+    const shapes: Partial<Shape>[] = [
+      ...buildHmmRegimeShapes(dates, hmmStates ?? [], hasHmmOverlay && showRegimeOverlay, 0.12),
+      // Split Today boundary
+      {
+        type: 'line',
+        xref: 'x',
+        yref: 'paper',
+        x0: splitDate,
+        x1: splitDate,
+        y0: 0,
+        y1: 1,
+        line: { color: tokens.textMuted, width: 1.1, dash: 'dot' },
+      },
+    ];
+
+    const annotations: Partial<Annotations>[] = [
+      {
+        x: splitDate,
+        y: 1.0,
+        xref: 'x',
+        yref: 'paper',
+        text: 'Forecast →',
+        showarrow: false,
+        xanchor: 'left',
+        yanchor: 'top',
+        xshift: 6,
+        font: { size: 10, color: QUANT_COLORS.goldLight },
+      },
+    ];
+
+    if (
+      hasHmmOverlay &&
+      showRegimeOverlay &&
+      holdoutStartIdx !== undefined &&
+      holdoutStartIdx > 0 &&
+      holdoutStartIdx < nHist
+    ) {
+      const oosDate = dates[holdoutStartIdx];
+      shapes.push({
+        type: 'line',
+        xref: 'x',
+        yref: 'paper',
+        x0: oosDate,
+        x1: oosDate,
+        y0: 0,
+        y1: 1,
+        line: { color: QUANT_COLORS.goldLight, width: 1, dash: 'dot' },
+      });
+      annotations.push({
+        x: oosDate,
+        y: 0.96,
+        xref: 'x',
+        yref: 'paper',
+        text: 'OOS Holdout',
+        showarrow: false,
+        xanchor: 'left',
+        yanchor: 'top',
+        xshift: 4,
+        font: { size: 9.5, color: QUANT_COLORS.goldLight },
+      });
+    }
+
+    if (!flatProjection) {
+      const vlPct = modelSummary.longRunAnnualizedVol * 100;
+      shapes.push({
+        type: 'line',
+        xref: 'paper',
+        yref: 'y',
+        x0: 0,
+        x1: 1,
+        y0: vlPct,
+        y1: vlPct,
+        line: { color: QUANT_COLORS.positive, width: 1, dash: 'dash' },
+      });
+      annotations.push({
+        xref: 'paper',
+        yref: 'y',
+        x: 1,
+        y: vlPct,
+        text: `V_L: ${vlPct.toFixed(1)}%`,
+        showarrow: false,
+        xanchor: 'right',
+        yanchor: 'bottom',
+        font: { size: 9.5, color: QUANT_COLORS.positive },
+      });
+    }
+
+    return {
+      traces: dataTraces,
+      layout: {
+        shapes,
+        annotations,
+        yaxis: {
+          ticksuffix: '%',
+          rangemode: 'tozero',
+          gridcolor: tokens.grid,
+        },
+      },
+    };
+  }, [
+    totalPoints,
+    dates,
+    nHist,
+    nFc,
+    forecastPoints,
+    lastModelVol,
+    showHist,
+    showModel,
+    historicalVol,
+    modelVol,
+    modelLabel,
+    hmmStates,
+    hmmProbs,
+    hasHmmOverlay,
+    showRegimeOverlay,
+    holdoutStartIdx,
+    flatProjection,
+    modelSummary,
+    isDark,
+    tokens,
+  ]);
 
   if (totalPoints === 0) return null;
-
-  // Max volatility across all series
-  let maxV = modelSummary.longRunAnnualizedVol * 1.2;
-  historicalVol.forEach((v) => { if (v !== null && v > maxV) maxV = v; });
-  modelVol.forEach((v) => { if (v > maxV) maxV = v; });
-  forecastPoints.forEach((p) => { if (p.upper95 > maxV) maxV = p.upper95; });
-  maxV = Math.max(0.2, maxV * 1.15);
-
-  const width = size.width;
-  const height = size.height;
-  const ready = width > 0;
-  const padLeft = 46;
-  const padRight = 16;
-  const padTop = 16;
-  const padBottom = 30;
-
-  const chartW = width - padLeft - padRight;
-  const chartH = height - padTop - padBottom;
-
-  const getX = (globalIdx: number) =>
-    padLeft + (globalIdx / Math.max(1, totalPoints - 1)) * chartW;
-  const getY = (val: number) =>
-    padTop + chartH - (val / maxV) * chartH;
-
-  const splitX = getX(nHist - 1);
-
-  // Build forecast area band paths
-  const upper95Points: string[] = [];
-  const lower95Points: string[] = [];
-  const upper68Points: string[] = [];
-  const lower68Points: string[] = [];
-  const fcLinePoints: string[] = [];
-
-  // Start forecast path from the last model-vol point
-  const lastModelVol = modelVol[nHist - 1] || forecastPoints[0]?.annualizedVol || 0.2;
-  fcLinePoints.push(`${splitX},${getY(lastModelVol)}`);
-  upper95Points.push(`${splitX},${getY(lastModelVol)}`);
-  lower95Points.push(`${splitX},${getY(lastModelVol)}`);
-  upper68Points.push(`${splitX},${getY(lastModelVol)}`);
-  lower68Points.push(`${splitX},${getY(lastModelVol)}`);
-
-  forecastPoints.forEach((p, i) => {
-    const x = getX(nHist + i);
-    fcLinePoints.push(`${x},${getY(p.annualizedVol)}`);
-    upper95Points.push(`${x},${getY(p.upper95)}`);
-    lower95Points.push(`${x},${getY(p.lower95)}`);
-    upper68Points.push(`${x},${getY(p.upper68)}`);
-    lower68Points.push(`${x},${getY(p.lower68)}`);
-  });
-
-  const area95Path = `M ${upper95Points.join(' L ')} L ${lower95Points.reverse().join(' L ')} Z`;
-  const area68Path = `M ${upper68Points.join(' L ')} L ${lower68Points.reverse().join(' L ')} Z`;
-
-  // Historical paths
-  const histPoints: string[] = [];
-  historicalVol.forEach((v, i) => {
-    if (v !== null) histPoints.push(`${getX(i)},${getY(v)}`);
-  });
-
-  const modelPoints = modelVol.map((v, i) => `${getX(i)},${getY(v)}`).join(' L ');
-
-  const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const normX = (mouseX / rect.width) * width;
-    const clampedX = Math.max(padLeft, Math.min(width - padRight, normX));
-    const ratio = (clampedX - padLeft) / chartW;
-    const gIdx = Math.round(ratio * (totalPoints - 1));
-
-    if (gIdx < nHist) {
-      setHoverIndex({ type: 'hist', idx: gIdx });
-    } else {
-      setHoverIndex({ type: 'fc', idx: Math.min(nFc - 1, gIdx - nHist) });
-    }
-  };
-
-  const flatProjection = modelSummary.persistence >= 1;
 
   return (
     <div className="panel p-5">
@@ -190,356 +376,28 @@ export function VolatilityForecastChart({
         </div>
       </div>
 
-      {/* HMM Regime Overlay Controls + Live Hover Readout Strip */}
-      {(hasHmmOverlay || hoverIndex) && (
+      {/* HMM Regime Overlay Controls */}
+      {hasHmmOverlay && (
         <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5 pb-2 border-b border-[var(--hairline)]">
-          {hasHmmOverlay ? (
-            <HmmRegimeOverlayToggle
-              enabled={showRegimeOverlay}
-              onToggle={() => setShowRegimeOverlay((v) => !v)}
-              caption="OOS points colored by origin t−1"
-            />
-          ) : (
-            <div />
-          )}
-
-          {hoverIndex && (() => {
-            if (hoverIndex.type === 'hist') {
-              const i = Math.max(0, Math.min(nHist - 1, hoverIndex.idx));
-              const mv = modelVol[i];
-              const hv = historicalVol[i];
-              const st = hmmStates?.[i];
-              const pr = hmmProbs?.[i];
-              const tok = st !== undefined ? getHmmRegimeToken(st) : null;
-              const isOosPt = holdoutStartIdx !== undefined && i >= holdoutStartIdx;
-              return (
-                <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] font-mono tabular-nums text-zinc-600 dark:text-zinc-300">
-                  <strong className="text-zinc-900 dark:text-zinc-100">{dates[i]}</strong>
-                  {isOosPt && <span className="text-gold-600 dark:text-gold-400">OOS</span>}
-                  <span>·</span>
-                  <span>Model {(mv * 100).toFixed(1)}%</span>
-                  {hv !== null && hv !== undefined && (
-                    <>
-                      <span>·</span>
-                      <span className="text-zinc-500 dark:text-zinc-400">RV30 {(hv * 100).toFixed(1)}%</span>
-                    </>
-                  )}
-                  {tok && (
-                    <>
-                      <span>·</span>
-                      <span className="inline-flex items-center gap-1.5">
-                        <span
-                          className="w-2 h-2 rounded-full shrink-0"
-                          style={{ backgroundColor: tok.color }}
-                        />
-                        <span className={`font-semibold ${tok.textClass}`}>
-                          {tok.label}
-                          {pr !== undefined ? ` (${Math.round(pr * 100)}%)` : ''}
-                        </span>
-                      </span>
-                    </>
-                  )}
-                </div>
-              );
-            }
-            const fc = forecastPoints[hoverIndex.idx];
-            if (!fc) return null;
-            return (
-              <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] font-mono tabular-nums text-zinc-600 dark:text-zinc-300">
-                <strong className="text-gold-600 dark:text-gold-400">+{fc.day}d ({fc.date})</strong>
-                <span>·</span>
-                <span>Forecast {(fc.annualizedVol * 100).toFixed(1)}%</span>
-                <span>·</span>
-                <span className="text-zinc-500 dark:text-zinc-400">
-                  95% [{(fc.lower95 * 100).toFixed(1)}%, {(fc.upper95 * 100).toFixed(1)}%]
-                </span>
-              </div>
-            );
-          })()}
+          <HmmRegimeOverlayToggle
+            enabled={showRegimeOverlay}
+            onToggle={() => setShowRegimeOverlay((v) => !v)}
+            caption="OOS points colored by origin t−1"
+          />
         </div>
       )}
 
-      <div ref={ref} className="chart-frame">
-        {ready && (
-        <svg
-          width={width}
-          height={height}
-          className="block h-full w-full cursor-crosshair"
-          onMouseMove={handleMouseMove}
-          onMouseLeave={() => setHoverIndex(null)}
-        >
-          <defs>
-            <linearGradient id="fcGradient95" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#DEC084" stopOpacity="0.18" />
-              <stop offset="100%" stopColor="#DEC084" stopOpacity="0.04" />
-            </linearGradient>
-            <linearGradient id="fcGradient68" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#DEC084" stopOpacity="0.26" />
-              <stop offset="100%" stopColor="#DEC084" stopOpacity="0.10" />
-            </linearGradient>
-          </defs>
-
-          {/* Causal HMM Regime Background Bands (run-length merged, <15% opacity) */}
-          {hasHmmOverlay && regimeBandSpans.length > 0 && (
-            <g
-              style={{
-                opacity: showRegimeOverlay ? 1 : 0,
-                transition: 'opacity 150ms ease',
-              }}
-            >
-              {regimeBandSpans.map((span) => {
-                const tok = getHmmRegimeToken(span.state);
-                const x0 = getX(span.startIdx);
-                const x1 = span.endIdx < nHist - 1 ? getX(span.endIdx + 1) : splitX;
-                const bandW = Math.max(1, x1 - x0);
-                return (
-                  <rect
-                    key={`${span.startIdx}-${span.endIdx}-${span.state}`}
-                    x={x0}
-                    y={padTop}
-                    width={bandW}
-                    height={chartH}
-                    fill={`rgba(${tok.rgb}, 0.12)`}
-                  />
-                );
-              })}
-              {holdoutStartIdx !== undefined && holdoutStartIdx > 0 && holdoutStartIdx < nHist && (
-                <g>
-                  <line
-                    x1={getX(holdoutStartIdx)}
-                    y1={padTop}
-                    x2={getX(holdoutStartIdx)}
-                    y2={padTop + chartH}
-                    stroke="#DEC084"
-                    strokeWidth="0.9"
-                    strokeDasharray="2 3"
-                    opacity="0.65"
-                  />
-                  <text
-                    x={getX(holdoutStartIdx) + 4}
-                    y={padTop + 23}
-                    className="text-[9px] font-mono fill-gold-600 dark:fill-gold-400"
-                  >
-                    OOS Holdout
-                  </text>
-                </g>
-              )}
-            </g>
-          )}
-
-          {/* Grid lines */}
-          {[0, 0.25, 0.5, 0.75, 1].map((pct) => {
-            const val = pct * maxV;
-            const yPos = getY(val);
-            return (
-              <g key={pct}>
-                <line
-                  x1={padLeft}
-                  y1={yPos}
-                  x2={width - padRight}
-                  y2={yPos}
-                  stroke="currentColor"
-                  className="text-zinc-200 dark:text-zinc-800/80"
-                  strokeDasharray="2 3"
-                />
-                <text
-                  x={padLeft - 6}
-                  y={yPos + 4}
-                  textAnchor="end"
-                  className="text-[10px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
-                >
-                  {(val * 100).toFixed(0)}%
-                </text>
-              </g>
-            );
-          })}
-
-          {/* Long-run unconditional vol reference — only when the model mean-reverts (not EWMA) */}
-          {!flatProjection && (
-            <>
-              <line
-                x1={padLeft}
-                y1={getY(modelSummary.longRunAnnualizedVol)}
-                x2={width - padRight}
-                y2={getY(modelSummary.longRunAnnualizedVol)}
-                stroke="#3fb27f"
-                strokeWidth="0.8"
-                strokeDasharray="4 4"
-              />
-              <text
-                x={width - padRight - 2}
-                y={getY(modelSummary.longRunAnnualizedVol) + 3}
-                textAnchor="end"
-                className="text-[9px] font-mono fill-gold-500 tabular-nums"
-              >
-                V_L: {(modelSummary.longRunAnnualizedVol * 100).toFixed(1)}%
-              </text>
-            </>
-          )}
-
-          {/* Vertical boundary separating historical and forecast */}
-          <line
-            x1={splitX}
-            y1={padTop}
-            x2={splitX}
-            y2={padTop + chartH}
-            stroke="#94a3b8"
-            strokeWidth="1"
-            strokeDasharray="3 3"
-          />
-          <text
-            x={splitX - 6}
-            y={padTop + 12}
-            textAnchor="end"
-            className="text-[10px] font-medium fill-zinc-500 dark:fill-zinc-400"
-          >
-            Historical
-          </text>
-          <text
-            x={splitX > width - 110 ? width - 4 : splitX + 6}
-            y={padTop + 12}
-            textAnchor={splitX > width - 110 ? 'end' : 'start'}
-            className="text-[10px] font-medium fill-gold-500"
-          >
-            Forecast →
-          </text>
-
-          {/* Confidence cones */}
-          <path d={area95Path} fill="url(#fcGradient95)" />
-          <path d={area68Path} fill="url(#fcGradient68)" />
-
-          {/* Historical 30d line */}
-          {showHist && histPoints.length > 0 && (
-            <path
-              d={`M ${histPoints.join(' L ')}`}
-              fill="none"
-              stroke="#64748b"
-              strokeWidth="1"
-              strokeDasharray="2 2"
-            />
-          )}
-
-          {/* Model conditional vol line */}
-          {showModel && (
-            <path
-              d={`M ${modelPoints}`}
-              fill="none"
-              stroke="#DEC084"
-              strokeWidth="1.4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          )}
-
-          {/* Color-coded OOS Prediction Points by Causal HMM Regime */}
-          {showModel && hasHmmOverlay && hmmStates && holdoutStartIdx !== undefined && (
-            <g
-              style={{
-                opacity: showRegimeOverlay ? 1 : 0,
-                transition: 'opacity 150ms ease',
-              }}
-            >
-              {(() => {
-                const start = Math.max(0, holdoutStartIdx);
-                const oosLen = Math.max(1, nHist - start);
-                const stride = Math.max(1, Math.ceil(oosLen / 48));
-                const dots: React.ReactNode[] = [];
-                for (let i = start; i < nHist; i += stride) {
-                  const st = hmmStates[i];
-                  const val = modelVol[i];
-                  if (st === undefined || !Number.isFinite(val)) continue;
-                  const tok = getHmmRegimeToken(st);
-                  dots.push(
-                    <circle
-                      key={`oos-dot-${i}`}
-                      cx={getX(i)}
-                      cy={getY(val)}
-                      r={2.7}
-                      fill={tok.color}
-                      stroke="#08080a"
-                      strokeWidth={0.9}
-                    />
-                  );
-                }
-                return dots;
-              })()}
-            </g>
-          )}
-
-          {/* Forecast trajectory line */}
-          <path
-            d={`M ${fcLinePoints.join(' L ')}`}
-            fill="none"
-            stroke="#DEC084"
-            strokeWidth="1.3"
-            strokeDasharray="4 2"
-          />
-
-          {/* Hover indicator */}
-          {hoverIndex && (
-            <g>
-              <line
-                x1={
-                  hoverIndex.type === 'hist'
-                    ? getX(hoverIndex.idx)
-                    : getX(nHist + hoverIndex.idx)
-                }
-                y1={padTop}
-                x2={
-                  hoverIndex.type === 'hist'
-                    ? getX(hoverIndex.idx)
-                    : getX(nHist + hoverIndex.idx)
-                }
-                y2={padTop + chartH}
-                stroke="#DEC084"
-                strokeWidth="0.65"
-                strokeDasharray="2 2"
-                opacity="0.7"
-              />
-              {hoverIndex.type === 'hist' && modelVol[hoverIndex.idx] !== undefined && (
-                <circle
-                  cx={getX(hoverIndex.idx)}
-                  cy={getY(modelVol[hoverIndex.idx])}
-                  r={4.2}
-                  fill={
-                    showRegimeOverlay && hmmStates?.[hoverIndex.idx] !== undefined
-                      ? getHmmRegimeToken(hmmStates[hoverIndex.idx]).color
-                      : '#DEC084'
-                  }
-                  stroke="#08080a"
-                  strokeWidth={1.3}
-                />
-              )}
-            </g>
-          )}
-
-          {/* X axis labels */}
-          <text
-            x={getX(0)}
-            y={height - 8}
-            className="text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
-          >
-            {dates[0]}
-          </text>
-          <text
-            x={splitX}
-            y={height - 8}
-            textAnchor="middle"
-            className="text-[9px] font-mono fill-zinc-700 dark:fill-zinc-300 font-semibold tabular-nums"
-          >
-            Today ({dates[nHist - 1]})
-          </text>
-          <text
-            x={getX(totalPoints - 1)}
-            y={height - 8}
-            textAnchor="end"
-            className="text-[9px] font-mono fill-gold-500 tabular-nums"
-          >
-            +{nFc}d ({forecastPoints[nFc - 1]?.date})
-          </text>
-        </svg>
-        )}
-      </div>
+      <PlotlyChart
+        data={traces}
+        layout={layout}
+        plotType="2d"
+        rangeSlider
+        hovermode="x unified"
+        height={320}
+        exportFilename="quantmetrics-vol-forecast"
+        uirevisionKey={`vf-${dates[0]}-${dates.length}-${modelLabel}-${nFc}`}
+        showWheelHint
+      />
 
       {/* Per-Regime OOS Volatility Accuracy Scorecard */}
       {regimePerformance && regimePerformance.length > 0 && (
@@ -567,8 +425,8 @@ export function VolatilityForecastChart({
       )}
 
       {/* Model Diagnostic Footnotes & Parameter Summary */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4 pt-3 border-t border-zinc-100 dark:border-zinc-800/80 text-xs">
-        <div className="bg-zinc-50 dark:bg-zinc-900/60 p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800/60">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4 pt-3 border-t border-[var(--hairline)] text-xs">
+        <div className="panel-inset p-2.5 rounded-lg">
           <span className="text-zinc-500 dark:text-zinc-400 block">Model Weights (α, β)</span>
           <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100 tabular-nums text-xs">
             {modelSummary.alpha.toFixed(3)} · {modelSummary.beta.toFixed(3)}
@@ -578,27 +436,31 @@ export function VolatilityForecastChart({
           </span>
         </div>
 
-        <div className="bg-zinc-50 dark:bg-zinc-900/60 p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800/60">
+        <div className="panel-inset p-2.5 rounded-lg">
           <span className="text-zinc-500 dark:text-zinc-400 block">Shock Persistence (α+β)</span>
           <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100 tabular-nums text-xs">
             {flatProjection ? '1.0000' : modelSummary.persistence.toFixed(4)}
           </span>
           <span className="text-[11px] text-zinc-500 dark:text-zinc-400 block mt-0.5">
-            {flatProjection ? 'No mean reversion' : `Half-life: ${modelSummary.halfLife ? `${modelSummary.halfLife.toFixed(1)} days` : 'Infinite'}`}
+            {flatProjection
+              ? 'No mean reversion'
+              : `Half-life: ${modelSummary.halfLife ? `${modelSummary.halfLife.toFixed(1)} days` : 'Infinite'}`}
           </span>
         </div>
 
-        <div className="bg-zinc-50 dark:bg-zinc-900/60 p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800/60">
+        <div className="panel-inset p-2.5 rounded-lg">
           <span className="text-zinc-500 dark:text-zinc-400 block">Projection Level (start)</span>
           <span className="font-mono font-bold text-gold-600 dark:text-gold-400 tabular-nums text-xs">
             {(lastModelVol * 100).toFixed(2)}%
           </span>
           <span className="text-[11px] text-zinc-500 dark:text-zinc-400 block mt-0.5">
-            {flatProjection ? 'flat-forward from latest EWMA vol' : `reverts toward V_L ${(modelSummary.longRunAnnualizedVol * 100).toFixed(1)}%`}
+            {flatProjection
+              ? 'flat-forward from latest EWMA vol'
+              : `reverts toward V_L ${(modelSummary.longRunAnnualizedVol * 100).toFixed(1)}%`}
           </span>
         </div>
 
-        <div className="bg-zinc-50 dark:bg-zinc-900/60 p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800/60">
+        <div className="panel-inset p-2.5 rounded-lg">
           <span className="text-zinc-500 dark:text-zinc-400 block">Projection Horizon</span>
           <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100 tabular-nums text-xs">
             {nFc} trading days

@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import type { Data, Layout } from 'plotly.js';
 import {
   NewsImpactPoint,
   VolatilitySignaturePoint,
@@ -10,8 +11,9 @@ import {
 import { DailyRealizedVol, DiurnalPoint } from '@/lib/quant-engine';
 import { IntradayDiurnalChart } from '@/components/charts/IntradayDiurnalChart';
 import { JumpDecompositionChart } from '@/components/charts/JumpDecompositionChart';
+import { PlotlyChart, usePlotlyDarkTheme } from '@/components/charts/PlotlyChart';
+import { getPlotlyThemeTokens, QUANT_COLORS } from '@/lib/plotly-theme';
 import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
-import { useChartSize } from '@/lib/use-chart-size';
 import {
   NewsImpactEquation,
   SignaturePlotEquation,
@@ -54,9 +56,10 @@ export function AnalysisDynamicsTab({
   gjrGammaOpenClose = null,
   ticker,
 }: AnalysisDynamicsTabProps) {
+  const isDark = usePlotlyDarkTheme();
+  const tokens = useMemo(() => getPlotlyThemeTokens(isDark), [isDark]);
   const [newsHoverIdx, setNewsHoverIdx] = useState<number | null>(null);
   const [sigHoverIdx, setSigHoverIdx] = useState<number | null>(null);
-  const [splitHoverIdx, setSplitHoverIdx] = useState<number | null>(null);
 
   // Next earnings — fetched lazily, server-cached 15 min. "No data" is the designed answer when Yahoo's calendar is unreachable.
   const [earnings, setEarnings] = useState<{ ticker: string; date: string; isEstimate: boolean } | null>(null);
@@ -100,96 +103,181 @@ export function AnalysisDynamicsTab({
     };
   }, [dailyRealizedVol]);
 
-  // News Impact measured scaling
-  const { ref: newsRef, size: newsSize } = useChartSize<HTMLDivElement>();
   const nNews = newsImpactPoints.length;
-  let maxNewsVar = 0.0001;
-  for (const p of newsImpactPoints) {
-    if (p.asymmetricVarianceGjr > maxNewsVar) maxNewsVar = p.asymmetricVarianceGjr;
-    if (p.symmetricVariance > maxNewsVar) maxNewsVar = p.symmetricVariance;
-  }
-  if (newsImpactOcPoints) {
-    for (const p of newsImpactOcPoints) {
-      if (p.asymmetricVarianceGjr > maxNewsVar) maxNewsVar = p.asymmetricVarianceGjr;
-    }
-  }
-  maxNewsVar *= 1.1;
-  const newsW = newsSize.width;
-  const newsH = newsSize.height;
-  const newsReady = newsW > 0;
-  const nPadL = 46;
-  const nPadR = 18;
-  const nPadT = 14;
-  const nPadB = 28;
-  const ncW = Math.max(1, newsW - nPadL - nPadR);
-  const ncH = Math.max(1, newsH - nPadT - nPadB);
-  const yDecimals = maxNewsVar < 0.001 ? 5 : maxNewsVar < 0.01 ? 4 : maxNewsVar < 1 ? 3 : 2;
-  const shockTicks = newsW < 640 ? [-5, -2, 0, 2, 5] : [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5];
-
-  const getNewsX = (i: number) => nPadL + (i / Math.max(1, nNews - 1)) * ncW;
-  const getNewsY = (val: number) => nPadT + ncH - (val / maxNewsVar) * ncH;
-
-  const activeNewsIdx = newsHoverIdx !== null ? newsHoverIdx : Math.floor(nNews / 2);
+  const activeNewsIdx = newsHoverIdx !== null && newsHoverIdx < nNews ? newsHoverIdx : Math.floor(nNews / 2);
   const activeNewsPoint = newsImpactPoints[activeNewsIdx] || { shockStd: 0, symmetricVariance: 0, asymmetricVarianceGjr: 0 };
 
-  // Volatility Signature measured scaling
-  const { ref: sigRef, size: sigSize } = useChartSize<HTMLDivElement>();
+  const { newsTraces, newsLayout } = useMemo<{
+    newsTraces: Data[];
+    newsLayout: Partial<Layout>;
+  }>(() => {
+    if (newsImpactPoints.length === 0) return { newsTraces: [], newsLayout: {} };
+    const xs = newsImpactPoints.map((p) => p.shockStd);
+    const data: Data[] = [
+      {
+        type: 'scatter',
+        mode: 'lines',
+        name: 'Symmetric GARCH(1,1)',
+        x: xs,
+        y: newsImpactPoints.map((p) => p.symmetricVariance),
+        line: { color: '#64748b', width: 1.5, dash: 'dash' },
+        hovertemplate: 'Symmetric: %{y:.4f}<extra></extra>',
+      },
+      {
+        type: 'scatter',
+        mode: 'lines',
+        name: 'GJR close→close',
+        x: xs,
+        y: newsImpactPoints.map((p) => p.asymmetricVarianceGjr),
+        line: { color: '#10b981', width: 2.2 },
+        hovertemplate: 'GJR c→c: %{y:.4f}<extra></extra>',
+      },
+    ];
+    if (newsImpactOcPoints && newsImpactOcPoints.length > 1) {
+      data.push({
+        type: 'scatter',
+        mode: 'lines',
+        name: 'GJR open→close',
+        x: newsImpactOcPoints.map((p) => p.shockStd),
+        y: newsImpactOcPoints.map((p) => p.asymmetricVarianceGjr),
+        line: { color: QUANT_COLORS.gold, width: 1.9, dash: 'dashdot' },
+        hovertemplate: 'GJR o→c: %{y:.4f}<extra></extra>',
+      });
+    }
+    return {
+      newsTraces: data,
+      newsLayout: {
+        margin: { l: 56, r: 18, t: 10, b: 36 },
+        shapes: [
+          {
+            type: 'line',
+            xref: 'x',
+            x0: 0,
+            x1: 0,
+            yref: 'paper',
+            y0: 0,
+            y1: 1,
+            line: { color: tokens.zeroLine, width: 1, dash: 'dot' },
+          },
+        ],
+        xaxis: {
+          ticksuffix: 'σ',
+          title: { text: 'Return Shock (σ)', font: { size: 10, color: tokens.textMuted } },
+        },
+        yaxis: {
+          title: { text: 'Variance', font: { size: 10, color: tokens.textMuted } },
+          rangemode: 'tozero',
+        },
+      },
+    };
+  }, [newsImpactPoints, newsImpactOcPoints, tokens]);
+
   const nSig = volSignaturePoints.length;
-  let minSigRv = Infinity;
-  let maxSigRv = -Infinity;
-  for (const p of volSignaturePoints) {
-    if (p.annualizedRv < minSigRv) minSigRv = p.annualizedRv;
-    if (p.annualizedRv > maxSigRv) maxSigRv = p.annualizedRv;
-  }
-  const sigPad = (maxSigRv - minSigRv) * 0.15 || 0.05;
-  const sigMin = Math.max(0, minSigRv - sigPad);
-  const sigMax = maxSigRv + sigPad;
-  const sigRange = sigMax - sigMin || 1;
-
-  const sigW = sigSize.width;
-  const sigH = sigSize.height;
-  const sigReady = sigW > 0;
-  const sPadL = 46;
-  const sPadR = 18;
-  const sPadT = 14;
-  const sPadB = 28;
-  const scW = Math.max(1, sigW - sPadL - sPadR);
-  const scH = Math.max(1, sigH - sPadT - sPadB);
-  // Density-adaptive x labels: all intervals on ≥640px, every other below
-  const sigTickIdx = sigW < 640 ? [0, 2, 4, 6] : [0, 1, 2, 3, 4, 5, 6];
-
-  const getSigX = (i: number) => sPadL + (i / Math.max(1, nSig - 1)) * scW;
-  const getSigY = (val: number) => sPadT + scH - ((val - sigMin) / sigRange) * scH;
-
-  const activeSigIdx = sigHoverIdx !== null ? sigHoverIdx : 0;
+  const activeSigIdx = sigHoverIdx !== null && sigHoverIdx < nSig ? sigHoverIdx : 0;
   const activeSigPoint = volSignaturePoints[activeSigIdx] || { samplingMinutes: 1, annualizedRv: 0 };
 
-  // Overnight vs Intraday Split measured scaling
-  const { ref: splitRef, size: splitSize } = useChartSize<HTMLDivElement>();
+  const { sigTraces, sigLayout } = useMemo<{
+    sigTraces: Data[];
+    sigLayout: Partial<Layout>;
+  }>(() => {
+    if (volSignaturePoints.length === 0) return { sigTraces: [], sigLayout: {} };
+    return {
+      sigTraces: [
+        {
+          type: 'scatter',
+          mode: 'lines+markers',
+          name: 'Annualized RV',
+          x: volSignaturePoints.map((p) => `${p.samplingMinutes}m`),
+          y: volSignaturePoints.map((p) => p.annualizedRv * 100),
+          line: { color: QUANT_COLORS.gold, width: 2 },
+          marker: { size: 7, color: QUANT_COLORS.gold, line: { color: isDark ? '#08080A' : '#FFFFFF', width: 1 } },
+          hovertemplate: '%{x}: <b>%{y:.2f}%</b><extra></extra>',
+        },
+      ],
+      sigLayout: {
+        margin: { l: 54, r: 16, t: 10, b: 36 },
+        xaxis: {
+          type: 'category',
+          title: { text: 'Sampling Interval', font: { size: 10, color: tokens.textMuted } },
+        },
+        yaxis: {
+          title: { text: 'Ann. RV', font: { size: 10, color: tokens.textMuted } },
+          ticksuffix: '%',
+        },
+      },
+    };
+  }, [volSignaturePoints, isDark, tokens]);
+
   const nSplit = overnightIntradaySplit.length;
-  let maxSplitVar = 0.0001;
-  for (const p of overnightIntradaySplit) {
-    const tot = p.intradayRv + p.overnightVar;
-    if (tot > maxSplitVar) maxSplitVar = tot;
-  }
-  maxSplitVar *= 1.15;
+  const { splitTraces, splitLayout } = useMemo<{
+    splitTraces: Data[];
+    splitLayout: Partial<Layout>;
+  }>(() => {
+    if (overnightIntradaySplit.length === 0) return { splitTraces: [], splitLayout: {} };
+    const xs = overnightIntradaySplit.map((d) => d.date);
+    const hasEarningsInWindow =
+      earningsCurrent !== null && overnightIntradaySplit.some((d) => d.date === earningsCurrent.date);
 
-  const spW = splitSize.width;
-  const spH = splitSize.height;
-  const splitReady = spW > 0;
-  const spPadL = 44;
-  const spPadR = 14;
-  const spPadT = 12;
-  const spPadB = 28;
-  const spcW = Math.max(1, spW - spPadL - spPadR);
-  const spcH = Math.max(1, spH - spPadT - spPadB);
-  const splitXTicks = [0, 0.25, 0.5, 0.75, 1].map((pct) => Math.round(pct * Math.max(0, nSplit - 1)));
+    const shapes: Layout['shapes'] = hasEarningsInWindow && earningsCurrent
+      ? [
+          {
+            type: 'line',
+            xref: 'x',
+            x0: earningsCurrent.date,
+            x1: earningsCurrent.date,
+            yref: 'paper',
+            y0: 0,
+            y1: 1,
+            line: { color: QUANT_COLORS.gold, width: 1.4, dash: 'dash' },
+          },
+        ]
+      : [];
 
-  const getSpX = (i: number) => spPadL + (i / Math.max(1, nSplit - 1)) * spcW;
-  const getSpY = (val: number) => spPadT + spcH - (val / maxSplitVar) * spcH;
+    const annotations: Layout['annotations'] = hasEarningsInWindow && earningsCurrent
+      ? [
+          {
+            x: earningsCurrent.date,
+            y: 0.98,
+            xref: 'x',
+            yref: 'paper',
+            text: 'EARNINGS',
+            showarrow: false,
+            font: { size: 9, color: QUANT_COLORS.gold, family: 'IBM Plex Mono, monospace' },
+          },
+        ]
+      : [];
 
-  const activeSplitIdx = splitHoverIdx !== null ? splitHoverIdx : nSplit - 1;
-  const activeSplitPoint = overnightIntradaySplit[activeSplitIdx] || { date: '', intradayRv: 0, overnightVar: 0, overnightRatioPct: 0 };
+    return {
+      splitTraces: [
+        {
+          type: 'bar',
+          name: 'Intraday RV',
+          x: xs,
+          y: overnightIntradaySplit.map((d) => d.intradayRv),
+          marker: { color: 'rgba(16,185,129,0.82)' },
+          hovertemplate: 'Intraday RV: %{y:.5f}<extra></extra>',
+        },
+        {
+          type: 'bar',
+          name: 'Overnight Gap Var',
+          x: xs,
+          y: overnightIntradaySplit.map((d) => d.overnightVar),
+          marker: { color: 'rgba(222,192,132,0.85)' },
+          hovertemplate: 'Overnight Gap Var: %{y:.5f}<extra></extra>',
+        },
+      ],
+      splitLayout: {
+        barmode: 'stack',
+        margin: { l: 54, r: 16, t: 10, b: 36 },
+        shapes,
+        annotations,
+        yaxis: {
+          title: { text: 'Daily Variance', font: { size: 10, color: tokens.textMuted } },
+          rangemode: 'tozero',
+        },
+      },
+    };
+  }, [overnightIntradaySplit, earningsCurrent, tokens]);
 
   return (
     <div className="space-y-6">
@@ -222,131 +310,22 @@ export function AnalysisDynamicsTab({
 
         <div className="mt-2">
           <ChartFullscreen title="News Impact Curve (Symmetric GARCH vs. Asymmetric GJR-GARCH)">
-          <div ref={newsRef} className="chart-frame">
-          {newsReady && (
-          <svg
-            width={newsW}
-            height={newsH}
-            className="block h-full w-full select-none"
-            onMouseMove={(e) => {
-              const rect = e.currentTarget.getBoundingClientRect();
-              const mouseX = e.clientX - rect.left;
-              const ratio = Math.max(0, Math.min(1, (mouseX - nPadL) / ncW));
-              const idx = Math.round(ratio * (nNews - 1));
-              setNewsHoverIdx(idx);
-            }}
-            onMouseLeave={() => setNewsHoverIdx(null)}
-          >
-            {/* Gridlines */}
-            {[0, 0.25, 0.5, 0.75, 1].map((pct) => {
-              const yVal = pct * maxNewsVar;
-              const yPos = getNewsY(yVal);
-              return (
-                <g key={pct}>
-                  <line
-                    x1={nPadL}
-                    y1={yPos}
-                    x2={newsW - nPadR}
-                    y2={yPos}
-                    stroke="#334155"
-                    strokeDasharray="2 2"
-                    strokeWidth={0.5}
-                    opacity={0.3}
-                  />
-                  <text x={nPadL - 8} y={yPos + 3} textAnchor="end" fontSize="10" fill="#64748b" className="font-mono tabular-nums">
-                    {yVal.toFixed(yDecimals)}
-                  </text>
-                </g>
-              );
-            })}
-
-            {/* X-axis baseline + σ shock ticks (density-adaptive) */}
-            <line
-              x1={nPadL}
-              y1={newsH - nPadB}
-              x2={newsW - nPadR}
-              y2={newsH - nPadB}
-              stroke="currentColor"
-              className="text-zinc-200 dark:text-zinc-800"
-              strokeWidth={1}
+            <PlotlyChart
+              data={newsTraces}
+              layout={newsLayout}
+              plotType="2d"
+              hovermode="x unified"
+              showLegend={false}
+              height={240}
+              showWheelHint
+              exportFilename={`${ticker}-news-impact-curve`}
+              uirevisionKey={`nic-${ticker}-${nNews}`}
+              onHover={(ev) => {
+                const pt = (ev as { points?: Array<{ pointIndex?: number }> })?.points?.[0];
+                if (pt && typeof pt.pointIndex === 'number') setNewsHoverIdx(pt.pointIndex);
+              }}
+              onUnhover={() => setNewsHoverIdx(null)}
             />
-            {shockTicks.map((s) => (
-              <text
-                key={s}
-                x={nPadL + ((s + 5) / 10) * ncW}
-                y={newsH - nPadB + 13}
-                textAnchor="middle"
-                className="text-[8px] sm:text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
-              >
-                {s > 0 ? `+${s}σ` : `${s}σ`}
-              </text>
-            ))}
-            <text
-              x={12}
-              y={nPadT + ncH / 2}
-              textAnchor="middle"
-              transform={`rotate(-90 12 ${nPadT + ncH / 2})`}
-              className="text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 uppercase"
-            >
-              Variance
-            </text>
-
-            {/* Zero shock vertical line */}
-            <line
-              x1={getNewsX(Math.floor(nNews / 2))}
-              y1={nPadT}
-              x2={getNewsX(Math.floor(nNews / 2))}
-              y2={newsH - nPadB}
-              stroke="#64748b"
-              strokeDasharray="3 3"
-              strokeWidth={0.65}
-              opacity={0.4}
-            />
-
-            {/* Symmetric GARCH Curve */}
-            {nNews > 1 && (
-              <path
-                d={newsImpactPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${getNewsX(i)} ${getNewsY(p.symmetricVariance)}`).join(' ')}
-                fill="none"
-                stroke="#64748b"
-                strokeDasharray="4 4"
-                strokeWidth={1.2}
-              />
-            )}
-
-            {/* Asymmetric GJR-GARCH Curve — close→close */}
-            {nNews > 1 && (
-              <path
-                d={newsImpactPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${getNewsX(i)} ${getNewsY(p.asymmetricVarianceGjr)}`).join(' ')}
-                fill="none"
-                stroke="#10b981"
-                strokeWidth={1.6}
-              />
-            )}
-
-            {/* Asymmetric GJR-GARCH Curve — open→close (gap removed) */}
-            {newsImpactOcPoints && newsImpactOcPoints.length > 1 && (
-              <path
-                d={newsImpactOcPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${getNewsX(i)} ${getNewsY(p.asymmetricVarianceGjr)}`).join(' ')}
-                fill="none"
-                stroke="#DEC084"
-                strokeWidth={1.5}
-                strokeDasharray="5 3"
-              />
-            )}
-
-            {/* Hover Indicator */}
-            {activeNewsIdx >= 0 && activeNewsIdx < nNews && (
-              <circle
-                cx={getNewsX(activeNewsIdx)}
-                cy={getNewsY(activeNewsPoint.asymmetricVarianceGjr)}
-                r="4"
-                fill="#10b981"
-              />
-            )}
-          </svg>
-          )}
-          </div>
           </ChartFullscreen>
         </div>
 
@@ -399,93 +378,22 @@ export function AnalysisDynamicsTab({
 
           <div className="mt-2">
             <ChartFullscreen title="Volatility Signature Plot — Realized Vol vs. Sampling Interval">
-            <div ref={sigRef} className="chart-frame">
-            {sigReady && (
-            <svg
-              width={sigW}
-              height={sigH}
-              className="block h-full w-full select-none"
-              onMouseMove={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                const mouseX = e.clientX - rect.left;
-                const ratio = Math.max(0, Math.min(1, (mouseX - sPadL) / scW));
-                const idx = Math.round(ratio * (nSig - 1));
-                setSigHoverIdx(idx);
-              }}
-              onMouseLeave={() => setSigHoverIdx(null)}
-            >
-              {/* Horizontal Gridlines */}
-              {[0, 0.33, 0.66, 1].map((pct) => {
-                const val = sigMin + pct * sigRange;
-                const yPos = getSigY(val);
-                return (
-                  <g key={pct}>
-                    <line x1={sPadL} y1={yPos} x2={sigW - sPadR} y2={yPos} stroke="#334155" strokeDasharray="2 2" strokeWidth={0.5} opacity={0.3} />
-                    <text x={sPadL - 8} y={yPos + 3} textAnchor="end" fontSize="10" fill="#64748b" className="font-mono">
-                      {(val * 100).toFixed(1)}%
-                    </text>
-                  </g>
-                );
-              })}
-
-              {/* Y-axis title */}
-              <text
-                x={12}
-                y={sPadT + scH / 2}
-                textAnchor="middle"
-                transform={`rotate(-90 12 ${sPadT + scH / 2})`}
-                className="text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 uppercase"
-              >
-                Ann. RV
-              </text>
-
-              {/* X-axis baseline + sampling-interval ticks (density-adaptive) */}
-              <line
-                x1={sPadL}
-                y1={sigH - sPadB}
-                x2={sigW - sPadR}
-                y2={sigH - sPadB}
-                stroke="currentColor"
-                className="text-zinc-200 dark:text-zinc-800"
-                strokeWidth={1}
+              <PlotlyChart
+                data={sigTraces}
+                layout={sigLayout}
+                plotType="categorical"
+                hovermode="x unified"
+                showLegend={false}
+                height={230}
+                showWheelHint
+                exportFilename={`${ticker}-volatility-signature`}
+                uirevisionKey={`vol-sig-${ticker}-${nSig}`}
+                onHover={(ev) => {
+                  const pt = (ev as { points?: Array<{ pointIndex?: number }> })?.points?.[0];
+                  if (pt && typeof pt.pointIndex === 'number') setSigHoverIdx(pt.pointIndex);
+                }}
+                onUnhover={() => setSigHoverIdx(null)}
               />
-              {volSignaturePoints.map((p, i) =>
-                sigTickIdx.includes(i) ? (
-                  <text
-                    key={`xtick-${p.samplingMinutes}`}
-                    x={getSigX(i)}
-                    y={sigH - sPadB + 13}
-                    textAnchor="middle"
-                    className="text-[8px] sm:text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
-                  >
-                    {p.samplingMinutes}m
-                  </text>
-                ) : null
-              )}
-
-              {/* Signature Curve */}
-              {nSig > 1 && (
-                <path
-                  d={volSignaturePoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${getSigX(i)} ${getSigY(p.annualizedRv)}`).join(' ')}
-                  fill="none"
-                  stroke="#3b82f6"
-                  strokeWidth={1.4}
-                />
-              )}
-
-              {/* Data points */}
-              {volSignaturePoints.map((p, i) => (
-                <circle
-                  key={p.samplingMinutes}
-                  cx={getSigX(i)}
-                  cy={getSigY(p.annualizedRv)}
-                  r={i === activeSigIdx ? '5' : '3'}
-                  fill={i === activeSigIdx ? '#60a5fa' : '#3b82f6'}
-                />
-              ))}
-            </svg>
-            )}
-            </div>
             </ChartFullscreen>
           </div>
 
@@ -523,103 +431,18 @@ export function AnalysisDynamicsTab({
 
           <div className="mt-2">
             <ChartFullscreen title="Overnight vs. Intraday Variance Split">
-            <div ref={splitRef} className="chart-frame">
-            {splitReady && (
-            <svg
-              width={spW}
-              height={spH}
-              className="block h-full w-full select-none"
-              onMouseMove={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                const mouseX = e.clientX - rect.left;
-                const ratio = Math.max(0, Math.min(1, (mouseX - spPadL) / spcW));
-                const idx = Math.round(ratio * (nSplit - 1));
-                setSplitHoverIdx(idx);
-              }}
-              onMouseLeave={() => setSplitHoverIdx(null)}
-            >
-              {/* Y-axis title */}
-              <text
-                x={10}
-                y={spPadT + spcH / 2}
-                textAnchor="middle"
-                transform={`rotate(-90 10 ${spPadT + spcH / 2})`}
-                className="text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 uppercase"
-              >
-                RV
-              </text>
-
-              {/* X-axis baseline + date ticks */}
-              <line
-                x1={spPadL}
-                y1={spH - spPadB}
-                x2={spW - spPadR}
-                y2={spH - spPadB}
-                stroke="currentColor"
-                className="text-zinc-200 dark:text-zinc-800"
-                strokeWidth={1}
+              <PlotlyChart
+                data={splitTraces}
+                layout={splitLayout}
+                plotType="2d"
+                rangeSlider
+                hovermode="x unified"
+                showLegend={false}
+                height={230}
+                showWheelHint
+                exportFilename={`${ticker}-overnight-intraday-split`}
+                uirevisionKey={`split-${ticker}-${nSplit}`}
               />
-              {splitXTicks.map((idx, i) =>
-                overnightIntradaySplit[idx] ? (
-                  <text
-                    key={`xtick-${i}`}
-                    x={getSpX(idx)}
-                    y={spH - spPadB + 13}
-                    textAnchor={i === 0 ? 'start' : i === splitXTicks.length - 1 ? 'end' : 'middle'}
-                    className="text-[8px] sm:text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
-                  >
-                    {overnightIntradaySplit[idx].date}
-                  </text>
-                ) : null
-              )}
-
-              {/* Earnings marker — lands on the earnings session's bar when it's in the window */}
-              {earningsCurrent && overnightIntradaySplit.map((d, i) =>
-                d.date === earningsCurrent.date ? (
-                  <g key="earnings">
-                    <line x1={getSpX(i)} x2={getSpX(i)} y1={spPadT} y2={spH - spPadB} stroke="#DEC084" strokeWidth={1.1} strokeDasharray="5 4" />
-                    <text x={getSpX(i)} y={spPadT + 10} textAnchor="middle" className="fill-gold-700 dark:fill-gold-300 font-mono" fontSize="9">EARNINGS</text>
-                  </g>
-                ) : null
-              )}
-
-              {/* Stacked Bars / Areas */}
-              {overnightIntradaySplit.map((d, i) => {
-                const x = getSpX(i);
-                const barW = Math.max(8, (spcW / nSplit) * 0.65);
-                const total = d.intradayRv + d.overnightVar;
-                const yTot = getSpY(total);
-                const yIntra = getSpY(d.intradayRv);
-                const baseY = spPadT + spcH;
-
-                return (
-                  <g key={d.date} className="cursor-pointer">
-                    {/* Intraday portion (bottom) */}
-                    <rect
-                      x={x - barW / 2}
-                      y={yIntra}
-                      width={barW}
-                      height={baseY - yIntra}
-                      fill="#10b981"
-                      fillOpacity={0.8}
-                      rx={2}
-                    />
-                    {/* Overnight portion (top) */}
-                    <rect
-                      x={x - barW / 2}
-                      y={yTot}
-                      width={barW}
-                      height={yIntra - yTot}
-                      fill="#DEC084"
-                      fillOpacity={0.8}
-                      rx={2}
-                    />
-                  </g>
-                );
-              })}
-            </svg>
-            )}
-            </div>
             </ChartFullscreen>
           </div>
 

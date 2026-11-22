@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import type { Data, Layout, Shape } from 'plotly.js';
 import type { DecompositionResult, AdfTestResult } from '@/lib/quant-engine';
 import {
   DEFAULT_TCN_CONFIG,
@@ -24,6 +25,8 @@ import {
   AdfEquation,
 } from '@/components/math/MathEquations';
 import { TcnForecastPanel } from '@/components/charts/TcnForecastPanel';
+import { PlotlyChart, usePlotlyDarkTheme } from '@/components/charts/PlotlyChart';
+import { getPlotlyThemeTokens, QUANT_COLORS } from '@/lib/plotly-theme';
 
 interface DecompositionChartProps {
   ticker?: string;
@@ -52,11 +55,218 @@ const persistedChartUiState: {
   sensitivityStep: 4,
 };
 
+function nextBusinessDay(dateStr: string): string {
+  const ms = Date.parse(`${dateStr}T00:00:00Z`);
+  if (!Number.isFinite(ms)) return `${dateStr} (t+1)`;
+  let next = ms + 86400000;
+  const d = new Date(next);
+  if (d.getUTCDay() === 6) next += 2 * 86400000;
+  else if (d.getUTCDay() === 0) next += 86400000;
+  return new Date(next).toISOString().slice(0, 10);
+}
+
+interface DecompositionSubplotProps {
+  title: string;
+  subtitle: string | null;
+  dates: string[];
+  data: (number | null)[];
+  color: string;
+  formatVal: (v: number) => string;
+  baseline: number | null;
+  overlay?: NextDayPointOverlay;
+  showSlider?: boolean;
+  isDark: boolean;
+  uirevisionKey: string;
+}
+
+function DecompositionSubplot({
+  title,
+  subtitle,
+  dates,
+  data,
+  color,
+  formatVal,
+  baseline,
+  overlay,
+  showSlider = false,
+  isDark,
+  uirevisionKey,
+}: DecompositionSubplotProps) {
+  const tokens = useMemo(() => getPlotlyThemeTokens(isDark), [isDark]);
+
+  const { traces, layout, minVal, maxVal, hasData } = useMemo<{
+    traces: Data[];
+    layout: Partial<Layout>;
+    minVal: number;
+    maxVal: number;
+    hasData: boolean;
+  }>(() => {
+    const valid = data.filter((v): v is number => v !== null && !Number.isNaN(v));
+    if (valid.length === 0) {
+      return { traces: [], layout: {}, minVal: 0, maxVal: 0, hasData: false };
+    }
+    let min = Math.min(...valid);
+    let max = Math.max(...valid);
+    if (overlay) {
+      min = Math.min(min, overlay.lower99, overlay.predicted);
+      max = Math.max(max, overlay.upper99, overlay.predicted);
+    }
+
+    const xs = dates;
+    const ys = data.map((v) => (v !== null && !Number.isNaN(v) ? v : null));
+
+    let lastValidIdx = -1;
+    let lastValidVal = 0;
+    for (let i = ys.length - 1; i >= 0; i--) {
+      if (ys[i] !== null) {
+        lastValidIdx = i;
+        lastValidVal = ys[i] as number;
+        break;
+      }
+    }
+
+    const dataTraces: Data[] = [
+      {
+        type: 'scatter',
+        mode: 'lines',
+        name: title,
+        x: xs,
+        y: ys,
+        line: { color, width: 1.7 },
+        connectgaps: false,
+        hovertemplate: '%{y:.4~f}<extra>' + title + '</extra>',
+      },
+    ];
+
+    const shapes: Partial<Shape>[] = [];
+
+    if (baseline !== null) {
+      shapes.push({
+        type: 'line',
+        xref: 'paper',
+        yref: 'y',
+        x0: 0,
+        x1: 1,
+        y0: baseline,
+        y1: baseline,
+        line: { color: tokens.zeroLine, width: 1, dash: 'dot' },
+      });
+    }
+
+    if (overlay && lastValidIdx >= 0) {
+      const lastDate = xs[lastValidIdx];
+      const nextDate = nextBusinessDay(lastDate);
+      shapes.push({
+        type: 'line',
+        xref: 'x',
+        yref: 'paper',
+        x0: lastDate,
+        x1: lastDate,
+        y0: 0,
+        y1: 1,
+        line: { color: tokens.textMuted, width: 0.85, dash: 'dot' },
+      });
+      dataTraces.push({
+        type: 'scatter',
+        mode: 'lines',
+        name: 't→t+1',
+        x: [lastDate, nextDate],
+        y: [lastValidVal, overlay.predicted],
+        line: { color, width: 1.4, dash: 'dot' },
+        showlegend: false,
+        hoverinfo: 'skip',
+      });
+      dataTraces.push({
+        type: 'scatter',
+        mode: 'markers',
+        name: 't+1 TCN Forecast',
+        x: [nextDate],
+        y: [overlay.predicted],
+        error_y: {
+          type: 'data',
+          symmetric: false,
+          array: [Math.max(0, overlay.upper99 - overlay.predicted)],
+          arrayminus: [Math.max(0, overlay.predicted - overlay.lower99)],
+          color: QUANT_COLORS.goldLight,
+          thickness: 1.6,
+          width: 4,
+        },
+        marker: {
+          color: QUANT_COLORS.goldLight,
+          size: 7.5,
+          line: { color: isDark ? '#08080A' : '#FFFFFF', width: 1.2 },
+        },
+        hovertemplate: `t+1: ${formatVal(overlay.predicted)}<br>99% PI [${formatVal(
+          overlay.lower99
+        )}, ${formatVal(overlay.upper99)}]<extra>TCN Forecast</extra>`,
+      });
+    }
+
+    return {
+      traces: dataTraces,
+      layout: {
+        margin: { l: 54, r: 16, t: 8, b: showSlider ? 20 : 24 },
+        shapes,
+        yaxis: {
+          gridcolor: tokens.grid,
+          zeroline: false,
+          nticks: 4,
+        },
+      },
+      minVal: min,
+      maxVal: max,
+      hasData: true,
+    };
+  }, [data, dates, title, color, baseline, overlay, showSlider, isDark, tokens, formatVal]);
+
+  if (!hasData) return null;
+
+  return (
+    <div className="panel-inset p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs mb-1">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0">
+          <span className="font-semibold text-zinc-800 dark:text-zinc-200">{title}</span>
+          {subtitle && (
+            <span className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400 tabular-nums">
+              · {subtitle}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 font-mono text-[11px] text-zinc-500 dark:text-zinc-400 tabular-nums">
+          <span>Min {formatVal(minVal)}</span>
+          <span>·</span>
+          <span>Max {formatVal(maxVal)}</span>
+          {overlay && (
+            <>
+              <span>·</span>
+              <span className="text-gold-600 dark:text-gold-400 font-semibold">
+                t+1: {formatVal(overlay.predicted)}
+              </span>
+            </>
+          )}
+        </div>
+      </div>
+
+      <PlotlyChart
+        data={traces}
+        layout={layout}
+        plotType="2d"
+        rangeSlider={showSlider}
+        hovermode="x unified"
+        height={showSlider ? 220 : 155}
+        exportFilename={`quantmetrics-decomp-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
+        uirevisionKey={uirevisionKey}
+      />
+    </div>
+  );
+}
+
 export function DecompositionChart({
   ticker = 'ASSET',
   decomposition,
   adfTest,
 }: DecompositionChartProps) {
+  const isDark = usePlotlyDarkTheme();
   const [activeComponent, setActiveComponentState] = useState<ComponentFilter>(
     () => persistedChartUiState.activeComponent
   );
@@ -133,7 +343,6 @@ export function DecompositionChart({
     sensitivityStep
   );
 
-  // Read cached model artifacts directly; cacheRevision triggers re-reads after async training/hydration.
   const exactCachedArtifact = cacheRevision >= 0 ? getCachedTcnArtifact(fullCacheKey) : null;
   const fallbackCachedArtifact =
     exactCachedArtifact ?? getLatestCachedTcnArtifactForData(dataSignature);
@@ -160,7 +369,6 @@ export function DecompositionChart({
         return;
       }
 
-      // Fast path: if not explicitly forcing a retrain and target is already cached, return immediately.
       if (!forceRetrain) {
         if (runSweep) {
           const sweepKey = buildTcnSensitivityCacheKey(sym, decomp, cfg, step);
@@ -233,8 +441,6 @@ export function DecompositionChart({
     []
   );
 
-  // Hydrate persisted session cache post-mount and only auto-train when the current
-  // ticker/decomposition/config pair is missing from the model weights & predictions cache.
   useEffect(() => {
     if (n < MIN_BARS_FOR_TCN) return;
     const timer = setTimeout(() => {
@@ -258,216 +464,16 @@ export function DecompositionChart({
     };
   }, [dataSignature, n, executeTraining]);
 
-  if (n === 0) return null;
-
   const isMult = model === 'multiplicative';
   const refBaseline = isMult ? 1 : 0;
 
-  const renderSubplot = (
-    title: string,
-    subtitle: string | null,
-    data: (number | null)[],
-    color: string,
-    formatVal: (v: number) => string,
-    baseline: number | null,
-    overlay?: NextDayPointOverlay
-  ) => {
-    const valid = data.filter((v): v is number => v !== null && !Number.isNaN(v));
-    if (valid.length === 0) return null;
+  const fmtPrice = useCallback((v: number) => `$${v.toFixed(2)}`, []);
+  const fmtFactor = useCallback(
+    (v: number) => (isMult ? `${v.toFixed(4)}×` : `${v >= 0 ? '+' : ''}${v.toFixed(2)}`),
+    [isMult]
+  );
 
-    let min = Math.min(...valid);
-    let max = Math.max(...valid);
-    if (overlay) {
-      min = Math.min(min, overlay.lower99, overlay.predicted);
-      max = Math.max(max, overlay.upper99, overlay.predicted);
-    }
-    const range = max - min || 1;
-    const padRange = range * 0.08;
-    const yMin = min - padRange;
-    const yMax = max + padRange;
-    const ySpan = yMax - yMin || 1;
-
-    const width = 760;
-    const height = 114;
-    const padLeft = 58;
-    const padRight = overlay ? 48 : 16;
-    const padTop = 14;
-    const padBottom = 18;
-
-    const chartW = width - padLeft - padRight;
-    const chartH = height - padTop - padBottom;
-
-    // Reserve rightmost slot for t+1 prediction overlay
-    const histW = overlay ? chartW * 0.94 : chartW;
-    const getX = (i: number) => padLeft + (i / Math.max(1, n - 1)) * histW;
-    const getY = (val: number) => padTop + chartH - ((val - yMin) / ySpan) * chartH;
-
-    const points: string[] = [];
-    let lastValidIdx = -1;
-    let lastValidVal = 0;
-    for (let i = 0; i < n; i++) {
-      const v = data[i];
-      if (v !== null && !Number.isNaN(v)) {
-        points.push(`${getX(i).toFixed(1)},${getY(v).toFixed(1)}`);
-        lastValidIdx = i;
-        lastValidVal = v;
-      }
-    }
-
-    const nextX = padLeft + chartW;
-
-    return (
-      <div className="panel-inset p-3">
-        <div className="flex flex-wrap items-center justify-between gap-2 text-xs mb-1">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0">
-            <span className="font-semibold text-zinc-800 dark:text-zinc-200">{title}</span>
-            {subtitle && (
-              <span className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400 tabular-nums">
-                · {subtitle}
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2 font-mono text-[11px] text-zinc-500 dark:text-zinc-400 tabular-nums">
-            <span>Min {formatVal(min)}</span>
-            <span>·</span>
-            <span>Max {formatVal(max)}</span>
-            {overlay && (
-              <>
-                <span>·</span>
-                <span className="text-gold-600 dark:text-gold-400 font-semibold">
-                  t+1: {formatVal(overlay.predicted)}
-                </span>
-              </>
-            )}
-          </div>
-        </div>
-
-        <div className="w-full aspect-[7.6/1.14]">
-          <svg viewBox={`0 0 ${width} ${height}`} className="block h-full w-full">
-            {/* Y-axis min/max labels */}
-            <text
-              x={padLeft - 6}
-              y={padTop + 4}
-              textAnchor="end"
-              className="text-[9px] font-mono fill-zinc-400 dark:fill-zinc-500 tabular-nums"
-            >
-              {formatVal(max)}
-            </text>
-            <text
-              x={padLeft - 6}
-              y={padTop + chartH}
-              textAnchor="end"
-              className="text-[9px] font-mono fill-zinc-400 dark:fill-zinc-500 tabular-nums"
-            >
-              {formatVal(min)}
-            </text>
-
-            {/* Reference baseline (0 for additive, 1.0 for multiplicative) */}
-            {baseline !== null && baseline > yMin && baseline < yMax && (
-              <line
-                x1={padLeft}
-                y1={getY(baseline)}
-                x2={width - padRight}
-                y2={getY(baseline)}
-                stroke="currentColor"
-                className="text-zinc-300 dark:text-zinc-700"
-                strokeDasharray="2 3"
-                strokeWidth={0.8}
-              />
-            )}
-
-            {/* Historical series path */}
-            <path
-              d={`M ${points.join(' L ')}`}
-              fill="none"
-              stroke={color}
-              strokeWidth="1.35"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-
-            {/* Next-day t+1 forecast overlay */}
-            {overlay && lastValidIdx >= 0 && (
-              <g>
-                {/* Vertical divider separating history from t+1 */}
-                <line
-                  x1={getX(lastValidIdx)}
-                  y1={padTop}
-                  x2={getX(lastValidIdx)}
-                  y2={padTop + chartH}
-                  stroke="currentColor"
-                  className="text-zinc-300/60 dark:text-zinc-700/60"
-                  strokeDasharray="2 2"
-                  strokeWidth={0.75}
-                />
-
-                {/* Dashed connector from t to t+1 */}
-                <line
-                  x1={getX(lastValidIdx)}
-                  y1={getY(lastValidVal)}
-                  x2={nextX}
-                  y2={getY(overlay.predicted)}
-                  stroke={color}
-                  strokeDasharray="3 2"
-                  strokeWidth={1.3}
-                />
-
-                {/* 99% confidence whisker */}
-                <line
-                  x1={nextX}
-                  y1={getY(overlay.lower99)}
-                  x2={nextX}
-                  y2={getY(overlay.upper99)}
-                  stroke="#DEC084"
-                  strokeWidth={1.6}
-                  strokeOpacity={0.85}
-                />
-                <line
-                  x1={nextX - 4}
-                  y1={getY(overlay.lower99)}
-                  x2={nextX + 4}
-                  y2={getY(overlay.lower99)}
-                  stroke="#DEC084"
-                  strokeWidth={1.2}
-                />
-                <line
-                  x1={nextX - 4}
-                  y1={getY(overlay.upper99)}
-                  x2={nextX + 4}
-                  y2={getY(overlay.upper99)}
-                  stroke="#DEC084"
-                  strokeWidth={1.2}
-                />
-
-                {/* Forecast dot */}
-                <circle
-                  cx={nextX}
-                  cy={getY(overlay.predicted)}
-                  r={3.5}
-                  fill="#DEC084"
-                  stroke="#08080a"
-                  strokeWidth={1}
-                />
-
-                {/* t+1 label */}
-                <text
-                  x={nextX}
-                  y={height - 4}
-                  textAnchor="middle"
-                  className="text-[8px] font-mono fill-gold-500 tabular-nums"
-                >
-                  t+1
-                </text>
-              </g>
-            )}
-          </svg>
-        </div>
-      </div>
-    );
-  };
-
-  const fmtPrice = (v: number) => `$${v.toFixed(2)}`;
-  const fmtFactor = (v: number) => (isMult ? `${v.toFixed(4)}×` : `${v >= 0 ? '+' : ''}${v.toFixed(2)}`);
+  if (n === 0) return null;
 
   const activeForecastForPlot =
     forecast && forecast.model === model && forecast.period === period ? forecast : null;
@@ -479,6 +485,8 @@ export function DecompositionChart({
     sensitivityResult.baseForecast.period === period
       ? sensitivityResult
       : null;
+
+  const baseRev = `${ticker}-${model}-${period}-${n}`;
 
   return (
     <div>
@@ -499,8 +507,8 @@ export function DecompositionChart({
               <>
                 <span>·</span>
                 <span className="text-gold-600 dark:text-gold-400">
-                  Dominant Cycle {dominantCyclePeriod.toFixed(1)}d ({(cyclePowerShare * 100).toFixed(1)}%
-                  spectral power)
+                  Dominant Cycle {dominantCyclePeriod.toFixed(1)}d (
+                  {(cyclePowerShare * 100).toFixed(1)}% spectral power)
                 </span>
               </>
             )}
@@ -528,7 +536,7 @@ export function DecompositionChart({
               key={comp}
               type="button"
               onClick={() => setActiveComponent(comp)}
-              className={`px-2.5 py-1 text-xs font-medium rounded-md capitalize transition-colors cursor-pointer ${
+              className={`px-2.5 py-1 text-xs font-medium rounded-md capitalize transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                 activeComponent === comp
                   ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-xs'
                   : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
@@ -540,99 +548,136 @@ export function DecompositionChart({
         </div>
       </div>
 
-      {/* 5 Decomposition Subplots (with t+1 forecast overlay when trained) */}
+      {/* 5 Interactive Plotly Decomposition Subplots (with t+1 forecast overlay when trained) */}
       <div className="space-y-3">
-        {activeComponent === 'all' &&
-          renderSubplot(
-            'Observed Price (Y_t)',
-            `${n} trading sessions`,
-            observed,
-            '#DEC084',
-            fmtPrice,
-            null,
-            activeForecastForPlot
-              ? {
-                  predicted: activeForecastForPlot.predictedPrice,
-                  lower99: activeForecastForPlot.lower99,
-                  upper99: activeForecastForPlot.upper99,
-                  dateLabel: activeForecastForPlot.nextDateLabel,
-                }
-              : undefined
-          )}
+        {activeComponent === 'all' && (
+          <DecompositionSubplot
+            title="Observed Price (Y_t)"
+            subtitle={`${n} trading sessions · Wheel: Pan X · Ctrl+Wheel: Zoom`}
+            dates={dates}
+            data={observed}
+            color="#DEC084"
+            formatVal={fmtPrice}
+            baseline={null}
+            overlay={
+              activeForecastForPlot
+                ? {
+                    predicted: activeForecastForPlot.predictedPrice,
+                    lower99: activeForecastForPlot.lower99,
+                    upper99: activeForecastForPlot.upper99,
+                    dateLabel: activeForecastForPlot.nextDateLabel,
+                  }
+                : undefined
+            }
+            showSlider
+            isDark={isDark}
+            uirevisionKey={`obs-${baseRev}`}
+          />
+        )}
 
-        {(activeComponent === 'all' || activeComponent === 'trend') &&
-          renderSubplot(
-            'Secular Trend (T_t)',
-            'Fourier low-pass secular component',
-            trend,
-            '#3fb27f',
-            fmtPrice,
-            null,
-            activeForecastForPlot
-              ? {
-                  predicted: activeForecastForPlot.components.trend.predictedValue,
-                  lower99: activeForecastForPlot.components.trend.lower99,
-                  upper99: activeForecastForPlot.components.trend.upper99,
-                  dateLabel: activeForecastForPlot.nextDateLabel,
-                }
-              : undefined
-          )}
+        {(activeComponent === 'all' || activeComponent === 'trend') && (
+          <DecompositionSubplot
+            title="Secular Trend (T_t)"
+            subtitle="Fourier low-pass secular component"
+            dates={dates}
+            data={trend}
+            color="#3fb27f"
+            formatVal={fmtPrice}
+            baseline={null}
+            overlay={
+              activeForecastForPlot
+                ? {
+                    predicted: activeForecastForPlot.components.trend.predictedValue,
+                    lower99: activeForecastForPlot.components.trend.lower99,
+                    upper99: activeForecastForPlot.components.trend.upper99,
+                    dateLabel: activeForecastForPlot.nextDateLabel,
+                  }
+                : undefined
+            }
+            showSlider={activeComponent === 'trend'}
+            isDark={isDark}
+            uirevisionKey={`trend-${baseRev}`}
+          />
+        )}
 
-        {(activeComponent === 'all' || activeComponent === 'cyclical') &&
-          renderSubplot(
-            'Cyclical Component (C_t)',
-            dominantCyclePeriod
-              ? `Fourier bandpass ${cycleMinPeriod}–${cycleMaxPeriod}d · peak ${dominantCyclePeriod.toFixed(1)}d`
-              : `Fourier bandpass ${cycleMinPeriod}–${cycleMaxPeriod}d`,
-            cyclical,
-            '#d4a853',
-            fmtFactor,
-            refBaseline,
-            activeForecastForPlot
-              ? {
-                  predicted: activeForecastForPlot.components.cyclical.predictedValue,
-                  lower99: activeForecastForPlot.components.cyclical.lower99,
-                  upper99: activeForecastForPlot.components.cyclical.upper99,
-                  dateLabel: activeForecastForPlot.nextDateLabel,
-                }
-              : undefined
-          )}
+        {(activeComponent === 'all' || activeComponent === 'cyclical') && (
+          <DecompositionSubplot
+            title="Cyclical Component (C_t)"
+            subtitle={
+              dominantCyclePeriod
+                ? `Fourier bandpass ${cycleMinPeriod}–${cycleMaxPeriod}d · peak ${dominantCyclePeriod.toFixed(1)}d`
+                : `Fourier bandpass ${cycleMinPeriod}–${cycleMaxPeriod}d`
+            }
+            dates={dates}
+            data={cyclical}
+            color="#d4a853"
+            formatVal={fmtFactor}
+            baseline={refBaseline}
+            overlay={
+              activeForecastForPlot
+                ? {
+                    predicted: activeForecastForPlot.components.cyclical.predictedValue,
+                    lower99: activeForecastForPlot.components.cyclical.lower99,
+                    upper99: activeForecastForPlot.components.cyclical.upper99,
+                    dateLabel: activeForecastForPlot.nextDateLabel,
+                  }
+                : undefined
+            }
+            showSlider={activeComponent === 'cyclical'}
+            isDark={isDark}
+            uirevisionKey={`cyc-${baseRev}`}
+          />
+        )}
 
-        {(activeComponent === 'all' || activeComponent === 'seasonal') &&
-          renderSubplot(
-            'Seasonal Component (S_t)',
-            `Repeating periodic factor (m = ${period}d)`,
-            seasonal,
-            '#a1a1aa',
-            fmtFactor,
-            refBaseline,
-            activeForecastForPlot
-              ? {
-                  predicted: activeForecastForPlot.components.seasonal.predictedValue,
-                  lower99: activeForecastForPlot.components.seasonal.lower99,
-                  upper99: activeForecastForPlot.components.seasonal.upper99,
-                  dateLabel: activeForecastForPlot.nextDateLabel,
-                }
-              : undefined
-          )}
+        {(activeComponent === 'all' || activeComponent === 'seasonal') && (
+          <DecompositionSubplot
+            title="Seasonal Component (S_t)"
+            subtitle={`Repeating periodic factor (m = ${period}d)`}
+            dates={dates}
+            data={seasonal}
+            color="#a1a1aa"
+            formatVal={fmtFactor}
+            baseline={refBaseline}
+            overlay={
+              activeForecastForPlot
+                ? {
+                    predicted: activeForecastForPlot.components.seasonal.predictedValue,
+                    lower99: activeForecastForPlot.components.seasonal.lower99,
+                    upper99: activeForecastForPlot.components.seasonal.upper99,
+                    dateLabel: activeForecastForPlot.nextDateLabel,
+                  }
+                : undefined
+            }
+            showSlider={activeComponent === 'seasonal'}
+            isDark={isDark}
+            uirevisionKey={`seas-${baseRev}`}
+          />
+        )}
 
-        {(activeComponent === 'all' || activeComponent === 'residual') &&
-          renderSubplot(
-            'Irregular Residual (I_t)',
-            'Isolated remainder after T, C, S',
-            residual,
-            '#e0655f',
-            fmtFactor,
-            refBaseline,
-            activeForecastForPlot
-              ? {
-                  predicted: activeForecastForPlot.components.residual.predictedValue,
-                  lower99: activeForecastForPlot.components.residual.lower99,
-                  upper99: activeForecastForPlot.components.residual.upper99,
-                  dateLabel: activeForecastForPlot.nextDateLabel,
-                }
-              : undefined
-          )}
+        {(activeComponent === 'all' || activeComponent === 'residual') && (
+          <DecompositionSubplot
+            title="Irregular Residual (I_t)"
+            subtitle="Isolated remainder after T, C, S"
+            dates={dates}
+            data={residual}
+            color="#e0655f"
+            formatVal={fmtFactor}
+            baseline={refBaseline}
+            overlay={
+              activeForecastForPlot
+                ? {
+                    predicted: activeForecastForPlot.components.residual.predictedValue,
+                    lower99: activeForecastForPlot.components.residual.lower99,
+                    upper99: activeForecastForPlot.components.residual.upper99,
+                    dateLabel: activeForecastForPlot.nextDateLabel,
+                  }
+                : undefined
+            }
+            showSlider={activeComponent === 'residual'}
+            isDark={isDark}
+            uirevisionKey={`res-${baseRev}`}
+          />
+        )}
       </div>
 
       {/* Inline TCN + Multi-Head Self-Attention Forecasting Lab */}
@@ -660,7 +705,7 @@ export function DecompositionChart({
       />
 
       {/* Augmented Dickey-Fuller (ADF) Test on Residuals Box */}
-      <div className="mt-5 pt-4 border-t border-zinc-200/80 dark:border-zinc-800/80">
+      <div className="mt-5 pt-4 border-t border-[var(--hairline)]">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
           <div>
             <span className="text-xs font-semibold uppercase tracking-wider text-zinc-700 dark:text-zinc-300 block">

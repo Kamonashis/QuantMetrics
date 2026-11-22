@@ -1,63 +1,115 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo } from 'react';
+import type { Data, Layout } from 'plotly.js';
 import { ReturnStats } from '@/lib/quant-engine';
+import { PlotlyChart, usePlotlyDarkTheme } from '@/components/charts/PlotlyChart';
+import { getPlotlyThemeTokens, QUANT_COLORS } from '@/lib/plotly-theme';
 
 interface ReturnDistributionChartProps {
   returns: number[];
   stats: ReturnStats;
 }
 
-export function ReturnDistributionChart({
-  returns,
-  stats,
-}: ReturnDistributionChartProps) {
+export function ReturnDistributionChart({ returns, stats }: ReturnDistributionChartProps) {
+  const isDark = usePlotlyDarkTheme();
+  const tokens = useMemo(() => getPlotlyThemeTokens(isDark), [isDark]);
+
+  const { traces, layout } = useMemo<{ traces: Data[]; layout: Partial<Layout> }>(() => {
+    if (!returns || returns.length === 0) return { traces: [], layout: {} };
+
+    const binCount = 35;
+    const min = stats.min;
+    const max = stats.max;
+    const range = max - min || 0.01;
+    const binWidth = range / binCount;
+
+    const counts: number[] = new Array(binCount).fill(0);
+    for (const r of returns) {
+      const idx = Math.min(binCount - 1, Math.max(0, Math.floor((r - min) / binWidth)));
+      counts[idx]++;
+    }
+
+    const binCentersPct = Array.from({ length: binCount }, (_, i) => (min + (i + 0.5) * binWidth) * 100);
+    const mean = stats.mean;
+    const std = stats.stdDev || 0.01;
+    const numSteps = 100;
+    const normX: number[] = [];
+    const normY: number[] = [];
+    for (let s = 0; s <= numSteps; s++) {
+      const xVal = min + (s / numSteps) * range;
+      const z = (xVal - mean) / std;
+      const phi = (1 / (std * Math.sqrt(2 * Math.PI))) * Math.exp(-0.5 * z * z);
+      normX.push(xVal * 100);
+      normY.push(returns.length * binWidth * phi);
+    }
+
+    return {
+      traces: [
+        {
+          type: 'bar',
+          name: 'Empirical Returns',
+          x: binCentersPct,
+          y: counts,
+          marker: {
+            color: 'rgba(139, 139, 147, 0.58)',
+            line: { color: QUANT_COLORS.goldLight, width: 0.6 },
+          },
+          hovertemplate: '%{x:+.2f}% · %{y} days<extra>Empirical</extra>',
+        },
+        {
+          type: 'scatter',
+          mode: 'lines',
+          name: 'Gaussian Reference',
+          x: normX,
+          y: normY,
+          line: { color: QUANT_COLORS.goldLight, width: 2, dash: 'dash' },
+          hovertemplate: '%{x:+.2f}% · %{y:.1f} exp<extra>Gaussian</extra>',
+        },
+      ],
+      layout: {
+        bargap: 0.06,
+        shapes: [
+          {
+            type: 'line',
+            xref: 'x',
+            yref: 'paper',
+            x0: mean * 100,
+            x1: mean * 100,
+            y0: 0,
+            y1: 1,
+            line: { color: QUANT_COLORS.positive, width: 1.4, dash: 'dot' },
+          },
+        ],
+        annotations: [
+          {
+            x: mean * 100,
+            y: 1.0,
+            xref: 'x',
+            yref: 'paper',
+            text: `Mean ${(mean * 100).toFixed(2)}%`,
+            showarrow: false,
+            xanchor: 'left',
+            yanchor: 'top',
+            xshift: 5,
+            font: { size: 9.5, color: QUANT_COLORS.positive },
+          },
+        ],
+        xaxis: {
+          ticksuffix: '%',
+          gridcolor: tokens.grid,
+        },
+        yaxis: {
+          title: { text: 'Frequency', font: { size: 10, color: tokens.textMuted } },
+          rangemode: 'tozero',
+          gridcolor: tokens.grid,
+        },
+      },
+    };
+  }, [returns, stats, tokens]);
+
   if (!returns || returns.length === 0) {
     return null;
-  }
-
-  // 35 histogram bins
-  const binCount = 35;
-  const min = stats.min;
-  const max = stats.max;
-  const range = max - min || 0.01;
-  const binWidth = range / binCount;
-
-  const bins: number[] = new Array(binCount).fill(0);
-  for (const r of returns) {
-    const idx = Math.min(binCount - 1, Math.max(0, Math.floor((r - min) / binWidth)));
-    bins[idx]++;
-  }
-
-  const maxCount = Math.max(...bins, 1);
-
-  const width = 600;
-  const height = 240;
-  const padLeft = 45;
-  const padRight = 20;
-  const padTop = 20;
-  const padBottom = 30;
-
-  const chartW = width - padLeft - padRight;
-  const chartH = height - padTop - padBottom;
-
-  const getX = (val: number) => padLeft + ((val - min) / range) * chartW;
-  const getY = (count: number) => padTop + chartH - (count / maxCount) * chartH;
-
-  // Theoretical Gaussian curve scaled to peak
-  const normalPoints: string[] = [];
-  const mean = stats.mean;
-  const std = stats.stdDev || 0.01;
-  const numSteps = 80;
-
-  for (let s = 0; s <= numSteps; s++) {
-    const xVal = min + (s / numSteps) * range;
-    const z = (xVal - mean) / std;
-    const phi = (1 / (std * Math.sqrt(2 * Math.PI))) * Math.exp(-0.5 * z * z);
-    // Area scaling: total observations * binWidth * phi
-    const expectedCount = returns.length * binWidth * phi;
-    const yVal = getY(expectedCount);
-    normalPoints.push(`${getX(xVal)},${Math.max(padTop, Math.min(padTop + chartH, yVal))}`);
   }
 
   return (
@@ -65,14 +117,13 @@ export function ReturnDistributionChart({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <div>
           <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm tracking-tight">
-            Return Distribution & Moments
+            Return Distribution &amp; Moments
           </h3>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
             Empirical frequency vs. theoretical normal distribution
           </p>
         </div>
 
-        {/* Clean unboxed statistics metrics without decorative pills */}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
           <div>
             <span className="text-zinc-500 dark:text-zinc-400">Skewness:</span>{' '}
@@ -80,14 +131,18 @@ export function ReturnDistributionChart({
               {stats.skewness.toFixed(3)}
             </span>
           </div>
-          <span className="text-zinc-300 dark:text-zinc-700" aria-hidden="true">·</span>
+          <span className="text-zinc-300 dark:text-zinc-700" aria-hidden="true">
+            ·
+          </span>
           <div>
             <span className="text-zinc-500 dark:text-zinc-400">Excess Kurtosis:</span>{' '}
             <span className="font-mono font-semibold text-zinc-900 dark:text-zinc-100 tabular-nums">
               {stats.excessKurtosis.toFixed(3)}
             </span>
           </div>
-          <span className="text-zinc-300 dark:text-zinc-700" aria-hidden="true">·</span>
+          <span className="text-zinc-300 dark:text-zinc-700" aria-hidden="true">
+            ·
+          </span>
           <div>
             <span className="text-zinc-500 dark:text-zinc-400">Jarque-Bera:</span>{' '}
             <span className="font-mono font-semibold text-zinc-900 dark:text-zinc-100 tabular-nums">
@@ -97,130 +152,28 @@ export function ReturnDistributionChart({
         </div>
       </div>
 
-      <div className="relative w-full aspect-[6/2.4] min-h-[180px]">
-        <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full">
-          {/* Grid lines */}
-          {[0, 0.5, 1].map((pct) => {
-            const count = Math.round(pct * maxCount);
-            const yPos = getY(count);
-            return (
-              <g key={pct}>
-                <line
-                  x1={padLeft}
-                  y1={yPos}
-                  x2={width - padRight}
-                  y2={yPos}
-                  stroke="currentColor"
-                  className="text-zinc-200 dark:text-zinc-800"
-                  strokeDasharray="2 3"
-                />
-                <text
-                  x={padLeft - 6}
-                  y={yPos + 4}
-                  textAnchor="end"
-                  className="text-[10px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
-                >
-                  {count}
-                </text>
-              </g>
-            );
-          })}
+      <PlotlyChart
+        data={traces}
+        layout={layout}
+        plotType="2d"
+        hovermode="x unified"
+        showLegend
+        height={265}
+        exportFilename="quantmetrics-return-distribution"
+        uirevisionKey={`rdist-${returns.length}-${stats.mean.toFixed(5)}`}
+        showWheelHint
+      />
 
-          {/* Histogram Bars */}
-          {bins.map((count, i) => {
-            const binStart = min + i * binWidth;
-            const x0 = getX(binStart);
-            const x1 = getX(binStart + binWidth);
-            const bWidth = Math.max(1, x1 - x0 - 1);
-            const y = getY(count);
-            const h = padTop + chartH - y;
-
-            return (
-              <rect
-                key={i}
-                x={x0}
-                y={y}
-                width={bWidth}
-                height={h}
-                fill="#8b8b93"
-                className="opacity-70 hover:opacity-100 transition-opacity"
-              />
-            );
-          })}
-
-          {/* Normal Curve */}
-          <path
-            d={`M ${normalPoints.join(' ')}`}
-            fill="none"
-            stroke="#DEC084"
-            strokeWidth="1.3"
-            strokeDasharray="3 2"
-          />
-
-          {/* Mean vertical line */}
-          <line
-            x1={getX(mean)}
-            y1={padTop}
-            x2={getX(mean)}
-            y2={padTop + chartH}
-            stroke="#3fb27f"
-            strokeWidth="1"
-            strokeDasharray="4 2"
-          />
-
-          {/* X axis marks */}
-          {[-0.04, -0.02, 0, 0.02, 0.04].map((tick) => {
-            if (tick < min || tick > max) return null;
-            return (
-              <g key={tick}>
-                <line
-                  x1={getX(tick)}
-                  y1={padTop + chartH}
-                  x2={getX(tick)}
-                  y2={padTop + chartH + 4}
-                  stroke="currentColor"
-                  className="text-zinc-400 dark:text-zinc-600"
-                />
-                <text
-                  x={getX(tick)}
-                  y={height - 8}
-                  textAnchor="middle"
-                  className="text-[10px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
-                >
-                  {(tick * 100).toFixed(0)}%
-                </text>
-              </g>
-            );
-          })}
-        </svg>
-      </div>
-
-      <div className="flex items-center justify-between text-[11px] text-zinc-500 dark:text-zinc-400 mt-2 pt-2 border-t border-zinc-100 dark:border-zinc-800/60">
-        <div className="flex items-center gap-4">
-          <span className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 bg-gold-400 rounded-xs inline-block" />
-            Empirical Returns
+      <div className="flex items-center justify-end text-[11px] text-zinc-500 dark:text-zinc-400 mt-2 pt-2 border-t border-[var(--hairline)]">
+        {stats.excessKurtosis > 1 ? (
+          <span className="text-gold-600 dark:text-gold-400 font-medium">
+            Leptokurtic (Fat-Tailed Risk)
           </span>
-          <span className="flex items-center gap-1.5">
-            <span className="w-3 h-0.5 bg-gold-500 inline-block border-b border-dashed" />
-            Gaussian Reference
+        ) : (
+          <span className="text-gold-600 dark:text-gold-400 font-medium">
+            Mesokurtic / Normal
           </span>
-          <span className="flex items-center gap-1.5">
-            <span className="w-3 h-0.5 bg-gold-500 inline-block" />
-            Mean Return ({(stats.mean * 100).toFixed(2)}%)
-          </span>
-        </div>
-        <div>
-          {stats.excessKurtosis > 1 ? (
-            <span className="text-gold-600 dark:text-gold-400 font-medium">
-              Leptokurtic (Fat-Tailed Risk)
-            </span>
-          ) : (
-            <span className="text-gold-600 dark:text-gold-400 font-medium">
-              Mesokurtic / Normal
-            </span>
-          )}
-        </div>
+        )}
       </div>
     </div>
   );

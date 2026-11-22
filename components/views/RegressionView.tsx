@@ -25,17 +25,23 @@ import { ShimmerButton } from '@/components/ui/ShimmerButton';
 import { TickerSuggest } from '@/components/ui/TickerSuggest';
 import { AlgoSelect } from '@/components/ui/AlgoSelect';
 import { ProvenanceBadge } from '@/components/ui/provenance-badge';
-import {
-  buildRegimeBandSpans,
-  getHmmRegimeToken,
-} from '@/lib/hmm-regime-overlay';
+import type { Data, Layout } from 'plotly.js';
+import { getHmmRegimeToken } from '@/lib/hmm-regime-overlay';
 import {
   HmmRegimeOverlayToggle,
   HmmRegimeScorecard,
 } from '@/components/charts/HmmRegimeOverlayControls';
+import { PlotlyChart, usePlotlyDarkTheme } from '@/components/charts/PlotlyChart';
+import {
+  buildHmmRegimeShapes,
+  getPlotlyThemeTokens,
+  QUANT_COLORS,
+} from '@/lib/plotly-theme';
 import { Play, RotateCcw, HelpCircle, ArrowUpRight, TrendingUp, Info, Sparkles } from 'lucide-react';
 
 function TcnRegressionOosChart({ tcnReg }: { tcnReg: TcnMultiAssetRegressionResult }) {
+  const isDark = usePlotlyDarkTheme();
+  const tokens = useMemo(() => getPlotlyThemeTokens(isDark), [isDark]);
   const [showRegimeOverlay, setShowRegimeOverlay] = useState(true);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
 
@@ -62,10 +68,107 @@ function TcnRegressionOosChart({ tcnReg }: { tcnReg: TcnMultiAssetRegressionResu
     });
   }, [hist]);
 
-  const regimeBandSpans = useMemo(
-    () => buildRegimeBandSpans(series.map((s) => s.hmmState)),
-    [series]
-  );
+  const { traces, layout } = useMemo<{
+    traces: Data[];
+    layout: Partial<Layout>;
+  }>(() => {
+    if (series.length < 3) return { traces: [], layout: {} };
+
+    const xs = series.map((s) => s.date);
+    const regimeColors = series.map((s) => getHmmRegimeToken(s.hmmState).color);
+    const stride = Math.max(1, Math.ceil(series.length / 44));
+
+    const data: Data[] = [
+      {
+        type: 'scatter',
+        mode: 'lines',
+        name: 'Lag-Matched OLS',
+        x: xs,
+        y: series.map((s) => s.cumOls),
+        line: { color: '#64748b', width: 1.2, dash: 'dot' },
+        hovertemplate: 'OLS Cum: %{y:+.2f}%<extra></extra>',
+      },
+      {
+        type: 'scatter',
+        mode: 'lines',
+        name: 'Realized Cum Return',
+        x: xs,
+        y: series.map((s) => s.cumAct),
+        line: { color: '#94a3b8', width: 1.6, dash: 'dash' },
+        hovertemplate: 'Realized Cum: %{y:+.2f}%<extra></extra>',
+      },
+      {
+        type: 'scatter',
+        mode: 'lines',
+        name: 'TCN Cum Pred',
+        x: xs,
+        y: series.map((s) => s.cumPred),
+        line: { color: QUANT_COLORS.gold, width: 2 },
+        hovertemplate: 'TCN Cum Pred: %{y:+.2f}%<extra></extra>',
+      },
+    ];
+
+    if (showRegimeOverlay) {
+      const mX: string[] = [];
+      const mY: number[] = [];
+      const mColor: string[] = [];
+      const mText: string[] = [];
+      for (let i = 0; i < series.length; i++) {
+        if (i % stride !== 0 && i !== series.length - 1) continue;
+        const s = series[i];
+        const tok = getHmmRegimeToken(s.hmmState);
+        mX.push(s.date);
+        mY.push(s.cumPred);
+        mColor.push(regimeColors[i]);
+        mText.push(`${tok.label} (${Math.round(s.hmmProb * 100)}%)`);
+      }
+      data.push({
+        type: 'scatter',
+        mode: 'markers',
+        name: 'HMM Origin Regime',
+        x: mX,
+        y: mY,
+        marker: {
+          size: 6,
+          color: mColor,
+          line: { color: isDark ? '#08080A' : '#FFFFFF', width: 1 },
+        },
+        text: mText,
+        hovertemplate: 'Regime: %{text}<extra></extra>',
+        showlegend: false,
+      });
+    }
+
+    const shapes: Layout['shapes'] = [
+      ...buildHmmRegimeShapes(
+        xs,
+        series.map((s) => s.hmmState),
+        showRegimeOverlay
+      ),
+      {
+        type: 'line',
+        xref: 'paper',
+        x0: 0,
+        x1: 1,
+        yref: 'y',
+        y0: 0,
+        y1: 0,
+        line: { color: tokens.zeroLine, width: 1 },
+      },
+    ];
+
+    return {
+      traces: data,
+      layout: {
+        margin: { l: 50, r: 16, t: 10, b: 36 },
+        shapes,
+        yaxis: {
+          ticksuffix: '%',
+          tickfont: { size: 10, color: tokens.textMuted },
+        },
+      },
+    };
+  }, [series, showRegimeOverlay, isDark, tokens]);
 
   if (series.length < 3) return null;
 
@@ -73,50 +176,6 @@ function TcnRegressionOosChart({ tcnReg }: { tcnReg: TcnMultiAssetRegressionResu
   const activeIdx = hoverIdx !== null && hoverIdx < n ? hoverIdx : n - 1;
   const activePt = series[activeIdx];
   const activeTok = getHmmRegimeToken(activePt.hmmState);
-
-  let minY = 0;
-  let maxY = 0;
-  for (const s of series) {
-    minY = Math.min(minY, s.cumAct, s.cumPred, s.cumOls);
-    maxY = Math.max(maxY, s.cumAct, s.cumPred, s.cumOls);
-  }
-  const padVal = Math.max((maxY - minY) * 0.16, 0.5);
-  const domMin = minY - padVal;
-  const domMax = maxY + padVal;
-  const spanY = Math.max(domMax - domMin, 1e-4);
-
-  const w = 760;
-  const h = 192;
-  const padL = 50;
-  const padR = 16;
-  const padT = 14;
-  const padB = 26;
-  const chartW = w - padL - padR;
-  const chartH = h - padT - padB;
-
-  const toX = (i: number) => padL + ((i + 1) / n) * chartW;
-  const toY = (pct: number) => padT + chartH - ((pct - domMin) / spanY) * chartH;
-  const zeroY = toY(0);
-  const slotW = chartW / n;
-
-  const actPath = [
-    `M ${padL.toFixed(1)} ${zeroY.toFixed(1)}`,
-    ...series.map((s, i) => `L ${toX(i).toFixed(1)} ${toY(s.cumAct).toFixed(1)}`),
-  ].join(' ');
-  const predPath = [
-    `M ${padL.toFixed(1)} ${zeroY.toFixed(1)}`,
-    ...series.map((s, i) => `L ${toX(i).toFixed(1)} ${toY(s.cumPred).toFixed(1)}`),
-  ].join(' ');
-  const olsPath = [
-    `M ${padL.toFixed(1)} ${zeroY.toFixed(1)}`,
-    ...series.map((s, i) => `L ${toX(i).toFixed(1)} ${toY(s.cumOls).toFixed(1)}`),
-  ].join(' ');
-
-  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((f) => domMin + f * spanY);
-  const xTickIndices = Array.from(
-    new Set([0, Math.floor((n - 1) / 3), Math.floor(((n - 1) * 2) / 3), n - 1])
-  );
-  const stride = Math.max(1, Math.ceil(n / 42));
 
   return (
     <div className="mt-4 pt-4 border-t border-[var(--hairline)] space-y-3">
@@ -184,190 +243,27 @@ function TcnRegressionOosChart({ tcnReg }: { tcnReg: TcnMultiAssetRegressionResu
         </span>
       </div>
 
-      <div className="w-full overflow-x-auto rounded-lg border border-[var(--hairline)] bg-[var(--bg-inset)]/40 p-2">
-        <svg
-          viewBox={`0 0 ${w} ${h}`}
-          className="block w-full h-[192px] min-w-[460px] select-none cursor-crosshair"
-          role="img"
-          aria-label="Out-of-sample cumulative predicted versus realized return with causal HMM regime overlay"
-          onMouseLeave={() => setHoverIdx(null)}
-        >
-          {/* Run-length merged causal HMM regime background bands */}
-          <g
-            style={{
-              opacity: showRegimeOverlay ? 1 : 0,
-              transition: 'opacity 150ms ease',
-            }}
-          >
-            {regimeBandSpans.map((span) => {
-              const tok = getHmmRegimeToken(span.state);
-              const x0 = span.startIdx === 0 ? padL : toX(span.startIdx) - slotW / 2;
-              const x1 = span.endIdx === n - 1 ? w - padR : toX(span.endIdx) + slotW / 2;
-              return (
-                <rect
-                  key={`reg-band-${span.startIdx}-${span.endIdx}-${span.state}`}
-                  x={x0}
-                  y={padT}
-                  width={Math.max(1, x1 - x0)}
-                  height={chartH}
-                  fill={`rgba(${tok.rgb}, 0.12)`}
-                />
-              );
-            })}
-          </g>
-
-          {/* Horizontal gridlines */}
-          {yTicks.map((val, idx) => {
-            const y = toY(val);
-            return (
-              <g key={idx}>
-                <line
-                  x1={padL}
-                  y1={y}
-                  x2={w - padR}
-                  y2={y}
-                  stroke="currentColor"
-                  className="text-zinc-200 dark:text-zinc-800/80"
-                  strokeDasharray="2 3"
-                  strokeWidth={0.75}
-                />
-                <text
-                  x={padL - 6}
-                  y={y + 3}
-                  textAnchor="end"
-                  className="text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
-                >
-                  {val >= 0 ? '+' : ''}
-                  {val.toFixed(1)}%
-                </text>
-              </g>
-            );
-          })}
-
-          {/* 0% baseline */}
-          <line
-            x1={padL}
-            y1={zeroY}
-            x2={w - padR}
-            y2={zeroY}
-            stroke="currentColor"
-            className="text-zinc-400 dark:text-zinc-600"
-            strokeWidth={1}
-            opacity={0.75}
-          />
-
-          {/* OLS Baseline curve */}
-          <path
-            d={olsPath}
-            fill="none"
-            stroke="#64748b"
-            strokeWidth={1.1}
-            strokeDasharray="2 3"
-            opacity={0.75}
-          />
-
-          {/* Realized cumulative return curve */}
-          <path
-            d={actPath}
-            fill="none"
-            stroke="#94a3b8"
-            strokeWidth={1.5}
-            strokeDasharray="4 2"
-          />
-
-          {/* TCN Predicted cumulative return curve */}
-          <path
-            d={predPath}
-            fill="none"
-            stroke="#DEC084"
-            strokeWidth={1.8}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-
-          {/* Regime-colored OOS prediction points */}
-          <g
-            style={{
-              opacity: showRegimeOverlay ? 1 : 0,
-              transition: 'opacity 150ms ease',
-            }}
-          >
-            {series.map((s, i) => {
-              if (i % stride !== 0 && i !== n - 1 && i !== activeIdx) return null;
-              const tok = getHmmRegimeToken(s.hmmState);
-              const isAct = i === activeIdx;
-              return (
-                <circle
-                  key={`reg-pt-${s.date}-${i}`}
-                  cx={toX(i)}
-                  cy={toY(s.cumPred)}
-                  r={isAct ? 4.4 : 2.7}
-                  fill={tok.color}
-                  stroke="#08080a"
-                  strokeWidth={isAct ? 1.3 : 0.85}
-                />
-              );
-            })}
-          </g>
-
-          {/* Hover crosshair & active dots */}
-          <line
-            x1={toX(activeIdx)}
-            y1={padT}
-            x2={toX(activeIdx)}
-            y2={padT + chartH}
-            stroke="#DEC084"
-            strokeOpacity={hoverIdx !== null ? 0.65 : 0.3}
-            strokeDasharray="2 2"
-            strokeWidth={1}
-          />
-          <circle
-            cx={toX(activeIdx)}
-            cy={toY(activePt.cumAct)}
-            r={3.2}
-            fill="#94a3b8"
-            stroke="#08080a"
-            strokeWidth={1.1}
-          />
-          <circle
-            cx={toX(activeIdx)}
-            cy={toY(activePt.cumPred)}
-            r={4.3}
-            fill={showRegimeOverlay ? activeTok.color : '#DEC084'}
-            stroke="#08080a"
-            strokeWidth={1.3}
-          />
-
-          {/* Interactive hit columns */}
-          {series.map((s, i) => (
-            <rect
-              key={`reg-hit-${s.date}-${i}`}
-              x={toX(i) - slotW / 2}
-              y={padT}
-              width={Math.max(4, slotW)}
-              height={chartH}
-              fill="transparent"
-              onMouseEnter={() => setHoverIdx(i)}
-            />
-          ))}
-
-          {/* X-axis ticks */}
-          {xTickIndices.map((idx) => {
-            const rawDate = series[idx].date;
-            const shortDate = rawDate.length >= 10 ? rawDate.slice(5) : rawDate;
-            return (
-              <text
-                key={idx}
-                x={toX(idx)}
-                y={h - 6}
-                textAnchor={idx === 0 ? 'start' : idx === n - 1 ? 'end' : 'middle'}
-                className="text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
-              >
-                {shortDate}
-              </text>
-            );
-          })}
-        </svg>
+      <div className="w-full rounded-lg border border-[var(--hairline)] bg-[var(--bg-inset)]/40 p-1.5">
+        <PlotlyChart
+          data={traces}
+          layout={layout}
+          plotType="2d"
+          rangeSlider
+          hovermode="x unified"
+          showLegend={false}
+          height={240}
+          showWheelHint
+          exportFilename={`${tcnReg.dependentTicker}-tcn-regression-oos`}
+          uirevisionKey={`tcn-reg-oos-${tcnReg.dependentTicker}-${showRegimeOverlay}`}
+          onHover={(ev) => {
+            const pt = (ev as { points?: Array<{ x?: unknown }> })?.points?.[0];
+            if (pt?.x !== undefined) {
+              const idx = series.findIndex((s) => s.date === String(pt.x));
+              if (idx >= 0) setHoverIdx(idx);
+            }
+          }}
+          onUnhover={() => setHoverIdx(null)}
+        />
       </div>
 
       {/* Legend Strip */}

@@ -1,163 +1,208 @@
 'use client';
 
 import React, { useMemo } from 'react';
-import { useChartSize } from '@/lib/use-chart-size';
+import type { Data, Layout } from 'plotly.js';
 import type { PriceBar } from '@/lib/quant-engine';
+import { PlotlyChart } from '@/components/charts/PlotlyChart';
+import { QUANT_COLORS } from '@/lib/plotly-theme';
 
-const GOLD = '#DEC084';
+function addTradingDays(dateStr: string, tradingDays: number): string {
+  const d = new Date(`${dateStr.slice(0, 10)}T12:00:00Z`);
+  if (!Number.isFinite(d.getTime())) return dateStr;
+  let added = 0;
+  while (added < tradingDays) {
+    d.setUTCDate(d.getUTCDate() + 1);
+    const day = d.getUTCDay();
+    if (day !== 0 && day !== 6) added++;
+  }
+  return d.toISOString().slice(0, 10);
+}
 
 /**
- * Price trajectory with a forward expected-move cone from spot.
- * Historical closes (left) flow into ±k·σ·√(t/252) bands fanning right from the last close.
- * Drift-free (risk-neutral), European BSM convention, matching lib/options.expectedMove:
- * half-width = k · spot · σ · √(f / 252), f in trading days.
+ * Interactive Plotly price trajectory with a forward expected-move cone (±1σ / ±2σ)
+ * fanning from spot using ±k·S₀·IV30·√(t/252).
  */
-export function ExpectedMoveConeChart({ bars, iv30, horizonTd = 21 }: { bars: PriceBar[]; iv30: number | null; horizonTd?: number }) {
-  const { ref, size } = useChartSize<HTMLDivElement>();
-
+export function ExpectedMoveConeChart({
+  bars,
+  iv30,
+  horizonTd = 21,
+}: {
+  bars: PriceBar[];
+  iv30: number | null;
+  horizonTd?: number;
+}) {
   const hist = useMemo(() => (bars ?? []).slice(-180), [bars]);
   const spot = hist.length > 0 ? hist[hist.length - 1].close : null;
 
-  const chart = useMemo(() => {
-    if (iv30 === null || !spot || hist.length < 2 || !isFinite(spot) || spot <= 0) return null;
-    const nHist = hist.length;
-    const total = nHist + horizonTd;
-    const closes = hist.map((b) => b.close);
-    const bandAt = (f: number, k: number) => k * spot * iv30 * Math.sqrt(f / 252);
-    const upper1 = (f: number) => spot + bandAt(f, 1);
-    const lower1 = (f: number) => spot - bandAt(f, 1);
-    const upper2 = (f: number) => spot + bandAt(f, 2);
-    const lower2 = (f: number) => Math.max(0, spot - bandAt(f, 2));
-
-    let yMin = Infinity;
-    let yMax = -Infinity;
-    for (const c of closes) {
-      if (c < yMin) yMin = c;
-      if (c > yMax) yMax = c;
+  const { traces, layout } = useMemo(() => {
+    if (iv30 === null || !spot || hist.length < 2 || !Number.isFinite(spot) || spot <= 0) {
+      return { traces: [] as Data[], layout: {} as Partial<Layout> };
     }
-    for (const b of [upper2(horizonTd), lower2(horizonTd), upper1(horizonTd), lower1(horizonTd)]) {
-      if (b < yMin) yMin = b;
-      if (b > yMax) yMax = b;
-    }
-    const padY = (yMax - yMin) * 0.06;
-    yMin -= padY;
-    yMax += padY;
 
-    return { nHist, total, closes, yMin, yMax, upper1, lower1, upper2, lower2 };
+    const lastDate = hist[hist.length - 1].date;
+    const histDates = hist.map((b) => b.date);
+    const histCloses = hist.map((b) => b.close);
+
+    const futDates: string[] = [lastDate];
+    const up1: number[] = [spot];
+    const dn1: number[] = [spot];
+    const up2: number[] = [spot];
+    const dn2: number[] = [spot];
+    const mid: number[] = [spot];
+
+    for (let f = 1; f <= horizonTd; f++) {
+      const dt = addTradingDays(lastDate, f);
+      const w1 = spot * iv30 * Math.sqrt(f / 252);
+      futDates.push(dt);
+      up1.push(spot + w1);
+      dn1.push(Math.max(0, spot - w1));
+      up2.push(spot + 2 * w1);
+      dn2.push(Math.max(0, spot - 2 * w1));
+      mid.push(spot);
+    }
+
+    const list: Data[] = [
+      {
+        type: 'scatter',
+        mode: 'lines',
+        name: '−2σ Bound',
+        x: futDates,
+        y: dn2,
+        line: { color: 'rgba(222,192,132,0.45)', width: 1, dash: 'dot' },
+        showlegend: false,
+        hovertemplate: '−2σ: $%{y:.2f}<extra></extra>',
+      },
+      {
+        type: 'scatter',
+        mode: 'lines',
+        name: '±2σ Cone',
+        x: futDates,
+        y: up2,
+        fill: 'tonexty',
+        fillcolor: 'rgba(222, 192, 132, 0.08)',
+        line: { color: 'rgba(222,192,132,0.45)', width: 1, dash: 'dot' },
+        hovertemplate: '+2σ: $%{y:.2f}<extra></extra>',
+      },
+      {
+        type: 'scatter',
+        mode: 'lines',
+        name: '−1σ Bound',
+        x: futDates,
+        y: dn1,
+        line: { color: 'rgba(222,192,132,0.85)', width: 1.3, dash: 'dash' },
+        showlegend: false,
+        hovertemplate: '−1σ: $%{y:.2f}<extra></extra>',
+      },
+      {
+        type: 'scatter',
+        mode: 'lines',
+        name: '±1σ Cone',
+        x: futDates,
+        y: up1,
+        fill: 'tonexty',
+        fillcolor: 'rgba(222, 192, 132, 0.16)',
+        line: { color: 'rgba(222,192,132,0.85)', width: 1.3, dash: 'dash' },
+        hovertemplate: '+1σ: $%{y:.2f}<extra></extra>',
+      },
+      {
+        type: 'scatter',
+        mode: 'lines',
+        name: 'Drift-Free Spot',
+        x: futDates,
+        y: mid,
+        line: { color: 'rgba(222,192,132,0.55)', width: 1, dash: 'longdash' },
+        hovertemplate: 'Spot ref: $%{y:.2f}<extra></extra>',
+      },
+      {
+        type: 'scatter',
+        mode: 'lines',
+        name: 'Historical Close',
+        x: histDates,
+        y: histCloses,
+        line: { color: QUANT_COLORS.goldLight, width: 2 },
+        hovertemplate: 'Close: $%{y:.2f}<extra></extra>',
+      },
+    ];
+
+    const shapes: NonNullable<Layout['shapes']> = [
+      {
+        type: 'line',
+        xref: 'x',
+        yref: 'paper',
+        x0: lastDate,
+        x1: lastDate,
+        y0: 0,
+        y1: 1,
+        line: { color: 'rgba(148,148,160,0.45)', width: 1, dash: 'dash' },
+      },
+    ];
+
+    const annotations: NonNullable<Layout['annotations']> = [
+      {
+        x: lastDate,
+        y: 0.99,
+        xref: 'x',
+        yref: 'paper',
+        text: 'Today',
+        showarrow: false,
+        font: { size: 9.5, color: QUANT_COLORS.slate },
+        yanchor: 'top',
+      },
+    ];
+
+    return {
+      traces: list,
+      layout: { shapes, annotations } as Partial<Layout>,
+    };
   }, [hist, spot, iv30, horizonTd]);
 
-  if (!chart || iv30 === null || spot === null) {
+  if (iv30 === null || spot === null || hist.length < 2) {
     return (
       <div className="flex h-44 flex-col items-center justify-center gap-1 rounded-xl border border-[var(--hairline)] bg-[var(--bg-inset)] px-6 text-center">
         <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500 dark:text-zinc-400">
           Cone needs live ATM IV
         </p>
         <p className="max-w-md text-[11px] leading-snug text-zinc-400 dark:text-zinc-500">
-          The forward fan is priced off spot × IV30 × √(t/252). The option chain is unavailable right now, so no cone is drawn — rather than one built on a stale or synthetic IV.
+          The forward fan is priced off spot × IV30 × √(t/252). The option chain is unavailable
+          right now, so no cone is drawn — rather than one built on a stale or synthetic IV.
         </p>
       </div>
     );
   }
 
-  const width = size.width;
-  const height = size.height;
-  const ready = width > 0;
-  const { nHist, total, closes, yMin, yMax, upper1, lower1, upper2, lower2 } = chart;
-
-  const pad = { l: 46, r: 40, t: 12, b: 22 };
-  const chartW = width - pad.l - pad.r;
-  const chartH = height - pad.t - pad.b;
-  const xOf = (i: number) => pad.l + (i / (total - 1)) * chartW;
-  const yOf = (v: number) => pad.t + (1 - (v - yMin) / (yMax - yMin)) * chartH;
-
-  // Historical path
-  const histPath = closes.map((c, i) => `${i === 0 ? 'M' : 'L'}${xOf(i).toFixed(2)},${yOf(c).toFixed(2)}`).join(' ');
-
-  // Cone polygons (f = 0 coincides with today's point)
-  const up2: string[] = [];
-  const dn2: string[] = [];
-  for (let f = 0; f <= horizonTd; f++) {
-    up2.push(`${xOf(nHist - 1 + f).toFixed(2)},${yOf(upper2(f)).toFixed(2)}`);
-    dn2.push(`${xOf(nHist - 1 + f).toFixed(2)},${yOf(lower2(f)).toFixed(2)}`);
-  }
-  const cone2 = `M ${up2.join(' L ')} L ${[...dn2].reverse().join(' L ')} Z`;
-  const up1: string[] = [];
-  const dn1: string[] = [];
-  for (let f = 0; f <= horizonTd; f++) {
-    up1.push(`${xOf(nHist - 1 + f).toFixed(2)},${yOf(upper1(f)).toFixed(2)}`);
-    dn1.push(`${xOf(nHist - 1 + f).toFixed(2)},${yOf(lower1(f)).toFixed(2)}`);
-  }
-  const cone1 = `M ${up1.join(' L ')} L ${[...dn1].reverse().join(' L ')} Z`;
-  const medianPath = `M ${xOf(nHist - 1).toFixed(2)},${yOf(spot).toFixed(2)} L ${xOf(total - 1).toFixed(2)},${yOf(spot).toFixed(2)}`;
-
   const oneSigma = (f: number) => spot * iv30 * Math.sqrt(f / 252);
-  const marks = [10, 21].filter((f) => f <= horizonTd);
 
   return (
     <div>
-      <div ref={ref} className="chart-frame">
-        {ready && (
-          <svg width={width} height={height} className="block h-full w-full" role="img" aria-label="Historical price with forward expected-move cone">
-            {/* horizontal gridlines */}
-            {[0.25, 0.5, 0.75].map((f, i) => {
-              const v = yMin + f * (yMax - yMin);
-              return (
-                <g key={i}>
-                  <line x1={pad.l} x2={width - pad.r} y1={yOf(v)} y2={yOf(v)} stroke="currentColor" strokeOpacity={0.28} strokeDasharray="3 4" className="text-zinc-400 dark:text-zinc-600" />
-                  <text x={pad.l - 6} y={yOf(v) + 3} fontSize="9" textAnchor="end" fontFamily="var(--font-mono)" className="fill-zinc-500 dark:fill-zinc-400 tabular-nums">{v.toFixed(0)}</text>
-                </g>
-              );
-            })}
-
-            {/* cone fills */}
-            <path d={cone2} fill={GOLD} opacity="0.09" stroke="none" />
-            <path d={cone1} fill={GOLD} opacity="0.16" stroke="none" />
-            <path d={medianPath} fill="none" stroke={GOLD} strokeWidth="1" strokeDasharray="5 4" opacity="0.8" />
-
-            {/* 1σ / 2σ rail lines */}
-            {[
-              { fn: upper1, k: 1, side: 'up' },
-              { fn: lower1, k: 1, side: 'dn' },
-              { fn: upper2, k: 2, side: 'up' },
-              { fn: lower2, k: 2, side: 'dn' },
-            ].map(({ fn, k, side }) => {
-              const pts: string[] = [];
-              for (let f = 0; f <= horizonTd; f++) {
-                pts.push(`${xOf(nHist - 1 + f).toFixed(2)},${yOf(fn(f)).toFixed(2)}`);
-              }
-              return <path key={`${k}${side}`} d={`M ${pts.join(' L ')}`} fill="none" stroke={GOLD} strokeWidth={k === 1 ? 1.4 : 0.8} strokeDasharray={k === 1 ? '4 3' : '2 4'} opacity={k === 1 ? 1 : 0.6} />;
-            })}
-
-            {/* today divider */}
-            <line x1={xOf(nHist - 1)} x2={xOf(nHist - 1)} y1={pad.t} y2={pad.t + chartH} stroke="currentColor" strokeOpacity={0.45} strokeDasharray="4 3" className="text-zinc-500 dark:text-zinc-400" />
-            <text x={xOf(nHist - 1)} y={pad.t + 9} fontSize="8.5" stroke="none" textAnchor="middle" fontFamily="var(--font-mono)" className="fill-zinc-500 dark:fill-zinc-400">today</text>
-
-            {/* forward-horizon markers */}
-            {marks.map((f) => (
-              <g key={f}>
-                <line x1={xOf(nHist - 1 + f)} x2={xOf(nHist - 1 + f)} y1={pad.t} y2={pad.t + chartH} stroke={GOLD} strokeWidth="0.8" strokeDasharray="2 4" opacity="0.75" />
-                <text x={xOf(nHist - 1 + f)} y={pad.t + chartH - 2} fontSize="8.5" textAnchor="middle" fontFamily="var(--font-mono)" className="fill-gold-700 dark:fill-gold-300">+{f}td</text>
-              </g>
-            ))}
-
-            {/* historical price line */}
-            <path d={histPath} fill="none" stroke={GOLD} strokeWidth="1.7" strokeLinejoin="round" strokeLinecap="round" opacity="0.95" />
-
-            {/* right-edge 1σ labels */}
-            <text x={width - pad.r + 2} y={yOf(upper1(horizonTd)) + 3} fontSize="9" fontFamily="var(--font-mono)" className="fill-gold-700 dark:fill-gold-300">+1σ</text>
-            <text x={width - pad.r + 2} y={yOf(lower1(horizonTd)) + 3} fontSize="9" fontFamily="var(--font-mono)" className="fill-gold-700 dark:fill-gold-300">−1σ</text>
-
-            {/* x ticks */}
-            <text x={pad.l} y={height - 6} fontSize="9" fontFamily="var(--font-mono)" className="fill-zinc-500 dark:fill-zinc-400">{hist[0].date.slice(0, 10)}</text>
-          </svg>
-        )}
-      </div>
-      <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[9px] text-zinc-400">
-        <span>spot <span className="text-zinc-200 dark:text-zinc-100">{spot.toFixed(2)}</span></span>
-        <span>IV30 <span className="text-zinc-200 dark:text-zinc-100">{(iv30 * 100).toFixed(1)}%</span></span>
-        <span>±1σ @10td <span className="text-zinc-200 dark:text-zinc-100">${oneSigma(10).toFixed(1)}</span></span>
-        <span>±1σ @21td <span className="text-zinc-200 dark:text-zinc-100">${oneSigma(21).toFixed(1)}</span></span>
-        <span className="ml-auto">±k·σ·√(t/252) from spot · no drift · European BSM · ~15-min delayed IV</span>
+      <PlotlyChart
+        data={traces}
+        layout={layout}
+        plotType="2d"
+        rangeSlider
+        hovermode="x unified"
+        showLegend
+        yTickPrefix="$"
+        height={320}
+        uirevisionKey={`cone-${spot.toFixed(1)}-${horizonTd}`}
+        exportFilename="expected-move-cone"
+        showWheelHint
+      />
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[10px] text-zinc-500 dark:text-zinc-400">
+        <span>
+          spot <span className="text-zinc-900 dark:text-zinc-100">${spot.toFixed(2)}</span>
+        </span>
+        <span>
+          IV30 <span className="text-zinc-900 dark:text-zinc-100">{(iv30 * 100).toFixed(1)}%</span>
+        </span>
+        <span>
+          ±1σ @10td{' '}
+          <span className="text-zinc-900 dark:text-zinc-100">${oneSigma(10).toFixed(1)}</span>
+        </span>
+        <span>
+          ±1σ @21td{' '}
+          <span className="text-zinc-900 dark:text-zinc-100">${oneSigma(21).toFixed(1)}</span>
+        </span>
+        <span className="ml-auto">±k·σ·√(t/252) · no drift · European BSM</span>
       </div>
     </div>
   );

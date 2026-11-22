@@ -1,13 +1,9 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
+import type { Data, Layout } from 'plotly.js';
 import { ReturnStats } from '@/lib/quant-engine';
-import {
-  fitParametricDistributions,
-  FittedDistribution,
-} from '@/lib/distribution-engine';
-import { useChartSize } from '@/lib/use-chart-size';
-import { ChartTooltip, useChartTooltip } from '@/components/ui/chart-tooltip';
+import { fitParametricDistributions } from '@/lib/distribution-engine';
 import {
   StudentTEquation,
   HansenSkewTEquation,
@@ -15,18 +11,16 @@ import {
   AicEquation,
 } from '@/components/math/MathEquations';
 import {
-  BarChart2,
   Award,
-  Check,
   Info,
-  TrendingDown,
   Layers,
   ChevronDown,
   ChevronUp,
-  ShieldAlert,
 } from 'lucide-react';
 import { AlgoSelect } from '@/components/ui/AlgoSelect';
 import { RegimeTransitionMatrix } from '@/components/ui/RegimeTransitionMatrix';
+import { PlotlyChart, usePlotlyDarkTheme } from '@/components/charts/PlotlyChart';
+import { getPlotlyThemeTokens, QUANT_COLORS } from '@/lib/plotly-theme';
 
 interface DistributionFittingPanelProps {
   returns: number[];
@@ -39,21 +33,21 @@ export function DistributionFittingPanel({
   stats,
   ticker = 'Asset',
 }: DistributionFittingPanelProps) {
-  // Fit all 4 distribution families via MLE
+  const isDark = usePlotlyDarkTheme();
+  const tokens = useMemo(() => getPlotlyThemeTokens(isDark), [isDark]);
+
   const fitResults = useMemo(() => {
     return fitParametricDistributions(returns);
   }, [returns]);
 
-  // Active visible curves state
   const [activeCurves, setActiveCurves] = useState<{ [key: string]: boolean }>({
     'hansen-skew-t': true,
     'student-t': true,
-    'ged': true,
-    'normal': true,
+    ged: true,
+    normal: true,
   });
 
   const [highlightedModel, setHighlightedModel] = useState<string | null>(null);
-  // Dropdown highlight: 'aic-winner' (default) or a specific model key
   const [highlightModel, setHighlightModel] = useState<string>('aic-winner');
   const [showMathReference, setShowMathReference] = useState<boolean>(false);
 
@@ -64,86 +58,114 @@ export function DistributionFittingPanel({
     }));
   };
 
-  const { ref: distRef, size: distSize } = useChartSize<HTMLDivElement>();
-  const { tooltipState, showTooltip, hideTooltip } = useChartTooltip();
-  const width = distSize.width;
-  const height = distSize.height;
-  const distReady = width > 0;
-  const padLeft = 45;
-  const padRight = 20;
-  const padTop = 24;
-  const padBottom = 34;
+  const bestModel = fitResults.models[0];
+  const effectiveHighlight =
+    highlightedModel ?? (highlightModel === 'aic-winner' ? bestModel?.key : highlightModel);
 
-  const chartW = width - padLeft - padRight;
-  const chartH = height - padTop - padBottom;
+  const { traces, layout } = useMemo<{ traces: Data[]; layout: Partial<Layout> }>(() => {
+    if (!returns || returns.length === 0) return { traces: [], layout: {} };
 
-  const min = fitResults.empiricalMin;
-  const max = fitResults.empiricalMax;
-  const range = max - min || 0.01;
-  const binCount = 35;
-  const binWidth = range / binCount;
+    const min = fitResults.empiricalMin;
+    const max = fitResults.empiricalMax;
+    const range = max - min || 0.01;
+    const binCount = 35;
+    const binWidth = range / binCount;
 
-  // 35 histogram bins
-  const bins = useMemo(() => {
-    if (!returns || returns.length === 0) return [];
-    const b: number[] = new Array(binCount).fill(0);
+    const bins: number[] = new Array(binCount).fill(0);
     for (const r of returns) {
       const idx = Math.min(binCount - 1, Math.max(0, Math.floor((r - min) / binWidth)));
-      b[idx]++;
+      bins[idx]++;
     }
-    return b;
-  }, [returns, min, binWidth, binCount]);
 
-  const maxCount = useMemo(() => {
-    return Math.max(...bins, 1);
-  }, [bins]);
+    const binCentersPct = Array.from({ length: binCount }, (_, i) => (min + (i + 0.5) * binWidth) * 100);
 
-  // Generate curve path points for each fitted distribution
-  const numSteps = 100;
-  const curvePaths = useMemo(() => {
-    const paths: { [key: string]: string } = {};
-    if (!returns || returns.length === 0) return paths;
+    const dataTraces: Data[] = [
+      {
+        type: 'bar',
+        name: 'Empirical Histogram',
+        x: binCentersPct,
+        y: bins,
+        marker: {
+          color: 'rgba(139, 139, 147, 0.45)',
+          line: { color: 'rgba(222, 192, 132, 0.5)', width: 0.6 },
+        },
+        hovertemplate: '%{x:+.2f}% · %{y} obs<extra>Empirical</extra>',
+      },
+    ];
 
-    const getX = (val: number) => padLeft + ((val - min) / range) * chartW;
-    const getY = (count: number) => padTop + chartH - (count / maxCount) * chartH;
+    const numSteps = 120;
+    const xsPct = Array.from({ length: numSteps + 1 }, (_, s) => (min + (s / numSteps) * range) * 100);
 
-    fitResults.models.forEach((m) => {
-      const points: string[] = [];
-      for (let s = 0; s <= numSteps; s++) {
-        const xVal = min + (s / numSteps) * range;
-        const pdfVal = m.pdf(xVal);
-        // Area scaling: count = N * binWidth * PDF(x)
-        const expectedCount = returns.length * binWidth * pdfVal;
-        const yVal = getY(expectedCount);
-        const clampedY = Math.max(padTop - 10, Math.min(padTop + chartH, yVal));
-        points.push(`${getX(xVal).toFixed(1)},${clampedY.toFixed(1)}`);
-      }
-      paths[m.key] = `M ${points.join(' ')}`;
-    });
+    for (const m of fitResults.models) {
+      if (!activeCurves[m.key]) continue;
+      const isHovered = effectiveHighlight === m.key;
+      const isNormal = m.key === 'normal';
+      const ys = xsPct.map((xp) => {
+        const pdfVal = m.pdf(xp / 100);
+        return returns.length * binWidth * pdfVal;
+      });
 
-    return paths;
-  }, [fitResults, min, range, returns, binWidth, maxCount, chartW, chartH]);
+      dataTraces.push({
+        type: 'scatter',
+        mode: 'lines',
+        name: m.name.split(' (')[0],
+        x: xsPct,
+        y: ys,
+        opacity: effectiveHighlight && !isHovered ? 0.3 : 0.98,
+        line: {
+          color: m.color,
+          width: isHovered ? 2.6 : isNormal ? 1.4 : 1.8,
+          dash: isNormal ? 'dash' : 'solid',
+        },
+        hovertemplate: `%{y:.1f} exp<extra>${m.name.split(' (')[0]}</extra>`,
+      });
+    }
+
+    return {
+      traces: dataTraces,
+      layout: {
+        bargap: 0.06,
+        shapes: [
+          {
+            type: 'line',
+            xref: 'x',
+            yref: 'paper',
+            x0: stats.mean * 100,
+            x1: stats.mean * 100,
+            y0: 0,
+            y1: 1,
+            line: { color: QUANT_COLORS.positive, width: 1.2, dash: 'dot' },
+          },
+        ],
+        xaxis: {
+          ticksuffix: '%',
+          gridcolor: tokens.grid,
+        },
+        yaxis: {
+          title: { text: 'Frequency', font: { size: 10, color: tokens.textMuted } },
+          rangemode: 'tozero',
+          gridcolor: tokens.grid,
+        },
+      },
+    };
+  }, [returns, fitResults, activeCurves, effectiveHighlight, stats.mean, tokens]);
 
   if (!returns || returns.length === 0) {
     return null;
   }
 
-  const getX = (val: number) => padLeft + ((val - min) / range) * chartW;
-  const getY = (count: number) => padTop + chartH - (count / maxCount) * chartH;
-  const bestModel = fitResults.models[0];
-  // Effective highlight: hover wins; else dropdown selection; else AIC winner
-  const effectiveHighlight = highlightedModel ?? (highlightModel === 'aic-winner' ? bestModel?.key : highlightModel);
-
   return (
     <div className="panel p-5">
       {/* Header and Controls */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-zinc-100 dark:border-zinc-800">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-[var(--hairline)]">
         <div>
           <div className="flex items-center gap-2">
             <span className="text-xs font-mono font-semibold uppercase tracking-wider text-gold-600 dark:text-gold-400">
               Inferential Econometrics
             </span>
-            <span className="text-zinc-300 dark:text-zinc-700" aria-hidden="true">·</span>
+            <span className="text-zinc-300 dark:text-zinc-700" aria-hidden="true">
+              ·
+            </span>
             <span className="text-xs text-zinc-500 dark:text-zinc-400">
               Maximum Likelihood Estimation (MLE)
             </span>
@@ -152,7 +174,9 @@ export function DistributionFittingPanel({
             Fat-Tailed Distribution Fitting &amp; Information Criteria Ranking
           </h3>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 max-w-2xl">
-            Financial returns depart from normality through heavy tails (leptokurtosis) and crash asymmetry. We fit Student-t, Hansen Skew-t, and Generalized Error (GED) distributions and rank them by AIC, BIC, and Kolmogorov–Smirnov distance.
+            Financial returns depart from normality through heavy tails (leptokurtosis) and crash
+            asymmetry. We fit Student-t, Hansen Skew-t, and Generalized Error (GED) distributions
+            and rank them by AIC, BIC, and Kolmogorov–Smirnov distance.
           </p>
         </div>
 
@@ -169,7 +193,7 @@ export function DistributionFittingPanel({
       </div>
 
       {/* Curve Filter / Visibility Strip */}
-      <div className="flex flex-wrap items-center justify-between gap-3 my-4 p-2.5 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg border border-zinc-100 dark:border-zinc-800 text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-3 my-4 p-2.5 panel-inset rounded-lg text-xs">
         <div className="flex items-center gap-2 font-medium text-zinc-600 dark:text-zinc-400 text-xs">
           <Layers className="w-4 h-4 text-zinc-400" />
           <span>Fitted Density Curves:</span>
@@ -181,7 +205,10 @@ export function DistributionFittingPanel({
           onChange={setHighlightModel}
           options={[
             { value: 'aic-winner', label: 'Highlight: AIC winner' },
-            ...fitResults.models.map((m) => ({ value: m.key, label: `Highlight: ${m.name.split(' (')[0]}` })),
+            ...fitResults.models.map((m) => ({
+              value: m.key,
+              label: `Highlight: ${m.name.split(' (')[0]}`,
+            })),
           ]}
           className="w-56"
         />
@@ -197,7 +224,7 @@ export function DistributionFittingPanel({
                 onClick={() => toggleCurve(m.key)}
                 onMouseEnter={() => setHighlightedModel(m.key)}
                 onMouseLeave={() => setHighlightedModel(null)}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono transition-all cursor-pointer border ${
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono transition-all cursor-pointer border whitespace-nowrap shrink-0 ${
                   isVisible
                     ? 'bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-2xs'
                     : 'bg-transparent border-transparent text-zinc-400 opacity-60 hover:opacity-100'
@@ -222,123 +249,17 @@ export function DistributionFittingPanel({
         </div>
       </div>
 
-      {/* SVG Canvas: Empirical Histogram & Multi-Distribution Curves */}
-      <div ref={distRef} className="chart-frame relative">
-        {distReady && (
-        <svg width={width} height={height} className="block h-full w-full select-none" onMouseLeave={hideTooltip}>
-          {/* Grid lines */}
-          {[0, 0.5, 1].map((pct) => {
-            const count = Math.round(pct * maxCount);
-            const yPos = getY(count);
-            return (
-              <g key={pct}>
-                <line
-                  x1={padLeft}
-                  y1={yPos}
-                  x2={width - padRight}
-                  y2={yPos}
-                  stroke="currentColor"
-                  className="text-zinc-200 dark:text-zinc-800/80"
-                  strokeDasharray="2 3"
-                />
-                <text
-                  x={padLeft - 6}
-                  y={yPos + 4}
-                  textAnchor="end"
-                  className="text-[10px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
-                >
-                  {count}
-                </text>
-              </g>
-            );
-          })}
-
-          {/* Empirical Histogram Bars */}
-          {bins.map((count, i) => {
-            const binStart = min + i * binWidth;
-            const x0 = getX(binStart);
-            const x1 = getX(binStart + binWidth);
-            const bWidth = Math.max(1, x1 - x0 - 1);
-            const y = getY(count);
-            const h = padTop + chartH - y;
-
-            return (
-              <rect
-                key={i}
-                x={x0}
-                y={y}
-                width={bWidth}
-                height={h}
-                fill="#8b8b93"
-                fillOpacity="0.45"
-                stroke="#DEC084"
-                strokeWidth="0.3"
-                strokeOpacity="0.6"
-                className="hover:fill-gold-400 transition-colors"
-                onMouseMove={(e) => showTooltip(e, [`Bin ${(binStart * 100).toFixed(2)}% to ${((binStart + binWidth) * 100).toFixed(2)}%`, `Count: ${count}`])}
-              />
-            );
-          })}
-
-          {/* Fitted Distribution Density Curves */}
-          {fitResults.models.map((m) => {
-            if (!activeCurves[m.key]) return null;
-            const isHovered = effectiveHighlight === m.key;
-            const isNormal = m.key === 'normal';
-
-            return (
-              <path
-                key={m.key}
-                d={curvePaths[m.key]}
-                fill="none"
-                stroke={m.color}
-                strokeWidth={isHovered ? 2.3 : isNormal ? 1.3 : 1.6}
-                strokeDasharray={isNormal ? '4 3' : 'none'}
-                strokeOpacity={effectiveHighlight && !isHovered ? 0.25 : 0.95}
-                className="transition-all duration-200"
-              />
-            );
-          })}
-
-          {/* Mean vertical return line */}
-          <line
-            x1={getX(stats.mean)}
-            y1={padTop}
-            x2={getX(stats.mean)}
-            y2={padTop + chartH}
-            stroke="#3fb27f"
-            strokeWidth="1"
-            strokeDasharray="4 2"
-          />
-
-          {/* X axis ticks */}
-          {[-0.06, -0.04, -0.02, 0, 0.02, 0.04, 0.06].map((tick) => {
-            if (tick < min || tick > max) return null;
-            return (
-              <g key={tick}>
-                <line
-                  x1={getX(tick)}
-                  y1={padTop + chartH}
-                  x2={getX(tick)}
-                  y2={padTop + chartH + 4}
-                  stroke="currentColor"
-                  className="text-zinc-400 dark:text-zinc-600"
-                />
-                <text
-                  x={getX(tick)}
-                  y={height - 10}
-                  textAnchor="middle"
-                  className="text-[10px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
-                >
-                  {(tick * 100).toFixed(0)}%
-                </text>
-              </g>
-            );
-          })}
-        </svg>
-        )}
-        <ChartTooltip state={tooltipState} />
-      </div>
+      {/* Interactive Plotly Empirical Histogram & Multi-Distribution Density Curves */}
+      <PlotlyChart
+        data={traces}
+        layout={layout}
+        plotType="2d"
+        hovermode="x unified"
+        height={300}
+        exportFilename={`quantmetrics-mle-fit-${ticker.toLowerCase()}`}
+        uirevisionKey={`mle-${ticker}-${returns.length}`}
+        showWheelHint
+      />
 
       {/* Model Ranking and Goodness-of-Fit Table */}
       <div className="mt-4 overflow-x-auto">
@@ -389,9 +310,7 @@ export function DistributionFittingPanel({
                         className="w-2.5 h-2.5 rounded-full shrink-0"
                         style={{ backgroundColor: m.color }}
                       />
-                      <span className="text-zinc-800 dark:text-zinc-200">
-                        {m.name}
-                      </span>
+                      <span className="text-zinc-800 dark:text-zinc-200">{m.name}</span>
                     </div>
                   </td>
 
@@ -399,11 +318,11 @@ export function DistributionFittingPanel({
                     {m.paramDescriptions}
                   </td>
 
-                  <td className="py-2 px-2.5 text-right text-zinc-700 dark:text-zinc-300">
+                  <td className="py-2 px-2.5 text-right text-zinc-700 dark:text-zinc-300 tabular-nums">
                     {m.logLikelihood.toFixed(1)}
                   </td>
 
-                  <td className="py-2 px-2.5 text-right">
+                  <td className="py-2 px-2.5 text-right tabular-nums">
                     <span
                       className={
                         isBest
@@ -418,11 +337,11 @@ export function DistributionFittingPanel({
                     </span>
                   </td>
 
-                  <td className="py-2 px-2.5 text-right text-zinc-700 dark:text-zinc-300">
+                  <td className="py-2 px-2.5 text-right text-zinc-700 dark:text-zinc-300 tabular-nums">
                     {m.bic.toFixed(1)}
                   </td>
 
-                  <td className="py-2 px-2.5 text-right text-zinc-700 dark:text-zinc-300">
+                  <td className="py-2 px-2.5 text-right text-zinc-700 dark:text-zinc-300 tabular-nums">
                     {m.ksStatistic.toFixed(3)}
                   </td>
 
@@ -436,9 +355,7 @@ export function DistributionFittingPanel({
                         Rejected (ΔAIC &gt; 10)
                       </span>
                     ) : (
-                      <span className="text-gold-600 dark:text-gold-400">
-                        Competitive Fit
-                      </span>
+                      <span className="text-gold-600 dark:text-gold-400">Competitive Fit</span>
                     )}
                   </td>
                 </tr>
@@ -448,13 +365,17 @@ export function DistributionFittingPanel({
         </table>
       </div>
 
-      {/* HMM transition matrix — shown whenever the HMM candidate fit (same MLE pass) exists */}
       {fitResults.hmm && (
-        <RegimeTransitionMatrix fit={fitResults.hmm} labels={['Calm', 'Crisis']} className="mt-3" showStats={false} />
+        <RegimeTransitionMatrix
+          fit={fitResults.hmm}
+          labels={['Calm', 'Crisis']}
+          className="mt-3"
+          showStats={false}
+        />
       )}
 
       {/* Quantitative Takeaway Banner */}
-      <div className="mt-4 p-3 bg-zinc-50 dark:bg-zinc-900/40 rounded-lg border border-zinc-100 dark:border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+      <div className="mt-4 p-3 panel-inset rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
         <div className="flex items-center gap-2">
           <Info className="w-4 h-4 text-gold-500 shrink-0" />
           <div className="text-zinc-600 dark:text-zinc-300">
@@ -463,20 +384,23 @@ export function DistributionFittingPanel({
               <span>
                 pronounced heavy tails (fitted Student-t degree of freedom{' '}
                 <strong className="font-mono text-gold-600 dark:text-gold-400">
-                  ν = {fitResults.models.find((m) => m.key === 'student-t')?.params.nu?.toFixed(1) || '4.2'}
+                  ν ={' '}
+                  {fitResults.models.find((m) => m.key === 'student-t')?.params.nu?.toFixed(1) ||
+                    '4.2'}
                 </strong>
                 ).
               </span>
             ) : (
               <span>mild kurtosis with tails well-approximated by GED.</span>
             )}{' '}
-            The Gaussian hypothesis is rejected by ΔAIC &gt; 10, confirming standard normal VaR severely understates tail crash probability.
+            The Gaussian hypothesis is rejected by ΔAIC &gt; 10, confirming standard normal VaR
+            severely understates tail crash probability.
           </div>
         </div>
       </div>
 
       {/* Expandable Mathematical Formulations Panel */}
-      <div className="mt-4 pt-3 border-t border-zinc-100 dark:border-zinc-800">
+      <div className="mt-4 pt-3 border-t border-[var(--hairline)]">
         <button
           type="button"
           onClick={() => setShowMathReference((prev) => !prev)}
@@ -484,7 +408,9 @@ export function DistributionFittingPanel({
         >
           <div className="flex items-center gap-2">
             <Info className="w-3.5 h-3.5 text-zinc-400" />
-            <span>Mathematical Density Formulations (Student-t, Hansen Skew-t, GED &amp; AIC)</span>
+            <span>
+              Mathematical Density Formulations (Student-t, Hansen Skew-t, GED &amp; AIC)
+            </span>
           </div>
           {showMathReference ? (
             <ChevronUp className="w-3.5 h-3.5 text-zinc-400" />
@@ -494,44 +420,48 @@ export function DistributionFittingPanel({
         </button>
 
         {showMathReference && (
-          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t border-zinc-100 dark:border-zinc-800/60 text-xs">
-            <div className="p-3 rounded-lg bg-zinc-50/80 dark:bg-zinc-900/50 border border-zinc-100 dark:border-zinc-800">
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t border-[var(--hairline)] text-xs">
+            <div className="p-3 rounded-lg panel-inset">
               <div className="font-bold text-zinc-800 dark:text-zinc-200 mb-1">
                 Standardized Student-t Density
               </div>
               <StudentTEquation display="block" />
               <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-2">
-                Parameterized such that Var(x) = σ² for ν &gt; 2. As ν → ∞, the density converges smoothly to standard Normal.
+                Parameterized such that Var(x) = σ² for ν &gt; 2. As ν → ∞, the density converges
+                smoothly to standard Normal.
               </p>
             </div>
 
-            <div className="p-3 rounded-lg bg-zinc-50/80 dark:bg-zinc-900/50 border border-zinc-100 dark:border-zinc-800">
+            <div className="p-3 rounded-lg panel-inset">
               <div className="font-bold text-zinc-800 dark:text-zinc-200 mb-1">
                 Hansen (1994) Skewed Student-t
               </div>
               <HansenSkewTEquation display="block" />
               <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-2">
-                Splits scale by (1 ± λ) around the mode threshold -a/b to capture crash skewness without violating unit variance.
+                Splits scale by (1 ± λ) around the mode threshold -a/b to capture crash skewness
+                without violating unit variance.
               </p>
             </div>
 
-            <div className="p-3 rounded-lg bg-zinc-50/80 dark:bg-zinc-900/50 border border-zinc-100 dark:border-zinc-800">
+            <div className="p-3 rounded-lg panel-inset">
               <div className="font-bold text-zinc-800 dark:text-zinc-200 mb-1">
                 Generalized Error Distribution (GED)
               </div>
               <GedEquation display="block" />
               <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-2">
-                Subbotin exponential power density. κ &lt; 2 models leptokurtic tails; κ = 1 yields the Laplace (double exponential) distribution.
+                Subbotin exponential power density. κ &lt; 2 models leptokurtic tails; κ = 1 yields
+                the Laplace (double exponential) distribution.
               </p>
             </div>
 
-            <div className="p-3 rounded-lg bg-zinc-50/80 dark:bg-zinc-900/50 border border-zinc-100 dark:border-zinc-800">
+            <div className="p-3 rounded-lg panel-inset">
               <div className="font-bold text-zinc-800 dark:text-zinc-200 mb-1">
                 Akaike Information Criterion (AIC)
               </div>
               <AicEquation display="block" />
               <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-2">
-                Penalizes parameter complexity k against maximized log-likelihood ln L. Models with ΔAIC &gt; 10 have virtually no empirical support.
+                Penalizes parameter complexity k against maximized log-likelihood ln L. Models with
+                ΔAIC &gt; 10 have virtually no empirical support.
               </p>
             </div>
           </div>

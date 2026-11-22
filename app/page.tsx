@@ -76,16 +76,16 @@ export default function App() {
     });
   };
 
-  // Deterministic 1-year date range for SSR/client parity. The initial end-date renders as this
+  // Deterministic initial date range for SSR/client parity. The initial end-date renders as this
   // constant on both server and client; a mount effect brings it forward to the real current day
   // (hydration-safe — same pattern as the theme sync).
   const todayStr = '2026-11-08';
-  const oneYearAgoStr = '2025-11-08';
+  const defaultStartDateStr = '2020-01-15';
 
   // Shared Analysis Parameters — declared before navigation so URL state can reference them.
   const [activeTicker, setActiveTicker] = useState<string>('AAPL');
   const [resolution, setResolution] = useState<'daily' | 'intraday'>('daily');
-  const [startDate, setStartDate] = useState<string>(oneYearAgoStr);
+  const [startDate, setStartDate] = useState<string>(defaultStartDateStr);
   const [endDate, setEndDate] = useState<string>(todayStr);
   const [returnType, setReturnType] = useState<'simple' | 'log'>('log');
   const [rollingWindows, setRollingWindows] = useState<string>('10,20,30');
@@ -406,7 +406,7 @@ export default function App() {
     let active = true;
     const timer = setTimeout(() => {
       void fetchTickersRef
-        .current([...DEFAULT_UNIVERSE], '10y', oneYearAgoStr, undefined, {
+        .current([...DEFAULT_UNIVERSE], '10y', defaultStartDateStr, undefined, {
           omitEndDate: true,
         })
         .finally(() => {
@@ -418,7 +418,7 @@ export default function App() {
       active = false;
       clearTimeout(timer);
     };
-  }, [oneYearAgoStr]);
+  }, [defaultStartDateStr]);
 
   // Subscribe to Server-Sent Events live market stream (with visibility-aware pause/resume
   // and 60s HTTP polling fallback). Every live tick re-validates latestQuotes and patches/appends
@@ -674,13 +674,11 @@ export default function App() {
           <HomeView
             onNavigate={navigateView}
             ticker={activeTicker}
+            companyName={currentCompanyName}
             bars={currentBars}
             barsSource={currentBarsSource}
             tapeItems={tapeItems}
-            onSelectPreset={(ticker) => {
-              setActiveTicker(ticker);
-              fetchTickers([ticker]);
-            }}
+            onSelectPreset={handleGlobalTickerChange}
           />
         )}
 

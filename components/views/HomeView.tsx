@@ -1,469 +1,641 @@
 'use client';
 
-import React, { useMemo, useRef } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
-  TrendingUp,
   Activity,
-  Layers,
-  ShieldAlert,
   ArrowRight,
-  Database,
-  Cpu,
   BarChart2,
-  LineChart,
-  Sigma,
-  Network,
-  LineChart as RegressionIcon,
-  ScanSearch,
-  Braces,
-  Waves,
   CandlestickChart,
+  ChevronDown,
+  LineChart,
+  Network,
+  Radar,
+  Sigma,
+  Waves,
 } from 'lucide-react';
-import { AnimatedBeam } from '@/components/ui/AnimatedBeam';
-import { NumberTicker } from '@/components/ui/NumberTicker';
-import { Spotlight } from '@/components/ui/spotlight';
-import { BackgroundBeams } from '@/components/ui/background-beams';
-import { Meteors } from '@/components/ui/meteors';
+import { AnimatePresence, motion } from 'motion/react';
 import { MovingBorderButton } from '@/components/ui/moving-border';
-import { BentoGrid, BentoGridItem } from '@/components/ui/bento-grid';
-import { GlowingEffect } from '@/components/ui/glowing-effect';
-import { TextGenerateEffect } from '@/components/ui/text-generate-effect';
-import { FlipWords } from '@/components/ui/flip-words';
 import { TickerTape, type TapeItem } from '@/components/ui/ticker-tape';
-import {
-  GarchEquation,
-  CorrelationEquation,
-} from '@/components/math/MathEquations';
+import { GarchEquation, CorrelationEquation } from '@/components/math/MathEquations';
+import { HomeHeroRegimeChart } from '@/components/charts/HomeHeroRegimeChart';
+import { useTickerSnapshot } from '@/components/providers/TickerSnapshotProvider';
 import {
   calculateReturns,
   computeEwmaVolatility,
   fitGarch11,
   type PriceBar,
 } from '@/lib/quant-engine';
-import { ProvenanceBadge } from '@/components/ui/provenance-badge';
+import {
+  buildSparklineSvgPath,
+  computeActiveCausalHmmSeries,
+  computeHomeUniverseCard,
+  HOME_UNIVERSE_SYMBOLS,
+} from '@/lib/home-universe';
+import { getHmmRegimeToken } from '@/lib/hmm-regime-overlay';
+
+export type HomeDestinationView =
+  | 'now'
+  | 'analysis'
+  | 'modeling'
+  | 'volatility'
+  | 'fno'
+  | 'correlation'
+  | 'regression';
 
 interface HomeViewProps {
-  onNavigate: (view: 'analysis' | 'modeling' | 'volatility' | 'fno' | 'correlation' | 'regression') => void;
+  onNavigate: (view: HomeDestinationView) => void;
   onSelectPreset: (ticker: string) => void;
   ticker: string;
+  companyName?: string;
   bars: PriceBar[];
   barsSource?: string | null;
   tapeItems: TapeItem[];
 }
 
-export function HomeView({ onNavigate, onSelectPreset, ticker, bars, barsSource, tapeItems }: HomeViewProps) {
-  // References for the AnimatedBeam data pipeline
-  const containerRef = useRef<HTMLDivElement>(null);
-  const feedRef = useRef<HTMLDivElement>(null);
-  const returnsRef = useRef<HTMLDivElement>(null);
-  const engineRef = useRef<HTMLDivElement>(null);
-  const riskRef = useRef<HTMLDivElement>(null);
+interface WorkstationItem {
+  num: string;
+  view: HomeDestinationView;
+  title: string;
+  subtitle: string;
+  description: string;
+  icon: React.ComponentType<{ className?: string }>;
+  featured?: boolean;
+}
 
-  // Real figures from the active ticker's daily bars — no decorative numbers.
-  const stats = useMemo(() => {
+const WORKSTATIONS: readonly WorkstationItem[] = [
+  {
+    num: '01',
+    view: 'now',
+    title: 'Edge & TCN Diagnostics',
+    subtitle: 'Multi-Domain TCN-Attention · Causal HMM Regimes · Tactical Signal Board',
+    description:
+      'Live tactical summary combining causal 3-state volatility regimes, multi-domain TCN-Attention forecasts, out-of-sample regime scorecards, and options edge triggers.',
+    icon: Radar,
+    featured: true,
+  },
+  {
+    num: '02',
+    view: 'analysis',
+    title: 'Single-Stock Analysis',
+    subtitle: 'Returns · Tail Risk · Stationarity',
+    description:
+      'ADF, KPSS, and Hurst diagnostics paired with five-model VaR/Expected Shortfall backtesting, EVT peaks-over-threshold, and MLE distribution fits.',
+    icon: BarChart2,
+  },
+  {
+    num: '03',
+    view: 'modeling',
+    title: 'Volatility Modeling',
+    subtitle: 'GARCH(1,1) · EWMA · HAR-RV',
+    description:
+      'Realized volatility estimators (Parkinson, Garman–Klass, Rogers–Satchell, Yang–Zhang), GARCH persistence calibration, and multi-horizon variance cones.',
+    icon: Activity,
+  },
+  {
+    num: '04',
+    view: 'volatility',
+    title: 'Implied Volatility Suite',
+    subtitle: 'SVI Surface · Term Structure · VRP',
+    description:
+      'European BSM implied volatility smiles, SVI parameterization, model-free IV, variance risk premium spread, and regime-conditioned vol signals.',
+    icon: Waves,
+  },
+  {
+    num: '05',
+    view: 'fno',
+    title: 'Options F&O Positioning',
+    subtitle: 'GEX · Dealer Flip · OI Walls',
+    description:
+      'Dealer gamma exposure profiles, assumed squeeze/inverse zero-gamma flip levels, call/put open-interest walls, and trap state-machine telemetry.',
+    icon: CandlestickChart,
+  },
+  {
+    num: '06',
+    view: 'correlation',
+    title: 'Correlation & Covariance',
+    subtitle: 'Ledoit–Wolf · RMT · GMV',
+    description:
+      'Marchenko–Pastur eigenvalue denoising, shrinkage covariance estimation, minimum spanning trees, and global minimum-variance portfolio weights.',
+    icon: Network,
+  },
+  {
+    num: '07',
+    view: 'regression',
+    title: 'Factor & Regression Lab',
+    subtitle: 'CAPM · Rolling Beta · Newey–West',
+    description:
+      'Single- and multi-factor OLS regressions with HAC standard errors, rolling beta stability, residual normality checks, and out-of-sample accuracy.',
+    icon: LineChart,
+  },
+];
+
+export function HomeView({
+  onNavigate,
+  onSelectPreset,
+  ticker,
+  companyName,
+  bars,
+  barsSource,
+  tapeItems,
+}: HomeViewProps) {
+  const [equationsOpen, setEquationsOpen] = useState(false);
+  const { allStockBars, latestQuotes, rv20, vix, chain, chainLoading } = useTickerSnapshot();
+
+  // Core econometric summary on active ticker's daily bars
+  const activeStats = useMemo(() => {
     if (!bars || bars.length < 60) return null;
-    const rets = calculateReturns(bars.map((b) => b.close), 'log');
+    const rets = calculateReturns(
+      bars.map((b) => b.close),
+      'log'
+    );
     if (rets.length < 50) return null;
-    const recent = rets.slice(-252);
-    const annualizedRv = Math.sqrt((recent.reduce((s, r) => s + r * r, 0) / recent.length) * 252);
     const ewma = computeEwmaVolatility(rets, 0.94).summary.latestAnnualizedVol;
     const garch = fitGarch11(rets);
     const sorted = [...rets].sort((a, b) => a - b);
     const q01 = sorted[Math.floor(0.01 * (sorted.length - 1))] ?? 0;
     return {
-      annualizedRv,
       ewma,
       persistence: garch.summary.persistence,
-      nextVar: garch.conditionalVariance[garch.conditionalVariance.length - 1] ?? 0,
       historicalVar99: Math.max(0, -q01),
     };
   }, [bars]);
 
-  const telemetry: [string, string][] = stats
-    ? [
-        ['σ²(t+1) forecast', stats.nextVar.toFixed(6)],
-        ['α + β persistence', `${stats.persistence.toFixed(3)}${stats.persistence < 1 ? ' · stationary' : ''}`],
-        ['VaR 99% · 1d', `-${(stats.historicalVar99 * 100).toFixed(2)}%`],
-        ['EWMA λ=0.94 latest', `${(stats.ewma * 100).toFixed(2)}%`],
-      ]
-    : [
-        ['σ²(t+1) forecast', '—'],
-        ['α + β persistence', '—'],
-        ['VaR 99% · 1d', '—'],
-        ['EWMA λ=0.94 latest', '—'],
-      ];
+  // Strictly causal 3-state HMM series for the interactive Hero chart & Pulse Strip
+  const activeHmm = useMemo(() => computeActiveCausalHmmSeries(bars, 504), [bars]);
 
-  const kpiNode = (value: number | null | undefined, decimals: number, suffix = '') =>
-    value === null || value === undefined || !isFinite(value)
-      ? '—'
-      : <NumberTicker value={value} decimalPlaces={decimals} suffix={suffix} />;
+  const tapeBySymbol = useMemo(() => {
+    const map = new Map<string, TapeItem>();
+    for (const item of tapeItems) {
+      map.set(item.symbol.toUpperCase(), item);
+    }
+    return map;
+  }, [tapeItems]);
 
-  const tapeBySymbol = useMemo(() => new Map(tapeItems.map((t) => [t.symbol, t])), [tapeItems]);
+  const activeTickerUpper = ticker.toUpperCase();
+  const activeLiveQuote = latestQuotes[activeTickerUpper];
+  const activeTape = tapeBySymbol.get(activeTickerUpper);
+  const activePending = !activeLiveQuote && Boolean(activeTape?.pending);
+  const resolvedCompanyName =
+    companyName ||
+    HOME_UNIVERSE_SYMBOLS.find((m) => m.ticker === activeTickerUpper)?.name ||
+    `${activeTickerUpper} Equity`;
 
-  const presets = [
-    { ticker: 'AAPL', name: 'Apple Inc.', category: 'Consumer Tech' },
-    { ticker: 'NVDA', name: 'NVIDIA Corp.', category: 'Semiconductors / AI' },
-    { ticker: 'MSFT', name: 'Microsoft Corp.', category: 'Enterprise Cloud' },
-    { ticker: 'SPY', name: 'S&P 500 ETF', category: 'Broad Market Benchmark' },
-    { ticker: 'TSLA', name: 'Tesla Inc.', category: 'High Beta Momentum' },
-  ];
+  const activeSpotPrice = !activePending
+    ? activeLiveQuote?.price ??
+      activeTape?.price ??
+      (bars.length > 0 ? bars[bars.length - 1].close : null)
+    : null;
+  const activeSpotChangePct = !activePending
+    ? activeLiveQuote?.changePct ??
+      activeTape?.changePct ??
+      (bars.length >= 2 && bars[bars.length - 2].close > 0
+        ? ((bars[bars.length - 1].close - bars[bars.length - 2].close) /
+            bars[bars.length - 2].close) *
+          100
+        : null)
+    : null;
+
+  // Guard IV30 against cross-ticker staleness while options chain loads for a newly selected symbol
+  const chainMatchesActive = Boolean(
+    chain &&
+      chain.available &&
+      (chain.requested?.toUpperCase() === activeTickerUpper ||
+        chain.symbol?.toUpperCase() === activeTickerUpper)
+  );
+  const iv30 =
+    chainMatchesActive && typeof chain?.iv30 === 'number' && Number.isFinite(chain.iv30)
+      ? chain.iv30
+      : null;
+
+  // Direct basis comparison (RV sqrt(252) vs IV sqrt(365) — never rescaled)
+  const volSpreadPts = iv30 !== null && rv20 !== null ? (iv30 - rv20) * 100 : null;
+  const vrpBp2 = iv30 !== null && rv20 !== null ? (iv30 * iv30 - rv20 * rv20) * 10000 : null;
+
+  // 10-ticker live watchboard cards (sparkline + RV20 + causal HMM state)
+  const universeCards = useMemo(() => {
+    return HOME_UNIVERSE_SYMBOLS.map((meta) => {
+      const symbolBars =
+        allStockBars[meta.ticker] ??
+        (meta.ticker === activeTickerUpper ? bars : undefined);
+      const liveQuote = latestQuotes[meta.ticker];
+      const tapeItem = tapeBySymbol.get(meta.ticker);
+      return computeHomeUniverseCard(meta, symbolBars, liveQuote, tapeItem);
+    });
+  }, [allStockBars, activeTickerUpper, bars, latestQuotes, tapeBySymbol]);
+
+  const activeHmmToken = activeHmm ? getHmmRegimeToken(activeHmm.latestState) : null;
 
   return (
-    <div className="space-y-6 pb-10">
-      {/* ════════════ HERO ════════════ */}
-      <section className="relative overflow-hidden rounded-3xl border border-white/[0.08] bg-[#08080A] text-zinc-100 shadow-[0_40px_80px_-40px_rgba(0,0,0,0.8)]">
-        <BackgroundBeams />
-        <Spotlight />
-        <div className="bg-grid mask-radial-fade pointer-events-none absolute inset-0 opacity-[0.35]" />
-
-        <div className="relative z-10 flex flex-col gap-10 px-6 pb-10 pt-12 sm:px-10 sm:pt-16 lg:flex-row lg:items-center lg:gap-14">
-          <div className="max-w-2xl flex-1">
-            {/* Kicker */}
-            <div className="mb-5 flex flex-wrap items-center gap-x-3 gap-y-2 font-mono text-[10px] font-medium uppercase tracking-[0.22em] text-gold-300/90">
-              <span className="flex items-center gap-2">
-                <span className="h-1.5 w-1.5 rounded-full bg-[var(--positive)] animate-ping-dot" />
-                Continuous Feeds
-              </span>
-              <span className="text-zinc-700" aria-hidden="true">/</span>
-              <span>Institutional Econometrics</span>
-              <span className="text-zinc-700" aria-hidden="true">/</span>
-              <span className="text-zinc-500">Zero-AI Mathematics</span>
+    <div className="space-y-7 pb-10">
+      {/* =====================================================================
+          BAND 1 — EDITORIAL HERO SPLIT + INTERACTIVE LIVE PRICE & HMM CHART
+      ===================================================================== */}
+      <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch pt-1">
+        {/* Left: Editorial Framing & Primary Entry Points */}
+        <div className="lg:col-span-5 flex flex-col justify-between gap-6 py-1">
+          <div className="space-y-4">
+            <div className="kicker">
+              Live SSE Feeds · GARCH &amp; TCN-Attention · 3-State HMM
             </div>
 
-            {/* Headline */}
-            <h1 className="font-display text-[2.6rem] font-semibold leading-[1.04] tracking-[-0.02em] text-zinc-50 sm:text-6xl">
-              <TextGenerateEffect words="The mathematics" as="span" className="block" />
-              <span className="mt-1 block">
-                of <span className="text-gradient-gold">market risk</span>.
-              </span>
+            <h1 className="font-display font-semibold tracking-tight text-balance text-zinc-950 dark:text-zinc-50 text-[clamp(2.1rem,3.4vw,3.25rem)] leading-[1.06]">
+              Quantitative risk, computed in the open.
             </h1>
 
-            <p className="mt-6 max-w-xl text-[15px] leading-relaxed text-zinc-400">
-              Institutional-grade econometrics in one terminal —{' '}
-              <FlipWords
-                words={['GARCH volatility term structures', 'Hansen skewed-t tails', 'Ledoit–Wolf covariance shrinkage', 'Basel-grade VaR backtesting']}
-                className="font-medium text-zinc-200"
-              />
-              , stationarity batteries, EVT tail models — every number traceable, every test reproducible.
+            <p className="text-sm sm:text-[15px] leading-relaxed text-zinc-600 dark:text-zinc-400 max-w-[46ch]">
+              Real-time equity and volatility analytics — strictly causal HMM regime filtering,
+              GARCH(1,1) persistence, implied volatility surfaces, and five-model VaR backtesting.
             </p>
 
-            {/* CTAs */}
-            <div className="mt-8 flex flex-wrap items-center gap-3">
-              <MovingBorderButton onClick={() => onNavigate('analysis')} aria-label="Launch Single-Stock Analysis">
-                Launch the Terminal
-                <ArrowRight className="h-4 w-4" />
+            <div className="pt-2 flex flex-wrap items-center gap-3">
+              <MovingBorderButton
+                onClick={() => onNavigate('now')}
+                className="text-xs sm:text-sm font-medium whitespace-nowrap shrink-0"
+              >
+                <span>Open Edge Workstation</span>
+                <ArrowRight className="w-4 h-4 shrink-0" />
               </MovingBorderButton>
+
               <button
                 type="button"
-                onClick={() => onNavigate('modeling')}
-                className="group inline-flex h-11 cursor-pointer items-center gap-2 rounded-xl border border-white/[0.09] bg-white/[0.04] px-5 text-[13px] font-semibold text-zinc-200 backdrop-blur-sm transition-all duration-200 hover:border-gold-400/40 hover:text-gold-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-400/60"
+                onClick={() => onNavigate('analysis')}
+                className="inline-flex h-11 items-center gap-2 px-5 rounded-xl text-[13px] font-medium border border-[var(--hairline-strong)] bg-[var(--bg-panel)] text-zinc-800 dark:text-zinc-200 hover:border-gold-500/50 hover:text-zinc-950 dark:hover:text-gold-300 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
               >
-                <Activity className="h-4 w-4 text-gold-400 transition-transform duration-200 group-hover:scale-110" />
-                GARCH / EWMA Modeling
+                <span>Single-Stock Analysis</span>
+                <ArrowRight className="w-3.5 h-3.5 shrink-0" />
               </button>
             </div>
-
-            {/* Proof strip */}
-            <div className="mt-9 flex flex-wrap items-center gap-x-6 gap-y-2 font-mono text-[10px] uppercase tracking-[0.16em] text-zinc-500">
-              <span><strong className="text-zinc-200">28</strong> Econometric Tests</span>
-              <span className="text-zinc-800" aria-hidden="true">◆</span>
-              <span><strong className="text-zinc-200">5</strong>-Model VaR · 99% ES</span>
-              <span className="text-zinc-800" aria-hidden="true">◆</span>
-              <span><strong className="text-zinc-200">N×N</strong> Correlation RMT</span>
-            </div>
           </div>
 
-          {/* Floating terminal telemetry card (decorative) */}
-          <div className="relative mx-auto w-full max-w-sm shrink-0 lg:mx-0">
-            <div
-              aria-hidden="true"
-              className="absolute -inset-6 rounded-[28px] bg-[radial-gradient(ellipse_at_center,rgba(222,192,132,0.14),transparent_70%)] blur-2xl"
-            />
-            <div className="relative rounded-2xl border border-white/[0.09] bg-[#101014]/80 p-5 shadow-2xl backdrop-blur-md">
-              <div className="flex items-center justify-between border-b border-white/[0.06] pb-3">
-                <div className="flex items-center gap-2">
-                  <span className="flex h-2 w-2 gap-1">
-                    <span className="h-2 w-2 rounded-full bg-zinc-700" />
-                    <span className="h-2 w-2 rounded-full bg-zinc-700" />
-                    <span className="h-2 w-2 rounded-full bg-gold-400/80" />
-                  </span>
-                  <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-zinc-500">
-                    quant-engine · {ticker}
-                  </span>
-                </div>
-                <ProvenanceBadge daily={barsSource} compact />
-                <span className="rounded border border-gold-500/30 bg-gold-400/10 px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wider text-gold-300">
-                  MLE
-                </span>
+          {/* Quiet Typographic Proof Strip (zero boxed pills) */}
+          <div className="pt-4 border-t border-[var(--hairline)] flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] font-mono text-zinc-500 dark:text-zinc-400">
+            <span>28 Econometric Tests</span>
+            <span className="text-zinc-300 dark:text-zinc-700">/</span>
+            <span>5-Model VaR</span>
+            <span className="text-zinc-300 dark:text-zinc-700">/</span>
+            <span>7 Live Workstations</span>
+          </div>
+        </div>
+
+        {/* Right: Live Interactive Price & Causal HMM Volatility Regime Chart */}
+        <div className="lg:col-span-7 flex">
+          <HomeHeroRegimeChart
+            ticker={activeTickerUpper}
+            companyName={resolvedCompanyName}
+            bars={bars}
+            barsSource={barsSource}
+            livePrice={activeLiveQuote?.price ?? activeTape?.price ?? null}
+            liveChangePct={activeLiveQuote?.changePct ?? activeTape?.changePct ?? null}
+            liveAsOf={activeLiveQuote?.asOf ?? activeTape?.asOf ?? null}
+            pending={activePending}
+            hmmSeries={activeHmm}
+            garchPersistence={activeStats?.persistence ?? null}
+            ewmaVol={activeStats?.ewma ?? null}
+            var99={activeStats?.historicalVar99 ?? null}
+          />
+        </div>
+      </section>
+
+      {/* =====================================================================
+          BAND 2 — LIVE TICKER TAPE + 5-METRIC CROSS-ASSET PULSE STRIP
+      ===================================================================== */}
+      <section className="space-y-3" aria-label="Live market strip and cross-asset pulse">
+        <TickerTape items={tapeItems} />
+
+        <div className="panel overflow-hidden">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 divide-y sm:divide-y-0 sm:divide-x divide-[var(--hairline)]">
+            {/* 1. Active Spot */}
+            <div className="px-4 py-3.5">
+              <div className="text-[10px] font-mono uppercase tracking-[0.09em] text-zinc-500 dark:text-zinc-400">
+                Active Spot · {activeTickerUpper}
               </div>
-
-              {/* Sparkline */}
-              <svg viewBox="0 0 260 64" className="mt-4 w-full" role="presentation">
-                <defs>
-                  <linearGradient id="spark-fill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#DEC084" stopOpacity="0.35" />
-                    <stop offset="100%" stopColor="#DEC084" stopOpacity="0" />
-                  </linearGradient>
-                </defs>
-                <path
-                  d="M0 46 L18 42 L34 48 L52 36 L70 40 L88 28 L104 34 L122 22 L138 30 L156 18 L172 26 L190 14 L208 20 L226 10 L244 16 L260 8"
-                  fill="none" stroke="#DEC084" strokeWidth="1.3" strokeLinejoin="round" strokeLinecap="round"
-                />
-                <path
-                  d="M0 46 L18 42 L34 48 L52 36 L70 40 L88 28 L104 34 L122 22 L138 30 L156 18 L172 26 L190 14 L208 20 L226 10 L244 16 L260 8 L260 64 L0 64 Z"
-                  fill="url(#spark-fill)" stroke="none"
-                />
-              </svg>
-
-              {/* Telemetry rows */}
-              <dl className="mt-4 space-y-2 font-mono text-[11px]">
-                {telemetry.map(([k, v]) => (
-                  <div key={k} className="flex items-baseline justify-between gap-4 border-b border-white/[0.05] pb-2 last:border-0 last:pb-0">
-                    <dt className="text-zinc-500">{k}</dt>
-                    <dd className="tabular-nums text-zinc-100">{v}</dd>
-                  </div>
-                ))}
-              </dl>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ════════════ TICKER TAPE ════════════ */}
-      {tapeItems.length > 0 && <TickerTape items={tapeItems} />}
-
-      {/* ════════════ PIPELINE ════════════ */}
-      <section className="panel p-6">
-        <div className="mb-6 flex flex-col justify-between gap-2 border-b border-[var(--hairline)] pb-5 sm:flex-row sm:items-end">
-          <div>
-            <p className="kicker mb-1.5 flex items-center gap-2">
-              <Cpu className="h-3.5 w-3.5" /> Signal Flow
-            </p>
-            <h2 className="font-display text-xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-              From raw ticks to risk attribution
-            </h2>
-            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-              The same engines as the workstations, run on the active ticker&apos;s daily bars
-            </p>
-          </div>
-          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-500">
-            AnimatedBeam Architecture
-          </span>
-        </div>
-
-        <div
-          ref={containerRef}
-          className="relative flex flex-col items-stretch justify-between gap-4 rounded-2xl border border-[var(--hairline)] bg-[var(--bg-inset)] px-4 py-6 md:flex-row md:items-center md:gap-6 md:px-8"
-        >
-          {[
-            { ref: feedRef, icon: Database, title: 'Market Feed', sub: 'OHLCV · Yahoo Finance', accent: false },
-            { ref: returnsRef, icon: BarChart2, title: 'Returns', sub: 'r_t = ln(P_t / P_{t-1})', accent: false },
-            { ref: engineRef, icon: Cpu, title: 'Quant Engine', sub: 'GARCH · MLE · EVT', accent: true },
-            { ref: riskRef, icon: ShieldAlert, title: 'Risk Output', sub: 'VaR · ES · Euler CCTR', accent: false },
-          ].map(({ ref, icon: Icon, title, sub, accent }) => (
-            <div
-              key={title}
-              ref={ref}
-              className={`z-10 flex flex-col items-center justify-center gap-1 rounded-2xl border px-4 py-5 text-center shadow-sm transition-colors ${
-                accent
-                  ? 'border-gold-500/50 bg-gradient-to-b from-gold-400/15 to-gold-600/5 dark:from-gold-400/10 dark:to-transparent'
-                  : 'border-[var(--hairline)] bg-[var(--bg-panel)]'
-              }`}
-            >
-              <Icon className={`h-5 w-5 ${accent ? 'text-gold-600 dark:text-gold-300 animate-pulse' : 'text-zinc-400 dark:text-zinc-500'}`} strokeWidth={1.7} />
-              <span className="font-display text-[13px] font-semibold text-zinc-900 dark:text-zinc-50">{title}</span>
-              <span className="font-mono text-[10px] text-zinc-400 dark:text-zinc-500">{sub}</span>
-            </div>
-          ))}
-
-          <AnimatedBeam containerRef={containerRef} fromRef={feedRef} toRef={returnsRef} duration={2.4} pathColor="#63636d" gradientStartColor="#C69A48" gradientStopColor="#DEC084" />
-          <AnimatedBeam containerRef={containerRef} fromRef={returnsRef} toRef={engineRef} duration={2.4} delay={0.35} pathColor="#63636d" gradientStartColor="#C69A48" gradientStopColor="#DEC084" />
-          <AnimatedBeam containerRef={containerRef} fromRef={engineRef} toRef={riskRef} duration={2.4} delay={0.7} pathColor="#63636d" gradientStartColor="#DEC084" gradientStopColor="#3fb27f" />
-        </div>
-      </section>
-
-      {/* ════════════ WORKSATION BENTO ════════════ */}
-      <section>
-        <div className="mb-4 flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
-          <div>
-            <p className="kicker mb-1.5 flex items-center gap-2">
-              <Sigma className="h-3.5 w-3.5" /> The Workstations
-            </p>
-            <h2 className="font-display text-xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-              Four instruments, one instrument panel
-            </h2>
-          </div>
-          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-500">
-            Select a module to enter
-          </span>
-        </div>
-
-        <BentoGrid className="md:grid-cols-3">
-          <BentoGridItem
-            className="md:col-span-2"
-            onClick={() => onNavigate('analysis')}
-            icon={<ScanSearch className="h-6 w-6" strokeWidth={1.6} />}
-            title="Single-Stock Analysis Battery"
-            description="ADF · PP · KPSS stationarity across price, log-return and squared-return lenses. ARCH-LM, Ljung-Box, CUSUM-SQ structural breaks, Hurst exponent, Roll & Corwin-Schultz spread estimators, and a 5-model VaR with Kupiec + Christoffersen backtests."
-          />
-          <BentoGridItem
-            onClick={() => onNavigate('modeling')}
-            icon={<Activity className="h-6 w-6" strokeWidth={1.6} />}
-            title="Volatility Modeling"
-            description="GARCH(1,1) by MLE with 68/95% forecast cones, RiskMetrics EWMA λ=0.94, Corsi HAR-RV cascade on RV components, news-impact curves and BNS bipower jump decomposition."
-          />
-          <BentoGridItem
-            onClick={() => onNavigate('correlation')}
-            icon={<Network className="h-6 w-6" strokeWidth={1.6} />}
-            title="Correlation & Covariance"
-            description="Pearson · Spearman · Kendall matrices, Ledoit–Wolf shrinkage, Marchenko–Pastur eigenvalue clipping, MST topology and GMV frontier with Euler risk attribution."
-          />
-          <BentoGridItem
-            onClick={() => onNavigate('regression')}
-            icon={<RegressionIcon className="h-6 w-6" strokeWidth={1.6} />}
-            title="Factor & Regression Lab"
-            description="OLS single-index CAPM with Jensen's alpha, Durbin–Watson diagnostics, residual QQ inspection and next-day return forecasting with confidence bands."
-          />
-          <BentoGridItem
-            onClick={() => onNavigate('volatility')}
-            icon={<Waves className="h-6 w-6" strokeWidth={1.6} />}
-            title="Implied Volatility Suite"
-            description="IV term structure, variance risk premium, forecast validation, dealer positioning and a pre-registered decision checklist — with a one-screen Now digest."
-          />
-          <BentoGridItem
-            onClick={() => onNavigate('fno')}
-            icon={<CandlestickChart className="h-6 w-6" strokeWidth={1.6} />}
-            title={'Options F&O Suite'}
-            description="Open interest, GEX walls, put-call ratio, max pain, term structure and expected-vs-realized move, each with an honest used/total and accrual badge."
-          />
-          <BentoGridItem
-            icon={<Braces className="h-6 w-6" strokeWidth={1.6} />}
-            title="Traceable by construction"
-            description="No LLM reasoning anywhere in the chain. Deterministic generators, seeded paths, analytic MLE, closed-form test statistics — every figure reproducible offline."
-            header={
-              <span className="font-mono text-[10px] uppercase leading-relaxed tracking-[0.14em] text-zinc-400 dark:text-zinc-500">
-                ln L · AIC · BIC<br />χ² · F · z-scores<br />Kupiec · Christoffersen
-              </span>
-            }
-          />
-        </BentoGrid>
-      </section>
-
-      {/* ════════════ KPI BAND ════════════ */}
-      <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        {[
-          { label: `Realized Vol · ${ticker}`, node: kpiNode(stats ? stats.annualizedRv * 100 : null, 2, '%'), sub: 'Annualized · σ × √252', tone: 'text-zinc-900 dark:text-zinc-50' },
-          { label: 'RiskMetrics EWMA λ=0.94', node: kpiNode(stats ? stats.ewma * 100 : null, 2, '%'), sub: 'Latest annualized vol', tone: 'text-gold-700 dark:text-gold-300' },
-          { label: 'GARCH(1,1) Persistence', node: kpiNode(stats ? stats.persistence : null, 3), sub: 'α + β · fitted on this ticker', tone: 'text-gold-700 dark:text-gold-300' },
-          { label: 'Historical 99% 1d VaR', node: kpiNode(stats ? stats.historicalVar99 * 100 : null, 2, '%'), sub: 'Empirical return quantile', tone: 'text-[var(--negative)]' },
-        ].map((s) => (
-          <div key={s.label} className="panel-inset flex flex-col justify-between gap-2 p-4">
-            <div className="text-[11px] font-medium leading-snug text-zinc-500 dark:text-zinc-400">{s.label}</div>
-            <div className={`font-mono text-2xl font-semibold tabular-nums tracking-tight ${s.tone}`}>{s.node}</div>
-            <div className="font-mono text-[9.5px] uppercase tracking-wide text-zinc-400 dark:text-zinc-500">{s.sub}</div>
-          </div>
-        ))}
-      </section>
-
-      {/* ════════════ FRAMEWORK EQUATIONS ════════════ */}
-      <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <div className="panel p-6">
-          <div className="mb-3 flex items-center justify-between border-b border-[var(--hairline)] pb-3">
-            <div className="flex items-center gap-2">
-              <Activity className="h-4 w-4 text-gold-600 dark:text-gold-300" />
-              <h3 className="font-display text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                Parametric Volatility &amp; Jump Filters
-              </h3>
-            </div>
-            <button type="button" onClick={() => onNavigate('modeling')} className="cursor-pointer text-[11px] font-semibold text-gold-700 dark:text-gold-300 hover:underline">
-              Open Modeling →
-            </button>
-          </div>
-          <p className="mb-4 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
-            Bollerslev GARCH(1,1) and RiskMetrics EWMA variance memory, Corsi HAR-RV cascade over
-            realized-volatility components, Barndorff-Nielsen &amp; Shephard bipower variation separating
-            diffusion from jumps.
-          </p>
-          <div className="panel-inset flex items-center justify-center px-4 py-5 font-mono text-xs">
-            <GarchEquation />
-          </div>
-        </div>
-
-        <div className="panel p-6">
-          <div className="mb-3 flex items-center justify-between border-b border-[var(--hairline)] pb-3">
-            <div className="flex items-center gap-2">
-              <Layers className="h-4 w-4 text-gold-600 dark:text-gold-300" />
-              <h3 className="font-display text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                Shrinkage Covariance &amp; RMT Filtering
-              </h3>
-            </div>
-            <button type="button" onClick={() => onNavigate('correlation')} className="cursor-pointer text-[11px] font-semibold text-gold-700 dark:text-gold-300 hover:underline">
-              Open Correlation →
-            </button>
-          </div>
-          <p className="mb-4 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
-            Ledoit–Wolf analytical shrinkage for ill-conditioned N-asset covariance matrices.
-            Marchenko–Pastur spectral clipping isolates true systemic modes from sampling noise.
-          </p>
-          <div className="panel-inset flex items-center justify-center px-4 py-5 font-mono text-xs">
-            <CorrelationEquation />
-          </div>
-        </div>
-      </section>
-
-      {/* ════════════ PRESET UNIVERSE ════════════ */}
-      <section className="panel p-6">
-        <div className="mb-4 flex flex-col justify-between gap-2 border-b border-[var(--hairline)] pb-4 sm:flex-row sm:items-end">
-          <div>
-            <p className="kicker mb-1.5">Pre-Calibrated Universe</p>
-            <h3 className="font-display text-base font-semibold text-zinc-900 dark:text-zinc-50">
-              Five liquid benchmarks, instantly wired
-            </h3>
-          </div>
-          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-500">
-            Jump into any workstation
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          {presets.map((item) => {
-            const quote = tapeBySymbol.get(item.ticker);
-            const hasPrice = Boolean(quote && !quote.pending);
-            return (
-              <button
-                key={item.ticker}
-                type="button"
-                onClick={() => {
-                  onSelectPreset(item.ticker);
-                  onNavigate('analysis');
-                }}
-                className="group relative cursor-pointer overflow-hidden rounded-xl border border-[var(--hairline)] bg-[var(--bg-inset)] p-4 text-left transition-all duration-200 hover:border-gold-500/45 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-400/60"
-              >
-                <GlowingEffect borderWidth={1} proximity={36} />
-                <div className="flex items-center justify-between">
-                  <span className="font-mono text-sm font-bold tracking-wide text-zinc-900 transition-colors group-hover:text-gold-700 dark:text-zinc-50 dark:group-hover:text-gold-300">
-                    {item.ticker}
-                  </span>
+              <div className="mt-1 flex items-baseline gap-2">
+                <span className="font-mono text-lg font-semibold text-zinc-900 dark:text-zinc-100 tabular-nums">
+                  {activeSpotPrice != null ? `$${activeSpotPrice.toFixed(2)}` : '—'}
+                </span>
+                {activeSpotChangePct != null && (
                   <span
-                    className={`font-mono text-[10px] font-semibold ${
-                      !hasPrice
-                        ? 'text-zinc-400 dark:text-zinc-500'
-                        : quote!.changePct >= 0
-                          ? 'text-[var(--positive)]'
-                          : 'text-[var(--negative)]'
+                    className={`font-mono text-xs font-medium tabular-nums ${
+                      activeSpotChangePct >= 0
+                        ? 'text-[var(--positive)]'
+                        : 'text-[var(--negative)]'
                     }`}
                   >
-                    {hasPrice
-                      ? `${quote!.changePct >= 0 ? '+' : ''}${quote!.changePct.toFixed(2)}%`
-                      : '—'}
+                    {activeSpotChangePct >= 0 ? '+' : ''}
+                    {activeSpotChangePct.toFixed(2)}%
                   </span>
+                )}
+              </div>
+              <div className="mt-0.5 text-[11px] font-mono text-zinc-500 dark:text-zinc-400 truncate">
+                {resolvedCompanyName}
+              </div>
+            </div>
+
+            {/* 2. RV20 vs IV30 Spread */}
+            <div className="px-4 py-3.5">
+              <div className="text-[10px] font-mono uppercase tracking-[0.09em] text-zinc-500 dark:text-zinc-400">
+                RV20 vs. IV30 Spread
+              </div>
+              <div className="mt-1 flex items-baseline gap-2">
+                <span className="font-mono text-lg font-semibold text-zinc-900 dark:text-zinc-100 tabular-nums">
+                  {volSpreadPts !== null
+                    ? `${volSpreadPts >= 0 ? '+' : ''}${volSpreadPts.toFixed(1)} pts`
+                    : rv20 !== null
+                      ? `${(rv20 * 100).toFixed(1)}% RV`
+                      : '—'}
+                </span>
+                {vrpBp2 !== null && (
+                  <span
+                    className={`font-mono text-[11px] tabular-nums ${
+                      vrpBp2 >= 0 ? 'text-gold-700 dark:text-gold-300' : 'text-[var(--negative)]'
+                    }`}
+                  >
+                    {vrpBp2 >= 0 ? '+' : ''}
+                    {Math.round(vrpBp2)} bp²
+                  </span>
+                )}
+              </div>
+              <div className="mt-0.5 text-[11px] font-mono text-zinc-500 dark:text-zinc-400 tabular-nums">
+                {rv20 !== null ? `RV ${(rv20 * 100).toFixed(1)}%` : 'RV —'}
+                {' · '}
+                {iv30 !== null
+                  ? `IV ${(iv30 * 100).toFixed(1)}%`
+                  : chainLoading
+                    ? 'IV loading…'
+                    : 'IV n/a'}
+              </div>
+            </div>
+
+            {/* 3. CBOE VIX */}
+            <div className="px-4 py-3.5">
+              <div className="text-[10px] font-mono uppercase tracking-[0.09em] text-zinc-500 dark:text-zinc-400">
+                CBOE VIX Index
+              </div>
+              <div className="mt-1 flex items-baseline gap-2">
+                <span className="font-mono text-lg font-semibold text-zinc-900 dark:text-zinc-100 tabular-nums">
+                  {vix.level != null ? vix.level.toFixed(2) : '—'}
+                </span>
+                {vix.percentile != null && (
+                  <span className="font-mono text-xs text-zinc-500 dark:text-zinc-400 tabular-nums">
+                    P{Math.round(vix.percentile)}
+                  </span>
+                )}
+              </div>
+              <div className="mt-0.5 text-[11px] font-mono text-zinc-500 dark:text-zinc-400">
+                {vix.percentile != null
+                  ? `${vix.n}-session 1Y percentile`
+                  : 'Implied 30d S&P 500 vol'}
+              </div>
+            </div>
+
+            {/* 4. Dominant Causal HMM Regime */}
+            <div className="px-4 py-3.5">
+              <div className="text-[10px] font-mono uppercase tracking-[0.09em] text-zinc-500 dark:text-zinc-400">
+                Causal HMM Regime
+              </div>
+              <div className="mt-1 flex items-center gap-2">
+                {activeHmmToken ? (
+                  <>
+                    <span
+                      className="inline-block w-2 h-2 rounded-full shrink-0"
+                      style={{ backgroundColor: activeHmmToken.color }}
+                    />
+                    <span className={`font-mono text-lg font-semibold ${activeHmmToken.textClass}`}>
+                      {activeHmmToken.label}
+                    </span>
+                  </>
+                ) : (
+                  <span className="font-mono text-lg font-semibold text-zinc-400">—</span>
+                )}
+              </div>
+              <div className="mt-0.5 text-[11px] font-mono text-zinc-500 dark:text-zinc-400 tabular-nums">
+                {activeHmm
+                  ? `${(activeHmm.latestProb * 100).toFixed(1)}% forward posterior`
+                  : 'Requires ≥45 daily bars'}
+              </div>
+            </div>
+
+            {/* 5. 1d 99% Historical VaR */}
+            <div className="px-4 py-3.5 col-span-2 sm:col-span-1">
+              <div className="text-[10px] font-mono uppercase tracking-[0.09em] text-zinc-500 dark:text-zinc-400">
+                1d 99% Hist. VaR
+              </div>
+              <div className="mt-1 flex items-baseline gap-2">
+                <span className="font-mono text-lg font-semibold text-[var(--negative)] tabular-nums">
+                  {activeStats ? `-${(activeStats.historicalVar99 * 100).toFixed(2)}%` : '—'}
+                </span>
+              </div>
+              <div className="mt-0.5 text-[11px] font-mono text-zinc-500 dark:text-zinc-400 tabular-nums">
+                {activeStats
+                  ? `EWMA ${(activeStats.ewma * 100).toFixed(1)}% ann.`
+                  : '1% empirical tail loss'}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* =====================================================================
+          BAND 3 — INTERACTIVE 10-TICKER MARKET GRID (SPARKLINES + REGIMES)
+      ===================================================================== */}
+      <section className="space-y-3" aria-label="10-ticker live market grid">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <div className="kicker">Market Universe</div>
+            <h2 className="mt-0.5 font-display text-lg sm:text-xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+              Live 10-benchmark watchboard
+            </h2>
+          </div>
+          <p className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400">
+            Select any card to update the Hero chart · Analyze opens Single-Stock view
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          {universeCards.map((card) => {
+            const isActive = card.ticker === activeTickerUpper;
+            const spark = buildSparklineSvgPath(card.sparkline, 120, 32, 3);
+            const strokeColor = card.sparklinePositive ? 'var(--positive)' : 'var(--negative)';
+            const regimeTok =
+              card.regimeState !== null ? getHmmRegimeToken(card.regimeState) : null;
+            const sparkGradId = `home-spark-${card.ticker}`;
+
+            return (
+              <div
+                key={card.ticker}
+                role="button"
+                tabIndex={0}
+                onClick={() => onSelectPreset(card.ticker)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onSelectPreset(card.ticker);
+                  }
+                }}
+                aria-pressed={isActive}
+                className={`panel p-3.5 text-left transition-colors cursor-pointer flex flex-col justify-between gap-2.5 group focus:outline-none focus-visible:ring-1 focus-visible:ring-gold-500 ${
+                  isActive
+                    ? '!border-gold-500/70 dark:!border-gold-400/60 bg-gold-500/[0.03] dark:bg-gold-500/[0.04]'
+                    : 'hover:border-[var(--hairline-strong)]'
+                }`}
+              >
+                {/* Row 1: Symbol + Live Price */}
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                        {card.ticker}
+                      </span>
+                      {isActive && (
+                        <span className="font-mono text-[9.5px] uppercase tracking-wider text-gold-700 dark:text-gold-300">
+                          Active
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-zinc-500 dark:text-zinc-400 truncate">
+                      {card.name}
+                    </div>
+                  </div>
+
+                  <div className="text-right shrink-0">
+                    <div className="font-mono text-sm font-semibold text-zinc-900 dark:text-zinc-100 tabular-nums">
+                      {!card.pending && card.price != null ? `$${card.price.toFixed(2)}` : '—'}
+                    </div>
+                    <div
+                      className={`font-mono text-[11px] font-medium tabular-nums ${
+                        card.pending || card.changePct == null
+                          ? 'text-zinc-400'
+                          : card.changePct >= 0
+                            ? 'text-[var(--positive)]'
+                            : 'text-[var(--negative)]'
+                      }`}
+                    >
+                      {!card.pending && card.changePct != null
+                        ? `${card.changePct >= 0 ? '+' : ''}${card.changePct.toFixed(2)}%`
+                        : '—'}
+                    </div>
+                  </div>
                 </div>
-                <div className="mt-1.5 truncate text-[11px] font-medium text-zinc-600 dark:text-zinc-300">
-                  {item.name}
+
+                {/* Row 2: 60-Session Real Sparkline */}
+                <div className="h-8 w-full">
+                  {spark.linePath ? (
+                    <svg
+                      viewBox="0 0 120 32"
+                      preserveAspectRatio="none"
+                      className="w-full h-full block overflow-visible"
+                      aria-hidden="true"
+                    >
+                      <defs>
+                        <linearGradient id={sparkGradId} x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={strokeColor} stopOpacity="0.2" />
+                          <stop offset="100%" stopColor={strokeColor} stopOpacity="0" />
+                        </linearGradient>
+                      </defs>
+                      <path d={spark.areaPath} fill={`url(#${sparkGradId})`} />
+                      <path
+                        d={spark.linePath}
+                        fill="none"
+                        stroke={strokeColor}
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  ) : (
+                    <div className="h-full border-b border-dashed border-[var(--hairline)]" />
+                  )}
                 </div>
-                <div className="mt-3 flex items-center justify-between font-mono text-[9px] uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
-                  <span className="truncate">{item.category}</span>
-                  <span className="shrink-0">{hasPrice ? quote!.price.toFixed(2) : '—'}</span>
+
+                {/* Row 3: RV20 + Causal HMM Regime + Explicit Analyze Link */}
+                <div className="pt-2 border-t border-[var(--hairline)] flex items-center justify-between gap-2 text-[10.5px] font-mono">
+                  <div className="flex items-center gap-2 min-w-0 truncate">
+                    <span className="text-zinc-500 dark:text-zinc-400 tabular-nums shrink-0">
+                      {card.rv20 != null ? `RV ${(card.rv20 * 100).toFixed(0)}%` : 'RV —'}
+                    </span>
+                    {regimeTok && (
+                      <>
+                        <span className="text-zinc-300 dark:text-zinc-700">·</span>
+                        <span className={`truncate font-medium ${regimeTok.textClass}`}>
+                          {regimeTok.label}
+                        </span>
+                      </>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSelectPreset(card.ticker);
+                      onNavigate('analysis');
+                    }}
+                    className="inline-flex items-center gap-0.5 text-zinc-600 dark:text-zinc-300 hover:text-gold-700 dark:hover:text-gold-300 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                  >
+                    <span>Analyze</span>
+                    <ArrowRight className="w-3 h-3 shrink-0" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* =====================================================================
+          BAND 4 — UNIFIED 7-WORKSTATION LAUNCHER (ASYMMETRIC EDITORIAL GRID)
+      ===================================================================== */}
+      <section className="space-y-3" aria-label="Analytical workstations">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <div className="kicker">Workstations</div>
+            <h2 className="mt-0.5 font-display text-lg sm:text-xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+              Seven analytical surfaces
+            </h2>
+          </div>
+          <p className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400">
+            Shared ticker context across every view
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+          {WORKSTATIONS.map((ws) => {
+            const Icon = ws.icon;
+            return (
+              <button
+                key={ws.view}
+                type="button"
+                onClick={() => onNavigate(ws.view)}
+                className={`panel p-5 text-left transition-colors hover:border-gold-500/50 dark:hover:border-gold-400/45 group flex flex-col justify-between gap-4 cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-gold-500 ${
+                  ws.featured ? 'md:col-span-2' : ''
+                }`}
+              >
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5">
+                      <span className="font-mono text-[11px] font-medium text-gold-700 dark:text-gold-400 tabular-nums">
+                        {ws.num}
+                      </span>
+                      <span className="text-zinc-300 dark:text-zinc-700">/</span>
+                      <span className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400">
+                        {ws.subtitle}
+                      </span>
+                    </div>
+                    <Icon className="w-4 h-4 text-zinc-400 dark:text-zinc-500 group-hover:text-gold-600 dark:group-hover:text-gold-300 transition-colors shrink-0" />
+                  </div>
+
+                  <h3 className="font-display text-base sm:text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-100 group-hover:text-gold-700 dark:group-hover:text-gold-300 transition-colors">
+                    {ws.title}
+                  </h3>
+
+                  <p className="text-xs sm:text-[13px] leading-relaxed text-zinc-600 dark:text-zinc-400 max-w-[60ch]">
+                    {ws.description}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-1.5 text-xs font-mono font-medium text-zinc-700 dark:text-zinc-300 group-hover:text-gold-700 dark:group-hover:text-gold-300 transition-colors">
+                  <span>Open {ws.title.split(' ')[0]}</span>
+                  <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5 shrink-0" />
                 </div>
               </button>
             );
@@ -471,33 +643,83 @@ export function HomeView({ onNavigate, onSelectPreset, ticker, bars, barsSource,
         </div>
       </section>
 
-      {/* ════════════ FINAL CTA ════════════ */}
-      <section className="relative overflow-hidden rounded-3xl border border-gold-500/25 bg-gradient-to-br from-[#141310] via-[#100f0c] to-[#08080a] px-6 py-12 text-center dark:from-[#171510] dark:via-[#100f0c] dark:to-[#08080a]">
-        <Meteors count={16} />
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(222,192,132,0.12),transparent_65%)]"
-        />
-        <div className="relative z-10 mx-auto max-w-xl">
-          <p className="kicker mb-3 justify-center">Ready when you are</p>
-          <h2 className="font-display text-2xl font-semibold leading-tight tracking-tight text-zinc-50 sm:text-4xl">
-            Interrogate the tails.
-            <br />
-            <span className="text-gradient-gold">Trust every decimal.</span>
-          </h2>
-          <p className="mx-auto mt-4 max-w-md text-xs leading-relaxed text-zinc-400">
-            Twelve years of daily bars, minute-level intraday seasonality, closed-form MLE —
-            all recomputed on your machine, deterministic end to end.
-          </p>
-          <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
-            <MovingBorderButton onClick={() => onNavigate('analysis')}>
-              Enter the Terminal
-              <ArrowRight className="h-4 w-4" />
-            </MovingBorderButton>
-            <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-zinc-500">
-              Synthetic fallback · Nothing leaves your machine
-            </span>
-          </div>
+      {/* =====================================================================
+          BAND 5 — COLLAPSIBLE ECONOMETRIC EQUATIONS REFERENCE
+      ===================================================================== */}
+      <section aria-label="Econometric equations reference">
+        <div className="panel overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setEquationsOpen((prev) => !prev)}
+            aria-expanded={equationsOpen}
+            className="w-full px-5 py-4 flex items-center justify-between gap-4 text-left hover:bg-[var(--bg-inset)]/60 transition-colors cursor-pointer"
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <Sigma className="w-4 h-4 text-gold-700 dark:text-gold-400 shrink-0" />
+              <div className="min-w-0">
+                <div className="font-display text-sm sm:text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                  Econometric Formulations Reference
+                </div>
+                <div className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400 truncate">
+                  GARCH(1,1) conditional variance · Marchenko–Pastur random matrix denoising
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="hidden sm:inline font-mono text-[11px] text-zinc-500 dark:text-zinc-400 whitespace-nowrap">
+                {equationsOpen ? 'Hide equations' : 'Show equations'}
+              </span>
+              <ChevronDown
+                className={`w-4 h-4 text-zinc-500 dark:text-zinc-400 transition-transform duration-200 ${
+                  equationsOpen ? 'rotate-180' : ''
+                }`}
+              />
+            </div>
+          </button>
+
+          <AnimatePresence initial={false}>
+            {equationsOpen && (
+              <motion.div
+                key="equations-body"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.22, ease: 'easeInOut' }}
+                className="overflow-hidden border-t border-[var(--hairline)]"
+              >
+                <div className="p-5 grid grid-cols-1 lg:grid-cols-2 gap-4 bg-[var(--bg-inset)]/40">
+                  <div className="panel p-4 flex flex-col justify-between gap-4">
+                    <GarchEquation />
+                    <div className="pt-2 border-t border-[var(--hairline)] flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => onNavigate('modeling')}
+                        className="inline-flex items-center gap-1.5 text-xs font-mono text-gold-700 dark:text-gold-300 hover:underline whitespace-nowrap shrink-0 cursor-pointer"
+                      >
+                        <span>Open Volatility Modeling</span>
+                        <ArrowRight className="w-3.5 h-3.5 shrink-0" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="panel p-4 flex flex-col justify-between gap-4">
+                    <CorrelationEquation />
+                    <div className="pt-2 border-t border-[var(--hairline)] flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => onNavigate('correlation')}
+                        className="inline-flex items-center gap-1.5 text-xs font-mono text-gold-700 dark:text-gold-300 hover:underline whitespace-nowrap shrink-0 cursor-pointer"
+                      >
+                        <span>Open Correlation Lab</span>
+                        <ArrowRight className="w-3.5 h-3.5 shrink-0" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </section>
     </div>
