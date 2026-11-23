@@ -36,6 +36,15 @@ const nextConfig: NextConfig = {
         ignored: /.*/,
       };
     }
+    // Skip AST re-parsing of pre-bundled minified plotly.js-dist-min to keep builds fast and memory-safe
+    const plotlyNoParse = /plotly\.js-dist-min/;
+    config.module = config.module || {};
+    const existingNoParse = config.module.noParse;
+    config.module.noParse = existingNoParse
+      ? Array.isArray(existingNoParse)
+        ? [...existingNoParse, plotlyNoParse]
+        : [existingNoParse, plotlyNoParse]
+      : plotlyNoParse;
     return config;
   },
 };

@@ -186,149 +186,287 @@ function parseEndDateToUnixSeconds(endDate?: string): { p2: number; upToPresent:
   return { p2: parsed, upToPresent: false };
 }
 
+const ALLOWED_RANGES = new Set([
+  '1d',
+  '5d',
+  '7d',
+  '1mo',
+  '3mo',
+  '6mo',
+  '1y',
+  '2y',
+  '5y',
+  '10y',
+  'ytd',
+  'max',
+]);
+
+function sanitizeRange(raw: string, fallback: string): string {
+  const cleaned = raw.trim().toLowerCase();
+  return ALLOWED_RANGES.has(cleaned) ? cleaned : fallback;
+}
+
+// Hardcoded Yahoo Finance chart hosts (primary + mirror) for transient timeout/throttle recovery
+const YAHOO_CHART_HOSTS = [
+  'https://query1.finance.yahoo.com',
+  'https://query2.finance.yahoo.com',
+] as const;
+
+const YAHOO_REQUEST_HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  Accept: 'application/json',
+} as const;
+
+// Bound concurrent outbound Yahoo requests so multi-ticker bursts (10-12 symbols)
+// never saturate sockets or trip upstream throttling/AbortError timeouts.
+const YAHOO_MAX_CONCURRENT = 4;
+let yahooActiveRequests = 0;
+const yahooWaitQueue: Array<() => void> = [];
+
+async function acquireYahooSlot(): Promise<void> {
+  if (yahooActiveRequests < YAHOO_MAX_CONCURRENT) {
+    yahooActiveRequests += 1;
+    return;
+  }
+  await new Promise<void>((resolve) => {
+    yahooWaitQueue.push(() => {
+      yahooActiveRequests += 1;
+      resolve();
+    });
+  });
+}
+
+function releaseYahooSlot(): void {
+  yahooActiveRequests = Math.max(0, yahooActiveRequests - 1);
+  const next = yahooWaitQueue.shift();
+  if (next) next();
+}
+
+interface YahooChartPayload {
+  chart?: {
+    result?: Array<{
+      meta?: {
+        shortName?: string;
+        currency?: string;
+        regularMarketPrice?: number;
+        regularMarketTime?: number;
+        regularMarketOpen?: number;
+        regularMarketDayHigh?: number;
+        regularMarketDayLow?: number;
+        regularMarketVolume?: number;
+      };
+      timestamp?: number[];
+      indicators?: {
+        quote?: Array<{
+          open?: Array<number | null>;
+          high?: Array<number | null>;
+          low?: Array<number | null>;
+          close?: Array<number | null>;
+          volume?: Array<number | null>;
+        }>;
+      };
+    }>;
+  };
+}
+
+async function fetchYahooChartJson(
+  pathAndQuery: string,
+  timeoutMs: number
+): Promise<YahooChartPayload | null> {
+  await acquireYahooSlot();
+  try {
+    for (let attempt = 0; attempt < YAHOO_CHART_HOSTS.length; attempt++) {
+      const host = YAHOO_CHART_HOSTS[attempt];
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const res = await fetch(`${host}${pathAndQuery}`, {
+          signal: controller.signal,
+          headers: YAHOO_REQUEST_HEADERS,
+          cache: 'no-store',
+        });
+        if (res.ok) {
+          return (await res.json()) as YahooChartPayload;
+        }
+        // Only retry on transient rate-limit or server-side errors
+        if (res.status !== 429 && res.status < 500) {
+          return null;
+        }
+      } catch {
+        // Expected on transient upstream timeout/abort/network blip — fall through to mirror host
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    }
+    return null;
+  } finally {
+    releaseYahooSlot();
+  }
+}
+
+// Short server-side coalescing cache (5s fresh TTL) + 10-minute last-known-good stale window
+// so concurrent SSE subscribers never stampede Yahoo Finance and brief upstream hiccups
+// preserve live quotes instead of flickering to synthetic data.
+const LIVE_QUOTE_COALESCE_TTL_MS = 5_000;
+const LIVE_QUOTE_STALE_TTL_MS = 10 * 60_000;
+const LIVE_QUOTE_CACHE_MAX = 100;
+
+interface CachedQuoteEntry {
+  freshUntil: number;
+  staleUntil: number;
+  tick: LiveQuoteTick;
+}
+
+const liveQuoteCache = new Map<string, CachedQuoteEntry>();
+const liveQuoteInFlight = new Map<string, Promise<LiveQuoteTick>>();
+
+function storeLiveQuote(sym: string, tick: LiveQuoteTick): void {
+  const now = Date.now();
+  if (liveQuoteCache.has(sym)) {
+    liveQuoteCache.delete(sym);
+  } else if (liveQuoteCache.size >= LIVE_QUOTE_CACHE_MAX) {
+    const oldestKey = liveQuoteCache.keys().next().value;
+    if (oldestKey !== undefined) liveQuoteCache.delete(oldestKey);
+  }
+  liveQuoteCache.set(sym, {
+    freshUntil: now + LIVE_QUOTE_COALESCE_TTL_MS,
+    staleUntil: now + LIVE_QUOTE_STALE_TTL_MS,
+    tick,
+  });
+}
+
 export async function fetchLiveStockData(
   ticker: string,
   range: string = '10y',
   startDate?: string,
   endDate?: string
 ): Promise<TickerDataResponse> {
-  const sym = ticker.trim().toUpperCase();
+  const sym = sanitizeTickerSymbol(ticker) ?? 'AAPL';
+  const safeRange = sanitizeRange(range, '10y');
   const known = KNOWN_TICKERS[sym];
   const companyName = known?.name || `${sym} Equity`;
 
-  try {
-    // Attempt live fetch from Yahoo Finance Chart API
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000);
+  const { p2, upToPresent } = parseEndDateToUnixSeconds(endDate);
+  const parsedP1 = startDate ? Math.floor(new Date(startDate).getTime() / 1000) : NaN;
+  const pathAndQuery =
+    startDate && Number.isFinite(parsedP1) && parsedP1 < p2
+      ? `/v8/finance/chart/${encodeURIComponent(sym)}?period1=${parsedP1}&period2=${p2}&interval=1d&includePrePost=false`
+      : `/v8/finance/chart/${encodeURIComponent(sym)}?range=${safeRange}&interval=1d&includePrePost=false`;
 
-    const { p2, upToPresent } = parseEndDateToUnixSeconds(endDate);
-    let url: string;
-    if (startDate) {
-      const p1 = Math.floor(new Date(startDate).getTime() / 1000);
-      url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
-        sym
-      )}?period1=${p1}&period2=${p2}&interval=1d&includePrePost=false`;
-    } else {
-      url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
-        sym
-      )}?range=${range}&interval=1d&includePrePost=false`;
-    }
+  const data = await fetchYahooChartJson(pathAndQuery, 7000);
+  const result = data?.chart?.result?.[0];
+  if (result && result.timestamp && result.indicators?.quote?.[0]) {
+    const timestamps = result.timestamp;
+    const quote = result.indicators.quote[0];
+    const closes = quote.close ?? [];
+    const opens = quote.open ?? [];
+    const highs = quote.high ?? [];
+    const lows = quote.low ?? [];
+    const volumes = quote.volume ?? [];
 
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      },
-      cache: 'no-store',
-    });
-
-    clearTimeout(timeoutId);
-
-    if (res.ok) {
-      const data = await res.json();
-      const result = data?.chart?.result?.[0];
-      if (result && result.timestamp && result.indicators?.quote?.[0]) {
-        const timestamps: number[] = result.timestamp;
-        const quote = result.indicators.quote[0];
-        const closes: number[] = quote.close;
-        const opens: number[] = quote.open;
-        const highs: number[] = quote.high;
-        const lows: number[] = quote.low;
-        const volumes: number[] = quote.volume;
-
-        const bars: PriceBar[] = [];
-        for (let i = 0; i < timestamps.length; i++) {
-          const c = closes[i];
-          if (c !== null && c !== undefined && !isNaN(c) && c > 0) {
-            const dateStr = new Date(timestamps[i] * 1000)
-              .toISOString()
-              .split('T')[0];
-            bars.push({
-              date: dateStr,
-              open: Number((opens[i] ?? c).toFixed(2)),
-              high: Number((highs[i] ?? c).toFixed(2)),
-              low: Number((lows[i] ?? c).toFixed(2)),
-              close: Number(c.toFixed(2)),
-              volume: volumes[i] ?? 1000000,
-            });
-          }
-        }
-
-        // Reconcile Yahoo's live regularMarketPrice into the latest bar when fetching up to present
-        const meta = result.meta;
-        const regPrice =
-          typeof meta?.regularMarketPrice === 'number' &&
-          Number.isFinite(meta.regularMarketPrice) &&
-          meta.regularMarketPrice > 0
-            ? Number(meta.regularMarketPrice.toFixed(2))
-            : null;
-        const regTime =
-          typeof meta?.regularMarketTime === 'number' && Number.isFinite(meta.regularMarketTime)
-            ? meta.regularMarketTime
-            : null;
-
-        if (upToPresent && regPrice !== null && regTime !== null && bars.length > 0) {
-          const metaDateStr = new Date(regTime * 1000).toISOString().split('T')[0];
-          const lastBar = bars[bars.length - 1];
-          if (lastBar.date === metaDateStr) {
-            lastBar.close = regPrice;
-            if (regPrice > lastBar.high) lastBar.high = regPrice;
-            if (regPrice < lastBar.low) lastBar.low = regPrice;
-          } else if (metaDateStr > lastBar.date) {
-            const openVal =
-              typeof meta?.regularMarketOpen === 'number' && meta.regularMarketOpen > 0
-                ? Number(meta.regularMarketOpen.toFixed(2))
-                : regPrice;
-            const highVal =
-              typeof meta?.regularMarketDayHigh === 'number' && meta.regularMarketDayHigh > 0
-                ? Number(meta.regularMarketDayHigh.toFixed(2))
-                : Math.max(openVal, regPrice);
-            const lowVal =
-              typeof meta?.regularMarketDayLow === 'number' && meta.regularMarketDayLow > 0
-                ? Number(meta.regularMarketDayLow.toFixed(2))
-                : Math.min(openVal, regPrice);
-            bars.push({
-              date: metaDateStr,
-              open: openVal,
-              high: Math.max(highVal, regPrice),
-              low: Math.min(lowVal, regPrice),
-              close: regPrice,
-              volume:
-                typeof meta?.regularMarketVolume === 'number' && meta.regularMarketVolume > 0
-                  ? meta.regularMarketVolume
-                  : 0,
-            });
-          }
-        }
-
-        if (bars.length >= 20) {
-          let latestQuote: LatestQuoteSummary | undefined;
-          if (upToPresent && bars.length >= 2) {
-            const last = bars[bars.length - 1];
-            const prev = bars[bars.length - 2];
-            latestQuote = {
-              price: last.close,
-              prevClose: prev.close,
-              changePct: prev.close > 0 ? ((last.close - prev.close) / prev.close) * 100 : 0,
-              asOf: last.date,
-            };
-          }
-          return {
-            ticker: sym,
-            name: result.meta?.shortName || companyName,
-            currency: result.meta?.currency || 'USD',
-            bars,
-            source: 'live_market',
-            lastUpdated: new Date().toISOString(),
-            latestQuote,
-          };
-        }
+    const bars: PriceBar[] = [];
+    for (let i = 0; i < timestamps.length; i++) {
+      const c = closes[i];
+      if (c !== null && c !== undefined && !isNaN(c) && c > 0) {
+        const dateStr = new Date(timestamps[i] * 1000)
+          .toISOString()
+          .split('T')[0];
+        bars.push({
+          date: dateStr,
+          open: Number((opens[i] ?? c).toFixed(2)),
+          high: Number((highs[i] ?? c).toFixed(2)),
+          low: Number((lows[i] ?? c).toFixed(2)),
+          close: Number(c.toFixed(2)),
+          volume: volumes[i] ?? 1000000,
+        });
       }
     }
-  } catch (err) {
-    // Graceful fallback to deterministic institutional market simulation
-    console.warn(`Live market fetch failed for ${sym}, utilizing high-fidelity fallback.`, err);
+
+    // Reconcile Yahoo's live regularMarketPrice into the latest bar when fetching up to present
+    const meta = result.meta;
+    const regPrice =
+      typeof meta?.regularMarketPrice === 'number' &&
+      Number.isFinite(meta.regularMarketPrice) &&
+      meta.regularMarketPrice > 0
+        ? Number(meta.regularMarketPrice.toFixed(2))
+        : null;
+    const regTime =
+      typeof meta?.regularMarketTime === 'number' && Number.isFinite(meta.regularMarketTime)
+        ? meta.regularMarketTime
+        : null;
+
+    if (upToPresent && regPrice !== null && regTime !== null && bars.length > 0) {
+      const metaDateStr = new Date(regTime * 1000).toISOString().split('T')[0];
+      const lastBar = bars[bars.length - 1];
+      if (lastBar.date === metaDateStr) {
+        lastBar.close = regPrice;
+        if (regPrice > lastBar.high) lastBar.high = regPrice;
+        if (regPrice < lastBar.low) lastBar.low = regPrice;
+      } else if (metaDateStr > lastBar.date) {
+        const openVal =
+          typeof meta?.regularMarketOpen === 'number' && meta.regularMarketOpen > 0
+            ? Number(meta.regularMarketOpen.toFixed(2))
+            : regPrice;
+        const highVal =
+          typeof meta?.regularMarketDayHigh === 'number' && meta.regularMarketDayHigh > 0
+            ? Number(meta.regularMarketDayHigh.toFixed(2))
+            : Math.max(openVal, regPrice);
+        const lowVal =
+          typeof meta?.regularMarketDayLow === 'number' && meta.regularMarketDayLow > 0
+            ? Number(meta.regularMarketDayLow.toFixed(2))
+            : Math.min(openVal, regPrice);
+        bars.push({
+          date: metaDateStr,
+          open: openVal,
+          high: Math.max(highVal, regPrice),
+          low: Math.min(lowVal, regPrice),
+          close: regPrice,
+          volume:
+            typeof meta?.regularMarketVolume === 'number' && meta.regularMarketVolume > 0
+              ? meta.regularMarketVolume
+              : 0,
+        });
+      }
+    }
+
+    if (bars.length >= 20) {
+      const resolvedName = result.meta?.shortName || companyName;
+      const fetchedAt = new Date().toISOString();
+      let latestQuote: LatestQuoteSummary | undefined;
+      if (upToPresent && bars.length >= 2) {
+        const last = bars[bars.length - 1];
+        const prev = bars[bars.length - 2];
+        const changePct = prev.close > 0 ? ((last.close - prev.close) / prev.close) * 100 : 0;
+        latestQuote = {
+          price: last.close,
+          prevClose: prev.close,
+          changePct,
+          asOf: last.date,
+        };
+        // Warm the live quote cache so an immediate SSE stream connect reuses this quote
+        storeLiveQuote(sym, {
+          ticker: sym,
+          name: resolvedName,
+          source: 'live_market',
+          price: last.close,
+          prevClose: prev.close,
+          changePct,
+          asOf: last.date,
+          bar: last,
+          fetchedAt,
+        });
+      }
+      return {
+        ticker: sym,
+        name: resolvedName,
+        currency: result.meta?.currency || 'USD',
+        bars,
+        source: 'live_market',
+        lastUpdated: fetchedAt,
+        latestQuote,
+      };
+    }
   }
 
   // Fallback: Generate 2600 realistic daily price bars (~10 years)
@@ -442,81 +580,59 @@ export async function fetchLiveIntradayData(
   ticker: string,
   range: string = '7d'
 ): Promise<IntradayTickerDataResponse> {
-  const sym = ticker.trim().toUpperCase();
+  const sym = sanitizeTickerSymbol(ticker) ?? 'AAPL';
+  const safeRange = sanitizeRange(range, '7d');
   const known = KNOWN_TICKERS[sym];
   const companyName = known?.name || `${sym} Equity`;
 
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4500);
+  const pathAndQuery = `/v8/finance/chart/${encodeURIComponent(sym)}?range=${safeRange}&interval=1m&includePrePost=false`;
+  const data = await fetchYahooChartJson(pathAndQuery, 6000);
+  const result = data?.chart?.result?.[0];
+  if (result && result.timestamp && result.indicators?.quote?.[0]) {
+    const timestamps = result.timestamp;
+    const quote = result.indicators.quote[0];
+    const closes = quote.close ?? [];
+    const opens = quote.open ?? [];
+    const highs = quote.high ?? [];
+    const lows = quote.low ?? [];
+    const volumes = quote.volume ?? [];
 
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
-      sym
-    )}?range=${range}&interval=1m&includePrePost=false`;
+    const intradayBars: IntradayBar[] = [];
+    for (let i = 0; i < timestamps.length; i++) {
+      const c = closes[i];
+      if (c !== null && c !== undefined && !isNaN(c) && c > 0) {
+        const barDate = new Date(timestamps[i] * 1000);
+        const dateStr = barDate.toISOString().split('T')[0];
+        const hours = barDate.getUTCHours();
+        const minutes = barDate.getUTCMinutes();
+        const timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+        // approximate minute of day (0 to 389)
+        const mOfDay = Math.max(0, Math.min(389, (hours - 13) * 60 + (minutes - 30)));
 
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      },
-      cache: 'no-store',
-    });
-
-    clearTimeout(timeoutId);
-
-    if (res.ok) {
-      const data = await res.json();
-      const result = data?.chart?.result?.[0];
-      if (result && result.timestamp && result.indicators?.quote?.[0]) {
-        const timestamps: number[] = result.timestamp;
-        const quote = result.indicators.quote[0];
-        const closes: number[] = quote.close;
-        const opens: number[] = quote.open;
-        const highs: number[] = quote.high;
-        const lows: number[] = quote.low;
-        const volumes: number[] = quote.volume;
-
-        const intradayBars: IntradayBar[] = [];
-        for (let i = 0; i < timestamps.length; i++) {
-          const c = closes[i];
-          if (c !== null && c !== undefined && !isNaN(c) && c > 0) {
-            const barDate = new Date(timestamps[i] * 1000);
-            const dateStr = barDate.toISOString().split('T')[0];
-            const hours = barDate.getUTCHours();
-            const minutes = barDate.getUTCMinutes();
-            const timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-            // approximate minute of day (0 to 389)
-            const mOfDay = Math.max(0, Math.min(389, (hours - 13) * 60 + (minutes - 30)));
-
-            intradayBars.push({
-              timestamp: timestamps[i] * 1000,
-              date: dateStr,
-              time: timeStr,
-              minuteOfDay: mOfDay >= 0 && mOfDay < 390 ? mOfDay : i % 390,
-              open: Number((opens[i] ?? c).toFixed(2)),
-              high: Number((highs[i] ?? c).toFixed(2)),
-              low: Number((lows[i] ?? c).toFixed(2)),
-              close: Number(c.toFixed(2)),
-              volume: volumes[i] ?? 10000,
-            });
-          }
-        }
-
-        if (intradayBars.length >= 100) {
-          return {
-            ticker: sym,
-            name: result.meta?.shortName || companyName,
-            currency: result.meta?.currency || 'USD',
-            intradayBars,
-            source: 'live_market',
-            lastUpdated: new Date().toISOString(),
-          };
-        }
+        intradayBars.push({
+          timestamp: timestamps[i] * 1000,
+          date: dateStr,
+          time: timeStr,
+          minuteOfDay: mOfDay >= 0 && mOfDay < 390 ? mOfDay : i % 390,
+          open: Number((opens[i] ?? c).toFixed(2)),
+          high: Number((highs[i] ?? c).toFixed(2)),
+          low: Number((lows[i] ?? c).toFixed(2)),
+          close: Number(c.toFixed(2)),
+          volume: volumes[i] ?? 10000,
+        });
       }
     }
-  } catch (err) {
-    console.warn(`Live 1-minute intraday fetch failed for ${sym}, using realistic simulation.`, err);
+
+    if (intradayBars.length >= 100) {
+      return {
+        ticker: sym,
+        name: result.meta?.shortName || companyName,
+        currency: result.meta?.currency || 'USD',
+        intradayBars,
+        source: 'live_market',
+        lastUpdated: new Date().toISOString(),
+      };
+    }
   }
 
   // Fallback: 7 days of 1-minute bars with U-shape smile and jumps
@@ -531,22 +647,17 @@ export async function fetchLiveIntradayData(
   };
 }
 
-// Short server-side coalescing cache (5s TTL) so concurrent SSE subscribers
-// or reconnect bursts never stampede Yahoo Finance while staying live.
-const LIVE_QUOTE_COALESCE_TTL_MS = 5_000;
-const liveQuoteCache = new Map<string, { expiresAt: number; tick: LiveQuoteTick }>();
-const liveQuoteInFlight = new Map<string, Promise<LiveQuoteTick>>();
-
 /**
  * Lightweight 5-day quote snapshot for SSE streaming and background re-validation.
- * Reconciles Yahoo Finance's `meta.regularMarketPrice` into the latest daily bar
- * and coalesces concurrent callers within a 5-second window.
+ * Reconciles Yahoo Finance's `meta.regularMarketPrice` into the latest daily bar,
+ * coalesces concurrent callers within a 5-second window, retries against the mirror
+ * host on transient timeouts, and retains last-known-good live ticks across brief blips.
  */
 export async function fetchLiveQuoteSnapshot(ticker: string): Promise<LiveQuoteTick> {
   const sym = sanitizeTickerSymbol(ticker) ?? 'AAPL';
   const now = Date.now();
   const cached = liveQuoteCache.get(sym);
-  if (cached && cached.expiresAt > now) {
+  if (cached && cached.freshUntil > now) {
     return cached.tick;
   }
 
@@ -557,121 +668,107 @@ export async function fetchLiveQuoteSnapshot(ticker: string): Promise<LiveQuoteT
     const known = KNOWN_TICKERS[sym];
     const companyName = known?.name || `${sym} Equity`;
 
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4500);
-      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
-        sym
-      )}?range=5d&interval=1d&includePrePost=false`;
+    const pathAndQuery = `/v8/finance/chart/${encodeURIComponent(sym)}?range=5d&interval=1d&includePrePost=false`;
+    const data = await fetchYahooChartJson(pathAndQuery, 6500);
+    const result = data?.chart?.result?.[0];
 
-      const res = await fetch(url, {
-        signal: controller.signal,
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        },
-        cache: 'no-store',
-      });
-      clearTimeout(timeoutId);
+    if (result && result.timestamp && result.indicators?.quote?.[0]) {
+      const timestamps = result.timestamp;
+      const quote = result.indicators.quote[0];
+      const closes = quote.close ?? [];
+      const opens = quote.open ?? [];
+      const highs = quote.high ?? [];
+      const lows = quote.low ?? [];
+      const volumes = quote.volume ?? [];
 
-      if (res.ok) {
-        const data = await res.json();
-        const result = data?.chart?.result?.[0];
-        if (result && result.timestamp && result.indicators?.quote?.[0]) {
-          const timestamps: number[] = result.timestamp;
-          const quote = result.indicators.quote[0];
-          const closes: number[] = quote.close;
-          const opens: number[] = quote.open;
-          const highs: number[] = quote.high;
-          const lows: number[] = quote.low;
-          const volumes: number[] = quote.volume;
-
-          const bars: PriceBar[] = [];
-          for (let i = 0; i < timestamps.length; i++) {
-            const c = closes[i];
-            if (c !== null && c !== undefined && !isNaN(c) && c > 0) {
-              const dateStr = new Date(timestamps[i] * 1000).toISOString().split('T')[0];
-              bars.push({
-                date: dateStr,
-                open: Number((opens[i] ?? c).toFixed(2)),
-                high: Number((highs[i] ?? c).toFixed(2)),
-                low: Number((lows[i] ?? c).toFixed(2)),
-                close: Number(c.toFixed(2)),
-                volume: volumes[i] ?? 0,
-              });
-            }
-          }
-
-          const meta = result.meta;
-          const regPrice =
-            typeof meta?.regularMarketPrice === 'number' &&
-            Number.isFinite(meta.regularMarketPrice) &&
-            meta.regularMarketPrice > 0
-              ? Number(meta.regularMarketPrice.toFixed(2))
-              : null;
-          const regTime =
-            typeof meta?.regularMarketTime === 'number' && Number.isFinite(meta.regularMarketTime)
-              ? meta.regularMarketTime
-              : null;
-
-          if (regPrice !== null && regTime !== null && bars.length > 0) {
-            const metaDateStr = new Date(regTime * 1000).toISOString().split('T')[0];
-            const lastBar = bars[bars.length - 1];
-            if (lastBar.date === metaDateStr) {
-              lastBar.close = regPrice;
-              if (regPrice > lastBar.high) lastBar.high = regPrice;
-              if (regPrice < lastBar.low) lastBar.low = regPrice;
-              if (typeof meta?.regularMarketVolume === 'number' && meta.regularMarketVolume > lastBar.volume) {
-                lastBar.volume = meta.regularMarketVolume;
-              }
-            } else if (metaDateStr > lastBar.date) {
-              const openVal =
-                typeof meta?.regularMarketOpen === 'number' && meta.regularMarketOpen > 0
-                  ? Number(meta.regularMarketOpen.toFixed(2))
-                  : regPrice;
-              const highVal =
-                typeof meta?.regularMarketDayHigh === 'number' && meta.regularMarketDayHigh > 0
-                  ? Number(meta.regularMarketDayHigh.toFixed(2))
-                  : Math.max(openVal, regPrice);
-              const lowVal =
-                typeof meta?.regularMarketDayLow === 'number' && meta.regularMarketDayLow > 0
-                  ? Number(meta.regularMarketDayLow.toFixed(2))
-                  : Math.min(openVal, regPrice);
-              bars.push({
-                date: metaDateStr,
-                open: openVal,
-                high: Math.max(highVal, regPrice),
-                low: Math.min(lowVal, regPrice),
-                close: regPrice,
-                volume:
-                  typeof meta?.regularMarketVolume === 'number' && meta.regularMarketVolume > 0
-                    ? meta.regularMarketVolume
-                    : 0,
-              });
-            }
-          }
-
-          if (bars.length >= 2) {
-            const last = bars[bars.length - 1];
-            const prev = bars[bars.length - 2];
-            const tick: LiveQuoteTick = {
-              ticker: sym,
-              name: meta?.shortName || companyName,
-              source: 'live_market',
-              price: last.close,
-              prevClose: prev.close,
-              changePct: prev.close > 0 ? ((last.close - prev.close) / prev.close) * 100 : 0,
-              asOf: last.date,
-              bar: last,
-              fetchedAt: new Date().toISOString(),
-            };
-            liveQuoteCache.set(sym, { expiresAt: Date.now() + LIVE_QUOTE_COALESCE_TTL_MS, tick });
-            return tick;
-          }
+      const bars: PriceBar[] = [];
+      for (let i = 0; i < timestamps.length; i++) {
+        const c = closes[i];
+        if (c !== null && c !== undefined && !isNaN(c) && c > 0) {
+          const dateStr = new Date(timestamps[i] * 1000).toISOString().split('T')[0];
+          bars.push({
+            date: dateStr,
+            open: Number((opens[i] ?? c).toFixed(2)),
+            high: Number((highs[i] ?? c).toFixed(2)),
+            low: Number((lows[i] ?? c).toFixed(2)),
+            close: Number(c.toFixed(2)),
+            volume: volumes[i] ?? 0,
+          });
         }
       }
-    } catch (err) {
-      console.warn(`Live quote snapshot failed for ${sym}:`, err);
+
+      const meta = result.meta;
+      const regPrice =
+        typeof meta?.regularMarketPrice === 'number' &&
+        Number.isFinite(meta.regularMarketPrice) &&
+        meta.regularMarketPrice > 0
+          ? Number(meta.regularMarketPrice.toFixed(2))
+          : null;
+      const regTime =
+        typeof meta?.regularMarketTime === 'number' && Number.isFinite(meta.regularMarketTime)
+          ? meta.regularMarketTime
+          : null;
+
+      if (regPrice !== null && regTime !== null && bars.length > 0) {
+        const metaDateStr = new Date(regTime * 1000).toISOString().split('T')[0];
+        const lastBar = bars[bars.length - 1];
+        if (lastBar.date === metaDateStr) {
+          lastBar.close = regPrice;
+          if (regPrice > lastBar.high) lastBar.high = regPrice;
+          if (regPrice < lastBar.low) lastBar.low = regPrice;
+          if (typeof meta?.regularMarketVolume === 'number' && meta.regularMarketVolume > lastBar.volume) {
+            lastBar.volume = meta.regularMarketVolume;
+          }
+        } else if (metaDateStr > lastBar.date) {
+          const openVal =
+            typeof meta?.regularMarketOpen === 'number' && meta.regularMarketOpen > 0
+              ? Number(meta.regularMarketOpen.toFixed(2))
+              : regPrice;
+          const highVal =
+            typeof meta?.regularMarketDayHigh === 'number' && meta.regularMarketDayHigh > 0
+              ? Number(meta.regularMarketDayHigh.toFixed(2))
+              : Math.max(openVal, regPrice);
+          const lowVal =
+            typeof meta?.regularMarketDayLow === 'number' && meta.regularMarketDayLow > 0
+              ? Number(meta.regularMarketDayLow.toFixed(2))
+              : Math.min(openVal, regPrice);
+          bars.push({
+            date: metaDateStr,
+            open: openVal,
+            high: Math.max(highVal, regPrice),
+            low: Math.min(lowVal, regPrice),
+            close: regPrice,
+            volume:
+              typeof meta?.regularMarketVolume === 'number' && meta.regularMarketVolume > 0
+                ? meta.regularMarketVolume
+                : 0,
+          });
+        }
+      }
+
+      if (bars.length >= 2) {
+        const last = bars[bars.length - 1];
+        const prev = bars[bars.length - 2];
+        const tick: LiveQuoteTick = {
+          ticker: sym,
+          name: meta?.shortName || companyName,
+          source: 'live_market',
+          price: last.close,
+          prevClose: prev.close,
+          changePct: prev.close > 0 ? ((last.close - prev.close) / prev.close) * 100 : 0,
+          asOf: last.date,
+          bar: last,
+          fetchedAt: new Date().toISOString(),
+        };
+        storeLiveQuote(sym, tick);
+        return tick;
+      }
+    }
+
+    // Preserve the most recent live quote across brief upstream timeouts/blips
+    const staleEntry = liveQuoteCache.get(sym);
+    if (staleEntry && staleEntry.staleUntil > Date.now()) {
+      return staleEntry.tick;
     }
 
     // Offline fallback tick from deterministic seed
