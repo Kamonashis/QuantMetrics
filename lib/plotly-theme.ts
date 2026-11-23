@@ -112,12 +112,13 @@ export function buildBasePlotlyLayout(
   const isHeatmap = plotType === 'heatmap';
 
   const defaultMargin = is3d
-    ? { l: 0, r: 0, t: 10, b: 0 }
+    ? { l: 0, r: 0, t: 4, b: 0, pad: 0 }
     : {
-        l: 54,
-        r: 18,
-        t: opts.showLegend ? 32 : 16,
-        b: opts.rangeSlider ? 24 : 38,
+        l: 42,
+        r: 8,
+        t: opts.showLegend ? 26 : 8,
+        b: opts.rangeSlider ? 12 : 26,
+        pad: 2,
       };
 
   const base: Partial<Layout> = {
@@ -187,7 +188,7 @@ export function buildBasePlotlyLayout(
       rangeslider: opts.rangeSlider
         ? {
             visible: true,
-            thickness: 0.1,
+            thickness: 0.075,
             bgcolor: t.sliderBg,
             bordercolor: t.sliderBorder,
             borderwidth: 1,
@@ -502,4 +503,176 @@ export function computeVisibleYBounds(
   if (!Number.isFinite(minY) || !Number.isFinite(maxY)) return null;
   const span = Math.max(maxY - minY, Math.abs(maxY) * 0.02 || 1e-4);
   return [minY - span * padFrac, maxY + span * padFrac];
+}
+
+const SKIP_AUTOFIT_TYPES = new Set([
+  'histogram',
+  'heatmap',
+  'surface',
+  'pie',
+  'box',
+  'violin',
+  'scatter3d',
+  'mesh3d',
+  'contour',
+]);
+
+/**
+ * Computes tight initial y-axis bounds across all visible primary y-axis traces
+ * so area-filled series (`fill: 'tozeroy'`) and line/scatter charts immediately fill
+ * vertical real estate on first paint instead of forcing a dead-space zero baseline.
+ *
+ * Returns `null` when traces are purely categorical/bar/histogram/heatmap/3D so Plotly's
+ * native domain framing is preserved.
+ */
+export function computeInitialYBounds(
+  traces: readonly Data[],
+  padFrac = 0.06
+): [number, number] | null {
+  let minY = Infinity;
+  let maxY = -Infinity;
+  let hasContinuousTrace = false;
+
+  for (const trace of traces) {
+    const t = trace as {
+      type?: string;
+      orientation?: string;
+      yaxis?: string;
+      visible?: boolean | 'legendonly';
+      y?: unknown[];
+      high?: unknown[];
+      low?: unknown[];
+    };
+    if (t.visible === false || t.visible === 'legendonly') continue;
+    if (t.yaxis && t.yaxis !== 'y' && t.yaxis !== 'y1') continue;
+
+    const kind = (t.type ?? 'scatter').toLowerCase();
+    if (SKIP_AUTOFIT_TYPES.has(kind)) return null;
+    if (kind === 'bar' && t.orientation === 'h') return null;
+
+    if (kind !== 'bar') {
+      hasContinuousTrace = true;
+    }
+
+    const arrays: Array<unknown[] | undefined> =
+      kind === 'candlestick' || kind === 'ohlc'
+        ? [t.low, t.high, t.y]
+        : [t.y];
+
+    for (const arr of arrays) {
+      if (!Array.isArray(arr)) continue;
+      for (let i = 0; i < arr.length; i++) {
+        const raw = arr[i];
+        if (raw === null || raw === undefined || raw === '') continue;
+        const yv = typeof raw === 'number' ? raw : Number(raw);
+        if (Number.isFinite(yv)) {
+          if (yv < minY) minY = yv;
+          if (yv > maxY) maxY = yv;
+        }
+      }
+    }
+  }
+
+  // Pure bar charts keep standard zero-baseline proportionality
+  if (!hasContinuousTrace) return null;
+  if (!Number.isFinite(minY) || !Number.isFinite(maxY)) return null;
+
+  const span = Math.max(maxY - minY, Math.abs(maxY) * 0.02 || 1e-4);
+  const pad = span * padFrac;
+  // Non-negative series that legitimately start at 0 (e.g. density curves) keep a clean 0 floor
+  const lower = minY === 0 ? 0 : minY - pad;
+  const upper = maxY + pad;
+  return [lower, upper];
+}
+
+export type ChartHeightTier = 'primary' | 'secondary' | 'compact' | '3d';
+
+/**
+ * Resolves embedded chart height into generous viewport-scaled CSS heights
+ * (440-520px for primary charts, 500-640px for 3D WebGL surfaces, proportional
+ * scaling for secondary/compact strips).
+ */
+export function resolveResponsiveChartHeight(
+  height: number | string | undefined,
+  plotType: '2d' | '3d' | 'heatmap' | 'categorical' = '2d',
+  size?: ChartHeightTier
+): string {
+  if (size === '3d') return 'clamp(500px, 60vh, 640px)';
+  if (size === 'primary') return 'clamp(440px, 50vh, 520px)';
+  if (size === 'secondary') return 'clamp(340px, 38vh, 420px)';
+  if (size === 'compact') return 'clamp(220px, 26vh, 280px)';
+
+  if (typeof height === 'string') return height;
+  if (plotType === '3d') return 'clamp(500px, 60vh, 640px)';
+
+  if (typeof height === 'number' && Number.isFinite(height)) {
+    if (height >= 380) {
+      const minPx = Math.max(Math.round(height), 460);
+      const maxPx = Math.max(Math.round(height + 90), 560);
+      return `clamp(${minPx}px, 54vh, ${maxPx}px)`;
+    }
+    if (height >= 280) return 'clamp(440px, 50vh, 520px)';
+    if (height >= 215) return 'clamp(340px, 38vh, 420px)';
+    if (height >= 120) return 'clamp(220px, 26vh, 280px)';
+    return `${height}px`;
+  }
+
+  return 'clamp(440px, 50vh, 520px)';
+}
+
+const CHART_TITLE_ACRONYMS = new Set([
+  'IV',
+  'RV',
+  'GEX',
+  'TCN',
+  'HMM',
+  'ACF',
+  'PACF',
+  'CDF',
+  'PDF',
+  'MLE',
+  'HAR',
+  'SVI',
+  'SSVI',
+  'OI',
+  '3D',
+  '2D',
+  'CUSUM',
+  'VAR',
+  'ES',
+  'GARCH',
+  'EGARCH',
+  'EWMA',
+  'MST',
+  'RMT',
+  'PCA',
+  'VRP',
+  'DTE',
+  'FNO',
+  'OLS',
+  'QQ',
+]);
+
+/**
+ * Formats a clean human-readable display title for the fullscreen modal header,
+ * preferring an explicit `title` prop and falling back cleanly to `exportFilename`.
+ */
+export function formatChartDisplayTitle(
+  title: string | undefined,
+  exportFilename: string | undefined
+): string {
+  if (title && title.trim().length > 0) return title.trim();
+  const raw = (exportFilename ?? 'Interactive Chart')
+    .replace(/^quantmetrics[-_]/i, '')
+    .replace(/[-_]+/g, ' ')
+    .trim();
+  if (!raw) return 'Interactive Chart';
+  return raw
+    .split(/\s+/)
+    .map((word) => {
+      const upper = word.toUpperCase();
+      if (CHART_TITLE_ACRONYMS.has(upper)) return upper === 'VAR' ? 'VaR' : upper;
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join(' ');
 }

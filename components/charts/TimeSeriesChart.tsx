@@ -380,9 +380,11 @@ export function TimeSeriesChart({
         data={priceTraces}
         layout={priceLayout}
         plotType="2d"
+        size="primary"
+        title={title}
+        subtitle={subtitle}
         rangeSlider
         hovermode="x unified"
-        height={320}
         exportFilename="quantmetrics-price-history"
         uirevisionKey={`ts-${validBars[0]?.date}-${validBars.length}`}
         showWheelHint
@@ -407,9 +409,11 @@ export function TimeSeriesChart({
             data={cusumTraces}
             layout={cusumLayout}
             plotType="2d"
+            size="compact"
+            title="Recursive CUSUM of Squares (S_k)"
+            subtitle="Brown–Durbin–Evans / Inclán–Tiao 95% Confidence Bounds"
             hovermode="x unified"
             showLegend
-            height={175}
             exportFilename="quantmetrics-cusum-sq"
             uirevisionKey={`cusum-${cusumSqPoints[0]?.date}-${cusumSqPoints.length}`}
           />

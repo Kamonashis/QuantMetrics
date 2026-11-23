@@ -292,15 +292,17 @@ export function HomeHeroRegimeChart({
             data={traces}
             layout={layout}
             plotType="2d"
+            size="secondary"
+            title={`${ticker} · Price & Causal Volatility Regimes`}
+            subtitle={`${horizon} horizon`}
             rangeSlider
             hovermode="x unified"
             yTickPrefix="$"
-            height={255}
             uirevisionKey={`hero-${ticker}-${horizon}`}
             exportFilename={`${ticker}-hero-regime-chart`}
           />
         ) : (
-          <div className="h-[255px] flex items-center justify-center text-xs font-mono text-zinc-500">
+          <div className="h-[340px] flex items-center justify-center text-xs font-mono text-zinc-500">
             Loading daily price series…
           </div>
         )}

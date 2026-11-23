@@ -112,10 +112,10 @@ const CAMERA_PRESETS: Record<
   CameraPresetKey,
   { label: string; eye: { x: number; y: number; z: number } }
 > = {
-  iso: { label: 'Isometric', eye: { x: 1.55, y: -1.65, z: 1.05 } },
-  smile: { label: 'Smile', eye: { x: 0.02, y: -2.35, z: 0.28 } },
-  term: { label: 'Term', eye: { x: 2.35, y: 0.02, z: 0.28 } },
-  top: { label: 'Top', eye: { x: 0.01, y: -0.01, z: 2.45 } },
+  iso: { label: 'Isometric', eye: { x: 1.28, y: -1.36, z: 0.86 } },
+  smile: { label: 'Smile', eye: { x: 0.02, y: -1.88, z: 0.24 } },
+  term: { label: 'Term', eye: { x: 1.88, y: 0.02, z: 0.24 } },
+  top: { label: 'Top', eye: { x: 0.01, y: -0.01, z: 1.98 } },
 };
 
 const GOLD_OBSIDIAN_SCALE: [number, string][] = [
@@ -572,7 +572,9 @@ export function VolSurface3D({
           data={traces}
           layout={layout}
           plotType="3d"
-          height={460}
+          size="3d"
+          title={`Implied Volatility Surface (${fitLabel})`}
+          subtitle={`${surfaceData.fittedCount} fitted slices`}
           uirevisionKey={`vol-surface-3d-${cameraPreset}-${cameraBump}`}
           exportFilename={`volatility-surface-3d-${fitMethod}`}
         />

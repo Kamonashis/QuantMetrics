@@ -363,6 +363,12 @@ math mo {
 
 /* ---------- Plotly.js unified terminal styling ---------- */
 
+.qm-plotly-host .js-plotly-plot,
+.qm-plotly-host .plot-container,
+.qm-plotly-host .svg-container {
+  width: 100% !important;
+}
+
 .qm-plotly-host .modebar-container {
   opacity: 0;
   transition: opacity 160ms ease;
@@ -375,12 +381,21 @@ math mo {
 }
 
 .qm-plotly-host .modebar {
-  top: 4px !important;
-  right: 6px !important;
+  top: 6px !important;
+  right: 8px !important;
   padding: 2px 4px !important;
   border-radius: 8px !important;
   border: 1px solid var(--hairline-strong) !important;
   backdrop-filter: blur(8px);
+}
+
+/* Sit hover-reveal modebar cleanly beside the persistent top-right fullscreen button */
+.qm-plotly-host.qm-has-fs-btn .modebar {
+  right: 40px !important;
+}
+
+.qm-plotly-host.qm-plotly-fullscreen .modebar {
+  right: 12px !important;
 }
 
 .qm-plotly-host .modebar-group {
@@ -397,4 +412,5 @@ math mo {
 .qm-plotly-host .js-plotly-plot .plotly .cursor-ns-resize {
   cursor: grab;
 }
+
 
