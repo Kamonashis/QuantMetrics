@@ -93,40 +93,77 @@ export function CorrelationDynamicsTab({
       : null
   );
   const [tcnTraining, setTcnTraining] = useState(false);
-  const [tcnRetrainNonce, setTcnRetrainNonce] = useState(0);
+  // nonce 0 means no user request yet; a request always forces a fresh fit.
+  const [trainRequest, setTrainRequest] = useState<{ nonce: number; force: boolean }>({
+    nonce: 0,
+    force: false,
+  });
   const rARef = useRef(returnsA);
   const rBRef = useRef(returnsB);
   const datesRef = useRef(dates);
+  const modelTypeRef = useRef(modelType);
+  const trainingRef = useRef(false);
   useEffect(() => {
     rARef.current = returnsA;
     rBRef.current = returnsB;
     datesRef.current = dates;
   }, [returnsA, returnsB, dates]);
+  useEffect(() => {
+    modelTypeRef.current = modelType;
+  }, [modelType]);
 
+  // Cache hydration follows data/ticker changes — it never starts a fit.
   useEffect(() => {
     if (nObs < 70) return;
     let cancelled = false;
-    const force = tcnRetrainNonce > 0;
     const timer = setTimeout(() => {
-      if (cancelled) return;
-      const curA = rARef.current;
-      const curB = rBRef.current;
-      const curDates = datesRef.current;
-      if (!force) {
-        const cached = getCachedTcnCorrelationForecast(selectedPairA, selectedPairB, curA, curB, curDates, forecastDays);
-        if (cached) {
-          setTcnCorr(cached);
-          setTcnTraining(false);
-          return;
-        }
-        if (modelType !== 'tcn') return;
-      }
+      if (cancelled || trainingRef.current) return;
+      const cached = getCachedTcnCorrelationForecast(
+        selectedPairA,
+        selectedPairB,
+        rARef.current,
+        rBRef.current,
+        datesRef.current,
+        forecastDays
+      );
+      setTcnCorr((prev) => {
+        if (cached) return cached;
+        // Live ticks change the signature: keep the last fit visible until retrained.
+        return prev &&
+          prev.tickerA === selectedPairA.toUpperCase() &&
+          prev.tickerB === selectedPairB.toUpperCase()
+          ? prev
+          : null;
+      });
+    }, 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [selectedPairA, selectedPairB, nObs, firstDate, lastDate, forecastDays]);
+
+  // Training is manual-only — started by the Retrain button.
+  useEffect(() => {
+    if (trainRequest.nonce === 0) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      if (cancelled || modelTypeRef.current !== 'tcn') return;
+      trainingRef.current = true;
       setTcnTraining(true);
-      void runTcnCorrelationForecast(selectedPairA, selectedPairB, curA, curB, curDates, forecastDays, {
-        forceRetrain: force,
-        yieldControl: () => new Promise<void>((r) => setTimeout(r, 0)),
-        isCancelled: () => cancelled,
-      }).then((res) => {
+      void runTcnCorrelationForecast(
+        selectedPairA,
+        selectedPairB,
+        rARef.current,
+        rBRef.current,
+        datesRef.current,
+        forecastDays,
+        {
+          forceRetrain: trainRequest.force,
+          yieldControl: () => new Promise<void>((r) => setTimeout(r, 0)),
+          isCancelled: () => cancelled,
+        }
+      ).then((res) => {
+        trainingRef.current = false;
         if (!cancelled) {
           if (res) setTcnCorr(res);
           setTcnTraining(false);
@@ -136,8 +173,9 @@ export function CorrelationDynamicsTab({
     return () => {
       cancelled = true;
       clearTimeout(timer);
+      trainingRef.current = false;
     };
-  }, [selectedPairA, selectedPairB, nObs, firstDate, lastDate, forecastDays, modelType, tcnRetrainNonce]);
+  }, [trainRequest, selectedPairA, selectedPairB, forecastDays]);
 
   const activeTcnCorr =
     tcnCorr && tcnCorr.tickerA === selectedPairA.toUpperCase() && tcnCorr.tickerB === selectedPairB.toUpperCase()
@@ -340,12 +378,12 @@ export function CorrelationDynamicsTab({
                     <span className="flex items-center gap-1"><Sparkles className="h-3 w-3 text-gold-500" /> Spillover State</span>
                     <button
                       type="button"
-                      onClick={() => setTcnRetrainNonce((n) => n + 1)}
-                      disabled={tcnTraining}
+                      onClick={() => setTrainRequest((prev) => ({ nonce: prev.nonce + 1, force: true }))}
+                      disabled={tcnTraining || nObs < 70}
                       className="inline-flex cursor-pointer items-center gap-1 text-gold-600 hover:underline dark:text-gold-400 disabled:opacity-50"
                     >
                       <RotateCcw className={`h-3 w-3 ${tcnTraining ? 'animate-spin' : ''}`} />
-                      {tcnTraining ? 'Training' : 'Retrain'}
+                      {tcnTraining ? 'Training' : activeTcnCorr ? 'Retrain' : 'Train'}
                     </button>
                   </div>
                   <div className={`mt-1 font-mono text-sm font-bold ${

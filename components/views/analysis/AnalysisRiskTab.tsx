@@ -386,36 +386,52 @@ export function AnalysisRiskTab({
     retLen >= 70 ? getCachedTcnRiskVarForecast(ticker, returns, dates) : null
   );
   const [tcnTraining, setTcnTraining] = useState(false);
-  const [retrainNonce, setRetrainNonce] = useState(0);
+  // nonce 0 means no user request yet; a request always forces a fresh fit.
+  const [trainRequest, setTrainRequest] = useState<{ nonce: number; force: boolean }>({
+    nonce: 0,
+    force: false,
+  });
   const retRef = useRef(returns);
   const datesRef = useRef(dates);
+  const trainingRef = useRef(false);
   useEffect(() => {
     retRef.current = returns;
     datesRef.current = dates;
   }, [returns, dates]);
 
+  // Cache hydration follows data/ticker changes — it never starts a fit.
   useEffect(() => {
     if (retLen < 70) return;
     let cancelled = false;
-    const force = retrainNonce > 0;
+    const timer = setTimeout(() => {
+      if (cancelled || trainingRef.current) return;
+      const cached = getCachedTcnRiskVarForecast(ticker, retRef.current, datesRef.current);
+      setTcnRisk((prev) => {
+        if (cached) return cached;
+        // Live ticks change the signature: keep the last fit visible until retrained.
+        return prev && prev.ticker === ticker.toUpperCase() ? prev : null;
+      });
+    }, 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [ticker, retLen, firstDate, lastDate, lastRet]);
+
+  // Training is manual-only — started by the Retrain Quantile Head button.
+  useEffect(() => {
+    if (trainRequest.nonce === 0) return;
+    let cancelled = false;
     const timer = setTimeout(() => {
       if (cancelled) return;
-      const curRets = retRef.current;
-      const curDates = datesRef.current;
-      if (!force) {
-        const cached = getCachedTcnRiskVarForecast(ticker, curRets, curDates);
-        if (cached) {
-          setTcnRisk(cached);
-          setTcnTraining(false);
-          return;
-        }
-      }
+      trainingRef.current = true;
       setTcnTraining(true);
-      void runTcnRiskVarForecast(ticker, curRets, curDates, {
-        forceRetrain: force,
+      void runTcnRiskVarForecast(ticker, retRef.current, datesRef.current, {
+        forceRetrain: trainRequest.force,
         yieldControl: () => new Promise<void>((r) => setTimeout(r, 0)),
         isCancelled: () => cancelled,
       }).then((res) => {
+        trainingRef.current = false;
         if (!cancelled) {
           if (res) setTcnRisk(res);
           setTcnTraining(false);
@@ -425,8 +441,9 @@ export function AnalysisRiskTab({
     return () => {
       cancelled = true;
       clearTimeout(timer);
+      trainingRef.current = false;
     };
-  }, [ticker, retLen, firstDate, lastDate, lastRet, retrainNonce]);
+  }, [trainRequest, ticker]);
 
   const activeTcnRisk = tcnRisk && tcnRisk.ticker === ticker.toUpperCase() ? tcnRisk : null;
   const allVarModels = useMemo(
@@ -607,12 +624,12 @@ export function AnalysisRiskTab({
           </div>
           <button
             type="button"
-            onClick={() => setRetrainNonce((n) => n + 1)}
-            disabled={tcnTraining}
+            onClick={() => setTrainRequest((prev) => ({ nonce: prev.nonce + 1, force: true }))}
+            disabled={tcnTraining || retLen < 70}
             className="inline-flex cursor-pointer items-center gap-1.5 self-start sm:self-auto rounded-lg border border-[var(--hairline)] bg-[var(--bg-inset)] px-2.5 py-1.5 font-mono text-[10px] font-semibold text-zinc-700 hover:border-gold-500/50 dark:text-zinc-300 disabled:opacity-50"
           >
             <RotateCcw className={`h-3.5 w-3.5 ${tcnTraining ? 'animate-spin' : ''}`} />
-            {tcnTraining ? 'Training…' : 'Retrain Quantile Head'}
+            {tcnTraining ? 'Training…' : `${activeTcnRisk ? 'Retrain' : 'Train'} Quantile Head`}
           </button>
         </div>
 

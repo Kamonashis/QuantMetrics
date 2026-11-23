@@ -2,11 +2,14 @@
 
 import React, { useMemo, useState } from 'react';
 import type { Annotations, Data, Layout, Shape } from 'plotly.js';
-import { Activity } from 'lucide-react';
+import { Activity, BarChart3 } from 'lucide-react';
 import { EmptyState } from '@/components/ui/empty-state';
 import { PriceBar } from '@/lib/quant-engine';
+import { computeVolumeProfile, type VolumeProfileResult } from '@/lib/volume-profile';
 import { PlotlyChart, usePlotlyDarkTheme } from '@/components/charts/PlotlyChart';
 import { getPlotlyThemeTokens, QUANT_COLORS } from '@/lib/plotly-theme';
+
+const defaultPriceFormatter = (v: number) => `$${v.toFixed(2)}`;
 
 export interface StructuralBreakMarker {
   date: string;
@@ -24,6 +27,8 @@ export interface CusumSqPoint {
 
 interface TimeSeriesChartProps {
   bars: PriceBar[];
+  /** Provenance of the bars/volume used for the profile estimate. */
+  barsSource?: string | null;
   title?: string;
   subtitle?: string;
   showVolume?: boolean;
@@ -34,10 +39,11 @@ interface TimeSeriesChartProps {
 
 export function TimeSeriesChart({
   bars,
+  barsSource,
   title = 'Historical Price',
   subtitle,
   showVolume = true,
-  valueFormatter = (v) => `$${v.toFixed(2)}`,
+  valueFormatter = defaultPriceFormatter,
   breakPoints = [],
   cusumSqPoints = [],
 }: TimeSeriesChartProps) {
@@ -45,8 +51,15 @@ export function TimeSeriesChart({
   const tokens = useMemo(() => getPlotlyThemeTokens(isDark), [isDark]);
   const [showBreaks, setShowBreaks] = useState<boolean>(true);
   const [showCusumCurve, setShowCusumCurve] = useState<boolean>(false);
+  const [showVolumeProfile, setShowVolumeProfile] = useState<boolean>(true);
 
   const validBars = useMemo(() => bars || [], [bars]);
+
+  // OHLC-derived Volume-at-Price estimate over the bars currently on screen.
+  const volumeProfile = useMemo<VolumeProfileResult | null>(
+    () => (showVolumeProfile ? computeVolumeProfile(validBars, { bins: 48 }) : null),
+    [showVolumeProfile, validBars]
+  );
 
   const resolvedBreakPoints = useMemo(() => {
     if (!breakPoints || breakPoints.length === 0 || validBars.length === 0) return [];
@@ -172,6 +185,89 @@ export function TimeSeriesChart({
       }
     }
 
+    if (volumeProfile) {
+      const { poc, valueArea, bins, hvn } = volumeProfile;
+      const maxVolume = bins.reduce((max, b) => Math.max(max, b.volume), 0);
+      const maxBarWidth = 0.2; // fraction of plot width reserved for the profile
+
+      // Value-area band spans the full chart behind the price trace.
+      if (valueArea) {
+        shapes.push({
+          type: 'rect',
+          xref: 'paper',
+          yref: 'y',
+          x0: 0,
+          x1: 1,
+          y0: valueArea.low,
+          y1: valueArea.high,
+          fillcolor: 'rgba(222,192,132,0.05)',
+          line: { width: 0 },
+          layer: 'below',
+        });
+      }
+
+      // Right-anchored horizontal bars: width proportional to volume at price.
+      if (maxVolume > 0) {
+        for (const bin of bins) {
+          if (bin.volume <= 0) continue;
+          const width = (bin.volume / maxVolume) * maxBarWidth;
+          const isPoc = poc !== null && bin.mid === poc.mid;
+          const isHvn = hvn.some((node) => node.mid === bin.mid);
+          shapes.push({
+            type: 'rect',
+            xref: 'paper',
+            yref: 'y',
+            x0: 1 - width,
+            x1: 1,
+            y0: bin.lower,
+            y1: bin.upper,
+            fillcolor: isPoc
+              ? 'rgba(222,192,132,0.5)'
+              : isHvn
+                ? 'rgba(222,192,132,0.3)'
+                : 'rgba(222,192,132,0.16)',
+            line: { width: 0 },
+            layer: 'below',
+          });
+        }
+      }
+
+      const addLevel = (y: number, label: string, color: string, dash: 'solid' | 'dash' | 'dot') => {
+        shapes.push({
+          type: 'line',
+          xref: 'paper',
+          yref: 'y',
+          x0: 0,
+          x1: 1,
+          y0: y,
+          y1: y,
+          line: { color, width: 1.1, dash },
+        });
+        annotations.push({
+          x: 1,
+          y,
+          xref: 'paper',
+          yref: 'y',
+          text: label,
+          showarrow: false,
+          xanchor: 'right',
+          yanchor: 'bottom',
+          bgcolor: isDark ? 'rgba(8,8,10,0.78)' : 'rgba(245,244,241,0.82)',
+          font: { size: 9, color },
+        });
+      };
+
+      if (poc) {
+        addLevel(poc.mid, `POC ${valueFormatter(poc.mid)}`, QUANT_COLORS.goldLight, 'solid');
+      }
+      if (valueArea && poc && valueArea.low < poc.mid) {
+        addLevel(valueArea.low, `VA ${valueFormatter(valueArea.low)}`, 'rgba(222,192,132,0.7)', 'dash');
+      }
+      if (valueArea && poc && valueArea.high > poc.mid) {
+        addLevel(valueArea.high, `VA ${valueFormatter(valueArea.high)}`, 'rgba(222,192,132,0.7)', 'dash');
+      }
+    }
+
     const layout: Partial<Layout> = {
       shapes,
       annotations,
@@ -199,7 +295,18 @@ export function TimeSeriesChart({
     };
 
     return { priceTraces: traces, priceLayout: layout };
-  }, [validBars, strokeColor, fillRgba, showVolume, showBreaks, resolvedBreakPoints, isDark, tokens]);
+  }, [
+    validBars,
+    strokeColor,
+    fillRgba,
+    showVolume,
+    showBreaks,
+    resolvedBreakPoints,
+    volumeProfile,
+    valueFormatter,
+    isDark,
+    tokens,
+  ]);
 
   const { cusumTraces, cusumLayout } = useMemo<{
     cusumTraces: Data[];
@@ -336,6 +443,22 @@ export function TimeSeriesChart({
             </button>
           )}
 
+          {validBars.length >= 10 && (
+            <button
+              type="button"
+              onClick={() => setShowVolumeProfile((prev) => !prev)}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                showVolumeProfile
+                  ? 'bg-gold-500/15 text-gold-700 dark:text-gold-300 border border-gold-500/40'
+                  : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 border border-transparent hover:text-zinc-800 dark:hover:text-zinc-200'
+              }`}
+              title="Toggle the Volume-at-Price profile and liquidity levels"
+            >
+              <BarChart3 className="w-3.5 h-3.5" />
+              <span>Volume Profile</span>
+            </button>
+          )}
+
           {cusumSqPoints.length > 0 && (
             <button
               type="button"
@@ -389,6 +512,27 @@ export function TimeSeriesChart({
         uirevisionKey={`ts-${validBars[0]?.date}-${validBars.length}`}
         showWheelHint
       />
+
+      {volumeProfile && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-2 border-t border-[var(--hairline)] text-[10px] font-mono text-zinc-500 dark:text-zinc-400">
+          <span className="text-gold-700 dark:text-gold-400 font-semibold">
+            VOLUME AT PRICE · OHLC-DERIVED ESTIMATE
+          </span>
+          {volumeProfile.poc && <span>POC {valueFormatter(volumeProfile.poc.mid)}</span>}
+          {volumeProfile.valueArea && (
+            <span>
+              70% VA {valueFormatter(volumeProfile.valueArea.low)} –{' '}
+              {valueFormatter(volumeProfile.valueArea.high)}
+            </span>
+          )}
+          <span>
+            {volumeProfile.bins.length} bins · {volumeProfile.barCount} bars
+          </span>
+          {barsSource && barsSource !== 'live_market' && (
+            <span className="text-amber-600 dark:text-amber-400">synthetic volume — illustrative</span>
+          )}
+        </div>
+      )}
 
       {/* Optional Interactive CUSUM S_k Trajectory Sub-Chart */}
       {showCusumCurve && cusumSqPoints.length > 0 && (

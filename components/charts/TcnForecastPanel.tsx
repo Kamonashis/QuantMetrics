@@ -1384,6 +1384,19 @@ export function TcnForecastPanel({
         </div>
       )}
 
+      {/* Manual-training empty state */}
+      {!insufficientData && !forecast && !isTraining && (
+        <div className="panel-inset p-4 flex items-start gap-2.5 text-xs text-zinc-600 dark:text-zinc-400">
+          <AlertCircle className="w-4 h-4 text-gold-500 shrink-0 mt-0.5" />
+          <div>
+            <strong className="text-zinc-900 dark:text-zinc-100">No fitted model yet.</strong>{' '}
+            Training is manual — press <span className="font-mono text-gold-700 dark:text-gold-300">Train &amp; Predict Next-Day</span>{' '}
+            above to fit on the current {nObs} observations. Live quotes never start a fit.
+            {isStale && ' Cached parameters differ from the current parameters — retrain to refresh.'}
+          </div>
+        </div>
+      )}
+
       {/* Forecast Output Suite */}
       {!insufficientData && forecast && (
         <div className="space-y-4">

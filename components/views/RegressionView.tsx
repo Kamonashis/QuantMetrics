@@ -420,41 +420,73 @@ export function RegressionView({
       : null
   );
   const [tcnTraining, setTcnTraining] = useState(false);
-  const [tcnRetrainNonce, setTcnRetrainNonce] = useState(0);
+  // nonce 0 means no user request yet; a request always forces a fresh fit.
+  const [trainRequest, setTrainRequest] = useState<{ nonce: number; force: boolean }>({
+    nonce: 0,
+    force: false,
+  });
   const returnsRef = useRef(returnsByTicker);
   const datesRef = useRef(dates);
   const indepRef = useRef(independentTickers);
+  const regressionTypeRef = useRef(regressionType);
+  const trainingRef = useRef(false);
   useEffect(() => {
     returnsRef.current = returnsByTicker;
     datesRef.current = dates;
     indepRef.current = independentTickers;
   }, [returnsByTicker, dates, independentTickers]);
+  useEffect(() => {
+    regressionTypeRef.current = regressionType;
+  }, [regressionType]);
 
+  // Cache hydration follows data/ticker changes — it never starts a fit.
   useEffect(() => {
     if (yLen < 70) return;
     let cancelled = false;
-    const force = tcnRetrainNonce > 0;
-    const isSelected = regressionType === 'TCN-Attention Sequence';
     const timer = setTimeout(() => {
-      if (cancelled) return;
-      const curRets = returnsRef.current;
-      const curDates = datesRef.current;
-      const curIndep = indepRef.current;
-      if (!force) {
-        const cached = getCachedTcnRegressionForecast(dependentTicker, curIndep, curRets, curDates);
-        if (cached) {
-          setTcnReg(cached);
-          setTcnTraining(false);
-          return;
-        }
-        if (!isSelected) return;
-      }
+      if (cancelled || trainingRef.current) return;
+      const cached = getCachedTcnRegressionForecast(
+        dependentTicker,
+        indepRef.current,
+        returnsRef.current,
+        datesRef.current
+      );
+      setTcnReg((prev) => {
+        if (cached) return cached;
+        // Live ticks change the signature: keep the last fit visible until retrained.
+        return prev &&
+          prev.dependentTicker === dependentTicker.toUpperCase() &&
+          prev.independentTickers.join(',') === indepRef.current.map((t) => t.toUpperCase()).join(',')
+          ? prev
+          : null;
+      });
+    }, 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [dependentTicker, indepKey, yLen, firstDate, lastDate]);
+
+  // Training is manual-only — started by the Retrain Sequence Head button.
+  useEffect(() => {
+    if (trainRequest.nonce === 0) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      if (cancelled || regressionTypeRef.current !== 'TCN-Attention Sequence') return;
+      trainingRef.current = true;
       setTcnTraining(true);
-      void runTcnMultiAssetRegression(dependentTicker, curIndep, curRets, curDates, {
-        forceRetrain: force,
-        yieldControl: () => new Promise<void>((r) => setTimeout(r, 0)),
-        isCancelled: () => cancelled,
-      }).then((res) => {
+      void runTcnMultiAssetRegression(
+        dependentTicker,
+        indepRef.current,
+        returnsRef.current,
+        datesRef.current,
+        {
+          forceRetrain: trainRequest.force,
+          yieldControl: () => new Promise<void>((r) => setTimeout(r, 0)),
+          isCancelled: () => cancelled,
+        }
+      ).then((res) => {
+        trainingRef.current = false;
         if (!cancelled) {
           if (res) setTcnReg(res);
           setTcnTraining(false);
@@ -464,8 +496,9 @@ export function RegressionView({
     return () => {
       cancelled = true;
       clearTimeout(timer);
+      trainingRef.current = false;
     };
-  }, [dependentTicker, indepKey, yLen, firstDate, lastDate, regressionType, tcnRetrainNonce]);
+  }, [trainRequest, dependentTicker, indepKey]);
 
   const activeTcnReg =
     tcnReg &&
@@ -674,12 +707,12 @@ export function RegressionView({
             </div>
             <button
               type="button"
-              onClick={() => setTcnRetrainNonce((n) => n + 1)}
-              disabled={tcnTraining}
+              onClick={() => setTrainRequest((prev) => ({ nonce: prev.nonce + 1, force: true }))}
+              disabled={tcnTraining || yLen < 70}
               className="inline-flex cursor-pointer items-center gap-1.5 self-start sm:self-auto rounded-lg border border-[var(--hairline)] bg-[var(--bg-inset)] px-2.5 py-1.5 font-mono text-[10px] font-semibold text-zinc-700 hover:border-gold-500/50 dark:text-zinc-300 disabled:opacity-50"
             >
               <RotateCcw className={`h-3.5 w-3.5 ${tcnTraining ? 'animate-spin' : ''}`} />
-              {tcnTraining ? 'Training…' : 'Retrain Sequence Head'}
+              {tcnTraining ? 'Training…' : activeTcnReg ? 'Retrain Sequence Head' : 'Train Sequence Head'}
             </button>
           </div>
 

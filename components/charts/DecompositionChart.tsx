@@ -441,28 +441,18 @@ export function DecompositionChart({
     []
   );
 
+  // Hydrate a previously fitted model from sessionStorage on mount. Training itself
+  // is manual-only — the Train button below is the sole trigger (live quote ticks
+  // must never start a fit).
   useEffect(() => {
-    if (n < MIN_BARS_FOR_TCN) return;
     const timer = setTimeout(() => {
       const hydrated = hydrateTcnCacheFromSessionStorage();
       if (hydrated) {
         setCacheRevision((v) => v + 1);
       }
-      const key = buildTcnCacheKey(
-        tickerRef.current,
-        decompositionRef.current,
-        tcnConfigRef.current
-      );
-      if (getCachedTcnArtifact(key)) {
-        return;
-      }
-      void executeTraining(tcnConfigRef.current, false, 4, false);
     }, 15);
-    return () => {
-      clearTimeout(timer);
-      runIdRef.current += 1;
-    };
-  }, [dataSignature, n, executeTraining]);
+    return () => clearTimeout(timer);
+  }, [executeTraining]);
 
   const isMult = model === 'multiplicative';
   const refBaseline = isMult ? 1 : 0;

@@ -678,6 +678,7 @@ export function AnalysisView({
         <AnalysisOverviewTab
           ticker={ticker}
           companyName={companyName}
+          barsSource={barsSource}
           filteredBars={filteredBars}
           dates={dates}
           prices={prices}

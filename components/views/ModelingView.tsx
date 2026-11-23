@@ -266,7 +266,7 @@ export function ModelingView({
   const { volForecast: tcnVol, isTraining: tcnVolTraining, retrain: retrainTcnVol } = useTcnVolatility(
     ticker,
     filteredBars,
-    { autoRun: activeModelTab === 'tcn', forecastDays }
+    { forecastDays }
   );
 
   const tcnSummaryShim = useMemo(

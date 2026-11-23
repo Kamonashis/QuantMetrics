@@ -42,6 +42,7 @@ import {
 interface AnalysisOverviewTabProps {
   ticker: string;
   companyName: string;
+  barsSource?: string | null;
   filteredBars: PriceBar[];
   dates: string[];
   prices: number[];
@@ -74,6 +75,7 @@ interface AnalysisOverviewTabProps {
 export function AnalysisOverviewTab({
   ticker,
   companyName,
+  barsSource,
   filteredBars,
   dates,
   prices,
@@ -243,6 +245,7 @@ export function AnalysisOverviewTab({
           <ChartFullscreen title="Price Trajectory & Volatility Regime Shifts" subtitle={`${ticker} · ${companyName}`}>
             <TimeSeriesChart
               bars={priceChartBars}
+              barsSource={barsSource}
               breakPoints={structuralBreaks.breakDates}
               cusumSqPoints={structuralBreaks.cusumSqPoints}
               title="Price Trajectory & Volatility Regime Shifts"

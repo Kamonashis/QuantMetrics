@@ -38,7 +38,7 @@ export function T4ForecastTab({
   ivHistory: IvHistoryEntry[];
 }) {
   const [horizon, setHorizon] = useState<1 | 5 | 22>(22);
-  const { volForecast: tcnVol, isTraining: tcnTraining, retrain: retrainTcn } = useTcnVolatility(ticker, bars, { autoRun: true });
+  const { volForecast: tcnVol, isTraining: tcnTraining, retrain: retrainTcn } = useTcnVolatility(ticker, bars);
 
   const closes = useMemo(() => (bars ?? []).map((b) => b.close), [bars]);
   const dates = useMemo(() => (bars ?? []).slice(1).map((b) => b.date), [bars]);

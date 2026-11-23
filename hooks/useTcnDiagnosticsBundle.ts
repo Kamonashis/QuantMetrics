@@ -49,6 +49,12 @@ interface BundleState {
   decompStats: { forecastCount: number; sensitivityCount: number; totalWeightTensors: number };
 }
 
+interface BundleTrigger {
+  nonce: number;
+  forceHeads: TrainableTcnHead[];
+  mode: 'train' | 'clear';
+}
+
 const EMPTY_COUNTS: Record<TcnDomainKey, number> = {
   volatility: 0,
   risk_var: 0,
@@ -61,6 +67,14 @@ const EMPTY_DECOMP_STATS = {
   sensitivityCount: 0,
   totalWeightTensors: 0,
 };
+
+const STEP_LABELS: Record<TrainableTcnHead, string> = {
+  volatility: 'Volatility QLIKE (1d/5d/22d)',
+  risk_var: 'Risk VaR / ES Pinball (1d/5d/22d)',
+  regression: 'Multi-Asset Regression (1d/5d/22d)',
+};
+
+const HEAD_ORDER: TrainableTcnHead[] = ['volatility', 'risk_var', 'regression'];
 
 function makeInitialState(ticker: string): BundleState {
   return {
@@ -85,10 +99,10 @@ function makeInitialState(ticker: string): BundleState {
 
 /**
  * React-19-safe sequential orchestrator for the Unified TCN-Attention Diagnostics Dashboard.
- * 1. Keeps initial SSR/client render deterministic (all artifacts null until mount).
- * 2. Hydrates any already-cached heads immediately on mount / ticker switch.
- * 3. Sequentially trains missing heads (Volatility -> Risk VaR -> Multi-Asset Regression)
- *    with non-blocking frame yields and cancellation safety on ticker change.
+ *
+ * Training is manual-only. Cache hydration follows ticker/data changes (including live
+ * quote ticks) and never starts a fit. Fits are started exclusively by `retrainAll`
+ * or `retrainSingle`; clearing caches only resets to the untrained state.
  */
 export function useTcnDiagnosticsBundle(params: {
   ticker: string;
@@ -107,53 +121,141 @@ export function useTcnDiagnosticsBundle(params: {
   const stockCacheKeyCount = Object.keys(allStockBars ?? {}).length;
 
   const [bundle, setBundle] = useState<BundleState>(() => makeInitialState(upperTicker));
-  const [runTrigger, setRunTrigger] = useState<{
-    nonce: number;
-    forceHeads: TrainableTcnHead[];
-  }>({ nonce: 0, forceHeads: [] });
+  const [runTrigger, setRunTrigger] = useState<BundleTrigger>({
+    nonce: 0,
+    forceHeads: [],
+    mode: 'train',
+  });
 
   const barsRef = useRef(bars);
   const allBarsRef = useRef(allStockBars);
+  const trainingRef = useRef(false);
   useEffect(() => {
     barsRef.current = bars;
     allBarsRef.current = allStockBars;
   }, [bars, allStockBars]);
 
   const retrainSingle = useCallback((head: TrainableTcnHead) => {
-    setRunTrigger((prev) => ({ nonce: prev.nonce + 1, forceHeads: [head] }));
+    setRunTrigger((prev) => ({
+      nonce: prev.nonce + 1,
+      forceHeads: [head],
+      mode: 'train',
+    }));
   }, []);
 
   const retrainAll = useCallback(() => {
     setRunTrigger((prev) => ({
       nonce: prev.nonce + 1,
       forceHeads: ['volatility', 'risk_var', 'regression'],
+      mode: 'train',
     }));
   }, []);
 
   const clearAllCaches = useCallback(() => {
     clearTcnMultiDomainCache();
     clearTcnCache();
-    setRunTrigger((prev) => ({
-      nonce: prev.nonce + 1,
-      forceHeads: ['volatility', 'risk_var', 'regression'],
-    }));
+    setRunTrigger((prev) => ({ nonce: prev.nonce + 1, forceHeads: [], mode: 'clear' }));
   }, []);
 
   const forceMask = runTrigger.forceHeads.join(',');
   const triggerNonce = runTrigger.nonce;
+  const triggerMode = runTrigger.mode;
 
+  // 1. Cache hydration only — follows data/ticker changes, never trains.
   useEffect(() => {
     let cancelled = false;
-    const forced = new Set<TrainableTcnHead>(
-      forceMask ? (forceMask.split(',') as TrainableTcnHead[]) : []
-    );
+    const timer = setTimeout(() => {
+      if (cancelled || trainingRef.current) return;
+      const curBars = barsRef.current ?? [];
+      const curAllBars = allBarsRef.current ?? {};
+      const hasEnoughBars = curBars.length >= 70;
+      const dates = curBars.map((b) => b.date);
+      const closes = curBars.map((b) => b.close);
+      const returns = hasEnoughBars ? calculateReturns(closes, 'log') : [];
+      const retDates = dates.slice(1);
+      const regInputs = hasEnoughBars
+        ? selectDefaultRegressionFactors(upperTicker, curBars, curAllBars)
+        : null;
+      const cachedDecomp = getLatestCachedTcnArtifactByTicker(upperTicker)?.forecast ?? null;
+      const cachedVol = hasEnoughBars ? getCachedTcnVolatilityForecast(upperTicker, curBars) : null;
+      const cachedRisk = hasEnoughBars
+        ? getCachedTcnRiskVarForecast(upperTicker, returns, retDates)
+        : null;
+      const cachedReg = regInputs
+        ? getCachedTcnRegressionForecast(
+            regInputs.dependentTicker,
+            regInputs.independentTickers,
+            regInputs.returnsByTicker,
+            regInputs.dates
+          )
+        : null;
 
+      setBundle((prev) => {
+        // Live ticks change data signatures: keep the last fits visible (as 'ready')
+        // until the user retrains, rather than flashing back to untrained.
+        const sameTicker = prev.ticker === upperTicker;
+        const vol = cachedVol ?? (sameTicker ? prev.volatility : null);
+        const risk = cachedRisk ?? (sameTicker ? prev.riskVar : null);
+        const reg = cachedReg ?? (sameTicker ? prev.regression : null);
+        return {
+          ...prev,
+          ticker: upperTicker,
+          volatility: vol,
+          riskVar: risk,
+          regression: reg,
+          decompForecast: cachedDecomp,
+          statuses: {
+            volatility: !hasEnoughBars
+              ? 'insufficient'
+              : cachedVol
+                ? 'cached'
+                : vol
+                  ? 'ready'
+                  : 'idle',
+            risk_var: !hasEnoughBars
+              ? 'insufficient'
+              : cachedRisk
+                ? 'cached'
+                : risk
+                  ? 'ready'
+                  : 'idle',
+            regression: !regInputs
+              ? 'insufficient'
+              : cachedReg
+                ? 'cached'
+                : reg
+                  ? 'ready'
+                  : 'idle',
+            confluence: vol ? 'ready' : hasEnoughBars ? 'idle' : 'insufficient',
+          },
+          activeStepLabel: null,
+          completedSteps: 0,
+          totalSteps: 0,
+          multiDomainCounts: getTcnMultiDomainCacheStats(),
+          decompStats: getTcnCacheStats(),
+        };
+      });
+    }, 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [upperTicker, barsLen, firstDate, lastDate, lastClose, stockCacheKeyCount]);
+
+  // 2. Explicit training only — started by the retrain buttons, never by data changes.
+  useEffect(() => {
+    if (triggerNonce === 0) return;
+    let cancelled = false;
     const timer = setTimeout(() => {
       if (cancelled) return;
+      if (triggerMode === 'clear') {
+        setBundle(makeInitialState(upperTicker));
+        return;
+      }
+
       void (async () => {
         const curBars = barsRef.current ?? [];
         const curAllBars = allBarsRef.current ?? {};
-
         const hasEnoughBars = curBars.length >= 70;
         const dates = curBars.map((b) => b.date);
         const closes = curBars.map((b) => b.close);
@@ -162,85 +264,34 @@ export function useTcnDiagnosticsBundle(params: {
         const regInputs = hasEnoughBars
           ? selectDefaultRegressionFactors(upperTicker, curBars, curAllBars)
           : null;
+        const forced = new Set<TrainableTcnHead>(
+          forceMask ? (forceMask.split(',') as TrainableTcnHead[]) : []
+        );
+        const queue = HEAD_ORDER.filter(
+          (head) => forced.has(head) && (head !== 'regression' || regInputs !== null)
+        );
 
-        // Step 1: Peek existing caches synchronously after mount
-        const cachedDecomp = getLatestCachedTcnArtifactByTicker(upperTicker)?.forecast ?? null;
-        const cachedVol =
-          hasEnoughBars && !forced.has('volatility')
-            ? getCachedTcnVolatilityForecast(upperTicker, curBars)
-            : null;
-        const cachedRisk =
-          hasEnoughBars && !forced.has('risk_var')
-            ? getCachedTcnRiskVarForecast(upperTicker, returns, retDates)
-            : null;
-        const cachedReg =
-          regInputs && !forced.has('regression')
-            ? getCachedTcnRegressionForecast(
-                regInputs.dependentTicker,
-                regInputs.independentTickers,
-                regInputs.returnsByTicker,
-                regInputs.dates
-              )
-            : null;
-
-        const queue: TrainableTcnHead[] = [];
-        if (hasEnoughBars && !cachedVol) queue.push('volatility');
-        if (hasEnoughBars && !cachedRisk) queue.push('risk_var');
-        if (regInputs && !cachedReg) queue.push('regression');
-
-        const initialStatuses: TcnModuleStatuses = {
-          volatility: !hasEnoughBars
-            ? 'insufficient'
-            : cachedVol
-              ? 'cached'
-              : 'training',
-          risk_var: !hasEnoughBars
-            ? 'insufficient'
-            : cachedRisk
-              ? 'cached'
-              : queue[0] === 'risk_var'
-                ? 'training'
-                : 'idle',
-          regression: !regInputs
-            ? 'insufficient'
-            : cachedReg
-              ? 'cached'
-              : queue[0] === 'regression'
-                ? 'training'
-                : 'idle',
-          confluence: cachedVol ? 'ready' : hasEnoughBars ? 'idle' : 'insufficient',
-        };
-
-        const stepLabels: Record<TrainableTcnHead, string> = {
-          volatility: 'Volatility QLIKE (1d/5d/22d)',
-          risk_var: 'Risk VaR / ES Pinball (1d/5d/22d)',
-          regression: 'Multi-Asset Regression (1d/5d/22d)',
-        };
-
-        if (!cancelled) {
-          setBundle({
+        trainingRef.current = true;
+        setBundle((prev) => {
+          const statuses: TcnModuleStatuses = { ...prev.statuses };
+          for (const head of queue) statuses[head] = 'training';
+          return {
+            ...prev,
             ticker: upperTicker,
-            volatility: cachedVol,
-            riskVar: cachedRisk,
-            regression: cachedReg,
-            decompForecast: cachedDecomp,
-            statuses: initialStatuses,
-            activeStepLabel: queue.length > 0 ? stepLabels[queue[0]] : null,
+            statuses,
+            activeStepLabel: queue.length > 0 ? STEP_LABELS[queue[0]] : null,
             completedSteps: 0,
             totalSteps: queue.length,
-            multiDomainCounts: getTcnMultiDomainCacheStats(),
-            decompStats: getTcnCacheStats(),
-          });
-        }
+          };
+        });
 
-        // Step 2: Sequentially train missing or forced heads with frame yields
         let done = 0;
         for (const head of queue) {
           if (cancelled) return;
           setBundle((prev) => ({
             ...prev,
             statuses: { ...prev.statuses, [head]: 'training' as TcnModuleStatus },
-            activeStepLabel: stepLabels[head],
+            activeStepLabel: STEP_LABELS[head],
           }));
           await yieldFrame();
           if (cancelled) return;
@@ -248,7 +299,7 @@ export function useTcnDiagnosticsBundle(params: {
           if (head === 'volatility') {
             const res = await runTcnVolatilityForecast(upperTicker, curBars, {
               forecastDays: 30,
-              forceRetrain: forced.has('volatility'),
+              forceRetrain: true,
               yieldControl: yieldFrame,
               isCancelled: () => cancelled,
             });
@@ -259,7 +310,7 @@ export function useTcnDiagnosticsBundle(params: {
               volatility: res,
               statuses: {
                 ...prev.statuses,
-                volatility: res ? (res.cacheHit ? 'cached' : 'ready') : 'insufficient',
+                volatility: res ? 'ready' : 'insufficient',
                 confluence: res ? 'ready' : 'insufficient',
               },
               completedSteps: done,
@@ -268,7 +319,7 @@ export function useTcnDiagnosticsBundle(params: {
             }));
           } else if (head === 'risk_var') {
             const res = await runTcnRiskVarForecast(upperTicker, returns, retDates, {
-              forceRetrain: forced.has('risk_var'),
+              forceRetrain: true,
               yieldControl: yieldFrame,
               isCancelled: () => cancelled,
             });
@@ -279,7 +330,7 @@ export function useTcnDiagnosticsBundle(params: {
               riskVar: res,
               statuses: {
                 ...prev.statuses,
-                risk_var: res ? (res.cacheHit ? 'cached' : 'ready') : 'insufficient',
+                risk_var: res ? 'ready' : 'insufficient',
               },
               completedSteps: done,
               multiDomainCounts: getTcnMultiDomainCacheStats(),
@@ -292,7 +343,7 @@ export function useTcnDiagnosticsBundle(params: {
               regInputs.returnsByTicker,
               regInputs.dates,
               {
-                forceRetrain: forced.has('regression'),
+                forceRetrain: true,
                 yieldControl: yieldFrame,
                 isCancelled: () => cancelled,
               }
@@ -304,7 +355,7 @@ export function useTcnDiagnosticsBundle(params: {
               regression: res,
               statuses: {
                 ...prev.statuses,
-                regression: res ? (res.cacheHit ? 'cached' : 'ready') : 'insufficient',
+                regression: res ? 'ready' : 'insufficient',
               },
               completedSteps: done,
               multiDomainCounts: getTcnMultiDomainCacheStats(),
@@ -322,14 +373,16 @@ export function useTcnDiagnosticsBundle(params: {
             decompStats: getTcnCacheStats(),
           }));
         }
+        trainingRef.current = false;
       })();
     }, 0);
 
     return () => {
       cancelled = true;
       clearTimeout(timer);
+      trainingRef.current = false;
     };
-  }, [upperTicker, barsLen, firstDate, lastDate, lastClose, stockCacheKeyCount, triggerNonce, forceMask]);
+  }, [upperTicker, triggerNonce, forceMask, triggerMode]);
 
   const isCurrent = bundle.ticker === upperTicker;
   const activeVol = isCurrent ? bundle.volatility : null;

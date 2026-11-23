@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { ArrowLeftRight, Info, Sparkles } from 'lucide-react';
+import { ArrowLeftRight, Info, RefreshCw, Sparkles } from 'lucide-react';
 import type { PriceBar } from '@/lib/quant-engine';
 import { historicalAbsMoves, percentileRankLocal, moveVerdict, moveDistributionSummary } from '@/lib/fno/expected-move';
 import { interpolateTcnExpectedMove, classifyTcnMoveDislocation } from '@/lib/tcn-multi-domain';
@@ -28,7 +28,7 @@ export function FnoExpectedMoveTab({
   const [horizonIdx, setHorizonIdx] = useState<number>(0);
   const selected = moves[horizonIdx] ?? closest;
 
-  const { volForecast: tcnVol, isTraining: tcnTraining } = useTcnVolatility(symbol, bars, { autoRun: true });
+  const { volForecast: tcnVol, isTraining: tcnTraining, retrain: retrainTcn } = useTcnVolatility(symbol, bars);
 
   const effectiveHorizon = selected?.dte ?? 21;
   const realizedSamples = useMemo(() => historicalAbsMoves(bars, effectiveHorizon), [bars, effectiveHorizon]);
@@ -85,6 +85,16 @@ export function FnoExpectedMoveTab({
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={retrainTcn}
+              disabled={tcnTraining || bars.length < 70}
+              title={tcnTraining ? 'TCN volatility head is training' : 'Fit the TCN volatility head on demand'}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gold-500/40 bg-gold-500/10 px-2.5 py-1.5 font-mono text-[10px] text-gold-700 transition-colors hover:bg-gold-500/20 disabled:cursor-not-allowed disabled:opacity-50 dark:text-gold-300"
+            >
+              <RefreshCw className={`h-3 w-3 ${tcnTraining ? 'animate-spin' : ''}`} />
+              {tcnTraining ? 'Training…' : tcnVol ? 'Retrain TCN' : 'Train TCN'}
+            </button>
             {pctRank !== null && (
               <div className="text-right">
                 <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-zinc-400">vs history</div>

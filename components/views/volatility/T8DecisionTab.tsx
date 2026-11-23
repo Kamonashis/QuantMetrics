@@ -335,8 +335,7 @@ export function T8DecisionTab({ chain, bars, ticker, ivHistory, intradayBars, in
   // TCN-Attention multi-horizon (1d / 5d / 22d) Volatility + cached Decomposition confluence
   const { volForecast: tcnVol, isTraining: tcnVolTraining, retrain: retrainTcnVol } = useTcnVolatility(
     ticker,
-    bars,
-    { autoRun: true }
+    bars
   );
   const [cachedDecomp, setCachedDecomp] = useState<{ ticker: string; forecast: TcnDecompositionForecast } | null>(null);
   useEffect(() => {
