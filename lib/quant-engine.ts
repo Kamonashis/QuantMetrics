@@ -8,6 +8,8 @@ export interface PriceBar {
   high: number;
   low: number;
   volume: number;
+  /** Yahoo split/dividend-adjusted close. Optional: synthetic bars omit it. */
+  adjClose?: number;
 }
 
 export interface ReturnStats {

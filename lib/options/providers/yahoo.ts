@@ -28,7 +28,7 @@ interface CrumbSession {
 let session: CrumbSession | null = null;
 let sessionPromise: Promise<CrumbSession> | null = null;
 
-async function getSession(forceRefresh = false): Promise<CrumbSession> {
+export async function getSession(forceRefresh = false): Promise<CrumbSession> {
   if (!forceRefresh && session && Date.now() - session.fetchedAt < 45 * 60 * 1000) {
     return session;
   }

@@ -431,6 +431,67 @@ export async function GET(req: NextRequest) {
   }
 
   // -------------------------------------------------------------------- chain
+  // Snapshot-only options factors for a small cross-section. No accrual here —
+  // callers must label these as current reads, not a historical factor panel.
+  if (mode === 'factor-scan') {
+    const raw = searchParams.get('symbols') || searchParams.get('symbol') || 'AAPL';
+    const symbols = [...new Set(raw.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean))].slice(0, 5);
+    const nowSec = Date.now() / 1000;
+    const result: Record<string, unknown> = {};
+    for (const rawSymbol of symbols) {
+      const { symbol, substitution } = resolveSymbol(rawSymbol);
+      const chain = await fetchYahooChain(symbol, { maxExpiries: 6, maxDte: 90 });
+      if (!chain) {
+        result[rawSymbol] = { available: false, symbol, substitution, reason: 'chain_unavailable' };
+        continue;
+      }
+      const usable = chain.expiries.filter(
+        (e) => (e.expirationEpoch - nowSec) / (365 * 86400) >= 7 / 365
+      );
+      const slices: ExpirySliceOut[] = [];
+      for (const exp of usable) {
+        try {
+          slices.push(computeExpirySlice(chain.spot, chain.riskFreeRate, chain.dividendYield, exp));
+        } catch {
+          // skip a failed expiry
+        }
+      }
+      const termPoints = slices
+        .filter((s) => s.atmIv !== null && s.atmIv > 0)
+        .map((s) => ({ t: s.t, iv: s.atmIv as number }));
+      const iv30 = totalVarianceInterpolate(termPoints, 30 / 365);
+      const front = slices.find((s) => s.dte >= 21 && s.dte <= 45) ?? slices[0];
+      const putOi = chain.rows
+        .filter((r) => r.type === 'put' && r.dte <= 45)
+        .reduce((sum, r) => sum + (r.oi > 0 ? r.oi : 0), 0);
+      const callOi = chain.rows
+        .filter((r) => r.type === 'call' && r.dte <= 45)
+        .reduce((sum, r) => sum + (r.oi > 0 ? r.oi : 0), 0);
+      const put25Iv = front?.points
+        ?.filter((p) => p.type === 'put')
+        .reduce<{ iv: number; dist: number } | null>((best, p) => {
+          const dist = Math.abs(Math.abs(p.k) - 0.25);
+          return !best || dist < best.dist ? { iv: p.iv, dist } : best;
+        }, null)?.iv ?? null;
+      result[rawSymbol] = {
+        available: slices.length > 0,
+        mode: 'factor-scan',
+        symbol,
+        substitution,
+        date: new Date().toISOString().slice(0, 10),
+        iv30,
+        atmIv: front?.atmIv ?? null,
+        put25Iv,
+        putCallOiRatio: callOi > 0 ? putOi / callOi : null,
+        source: 'snapshot_only',
+      };
+    }
+    return NextResponse.json(
+      { available: true, mode: 'factor-scan', asOf: new Date().toISOString(), data: result },
+      { headers: { 'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600' } }
+    );
+  }
+
   if (mode === 'chain') {
     const raw = searchParams.get('symbol') || 'AAPL';
     const { symbol, substitution } = resolveSymbol(raw);

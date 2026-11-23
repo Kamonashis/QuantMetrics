@@ -265,6 +265,7 @@ interface YahooChartPayload {
           close?: Array<number | null>;
           volume?: Array<number | null>;
         }>;
+        adjclose?: Array<{ adjclose?: Array<number | null> }>;
       };
     }>;
   };
@@ -364,6 +365,7 @@ export async function fetchLiveStockData(
     const highs = quote.high ?? [];
     const lows = quote.low ?? [];
     const volumes = quote.volume ?? [];
+    const adjcloses = result.indicators?.adjclose?.[0]?.adjclose ?? [];
 
     const bars: PriceBar[] = [];
     for (let i = 0; i < timestamps.length; i++) {
@@ -379,6 +381,9 @@ export async function fetchLiveStockData(
           low: Number((lows[i] ?? c).toFixed(2)),
           close: Number(c.toFixed(2)),
           volume: volumes[i] ?? 1000000,
+          ...(typeof adjcloses[i] === 'number' && Number.isFinite(adjcloses[i]) && (adjcloses[i] as number) > 0
+            ? { adjClose: Number((adjcloses[i] as number).toFixed(4)) }
+            : {}),
         });
       }
     }

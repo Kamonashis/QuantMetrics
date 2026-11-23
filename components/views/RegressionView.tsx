@@ -11,6 +11,17 @@ import {
   runTcnMultiAssetRegression,
   type TcnMultiAssetRegressionResult,
 } from '@/lib/tcn-multi-domain';
+import {
+  ALL_FACTORS,
+  FACTOR_BY_ID,
+  computePriceFactorSeries,
+  computeFundamentalFactors,
+  computeAnalystFactors,
+  computeOptionsFactors,
+  type FactorDefinition,
+} from '@/lib/factors';
+import { useFactorData } from '@/hooks/use-factor-data';
+import { FactorResearchPanel } from '@/components/views/regression/FactorResearchPanel';
 import { ResidualDiagnosticsChart } from '@/components/charts/ResidualDiagnosticsChart';
 import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 import {
@@ -360,6 +371,11 @@ export function RegressionView({
     'Standard OLS' | 'Robust Regression' | 'Rolling Regression' | 'TCN-Attention Sequence'
   >('Standard OLS');
   const [rollingWindow, setRollingWindow] = useState<number>(60);
+  const [selectedFactorIds, setSelectedFactorIds] = useState<string[]>([]);
+  const [universeSymbols, setUniverseSymbols] = useState<string[]>(() =>
+    Object.keys(allStockBars ?? {}).slice(0, 12)
+  );
+  const factorData = useFactorData(universeSymbols, true);
 
   const parsedTickers = React.useMemo(() => {
     return regressionTickers
@@ -373,10 +389,18 @@ export function RegressionView({
     return parsedTickers.slice(1).length > 0 ? parsedTickers.slice(1) : ['SPY'];
   }, [parsedTickers]);
 
-  // Align dates and returns
-  const { returnsByTicker, dates } = React.useMemo(() => {
+  // Align dates and returns, then inject any selected factor series as named
+  // regressor columns. Factor columns use an `F:` prefix so they can never
+  // collide with a real ticker symbol.
+  const {
+    returnsByTicker,
+    dates,
+    factorColumnKeys,
+    factorColumnCoverage,
+  } = React.useMemo(() => {
     const map: { [ticker: string]: number[] } = {};
     let commonDates: string[] = [];
+    let dependentBars: PriceBar[] = [];
 
     for (const t of [dependentTicker, ...independentTickers]) {
       const raw = allStockBars[t] || [];
@@ -385,28 +409,98 @@ export function RegressionView({
         if (endDate && b.date > endDate) return false;
         return true;
       });
+      if (t === dependentTicker) dependentBars = filtered;
       const prices = filtered.map((b) => b.close);
       map[t] = calculateReturns(prices, returnType);
       if (filtered.length > commonDates.length) {
         commonDates = filtered.map((b) => b.date);
       }
     }
-    return { returnsByTicker: map, dates: commonDates };
-  }, [dependentTicker, independentTickers, allStockBars, startDate, endDate, returnType]);
+
+    const keys: string[] = [];
+    const coverage: { id: string; available: boolean; observations: number }[] = [];
+    if (selectedFactorIds.length > 0 && dependentBars.length > 1) {
+      const benchmark = allStockBars['SPY'] ?? dependentBars;
+      const priceSeries = computePriceFactorSeries(dependentBars, benchmark);
+      const barIndexByDate = new Map(dependentBars.map((b, i) => [b.date, i]));
+      const returnDates = dependentBars.slice(1).map((b) => b.date);
+      const recentReturns = calculateReturns(dependentBars.map((b) => b.close), 'log').slice(-20);
+      const rv20 =
+        recentReturns.length >= 10
+          ? Math.sqrt(
+              Math.max(
+                0,
+                recentReturns.reduce((a, b) => a + (b - recentReturns.reduce((x, y) => x + y, 0) / recentReturns.length) ** 2, 0) /
+                  (recentReturns.length - 1) *
+                  252
+              )
+            )
+          : null;
+
+      const usable: { def: FactorDefinition; values: (number | null)[] }[] = [];
+      for (const id of selectedFactorIds) {
+        const def = FACTOR_BY_ID[id];
+        if (!def) continue;
+        let values: (number | null)[];
+        if (def.requires === 'price') {
+          values = returnDates.map((d) => {
+            const idx = barIndexByDate.get(d);
+            return idx === undefined ? null : priceSeries[id]?.[idx] ?? null;
+          });
+        } else {
+          let snapshotValue: number | null = null;
+          if (def.requires === 'fundamentals') {
+            const snap = factorData.fundamentalsBySymbol[dependentTicker]?.[0] ?? null;
+            if (snap && endDate) snapshotValue = computeFundamentalFactors(snap, endDate)[id] ?? null;
+          } else if (def.requires === 'analyst') {
+            snapshotValue = computeAnalystFactors(factorData.analystBySymbol[dependentTicker] ?? null)[id] ?? null;
+          } else if (def.requires === 'options') {
+            const snap = factorData.optionsBySymbol[dependentTicker]?.[0] ?? null;
+            snapshotValue = computeOptionsFactors(snap ? { ...snap, rv20: snap.rv20 ?? rv20 } : null)[id] ?? null;
+          }
+          values = returnDates.map(() => snapshotValue);
+        }
+        if (values.every((v) => v === null)) {
+          coverage.push({ id, available: false, observations: 0 });
+          continue;
+        }
+        usable.push({ def, values });
+      }
+
+      if (usable.length > 0) {
+        const firstValid = returnDates.findIndex((_, i) => usable.every((u) => u.values[i] !== null));
+        if (firstValid >= 0) {
+          const observations = returnDates.length - firstValid;
+          for (const u of usable) {
+            const key = `F:${u.def.id}`;
+            map[key] = u.values.slice(firstValid).map((v) => v ?? 0);
+            keys.push(key);
+            coverage.push({ id: u.def.id, available: true, observations });
+          }
+        }
+      }
+    }
+
+    return { returnsByTicker: map, dates: commonDates, factorColumnKeys: keys, factorColumnCoverage: coverage };
+  }, [dependentTicker, independentTickers, allStockBars, startDate, endDate, returnType, selectedFactorIds, factorData]);
 
   // Execute linear regression baseline (used directly and as OLS comparison baseline)
   const linearEngineType: 'Standard OLS' | 'Robust Regression' | 'Rolling Regression' =
     regressionType === 'TCN-Attention Sequence' ? 'Standard OLS' : regressionType;
+  const regressionIndependentTickers = React.useMemo(
+    () => [...independentTickers, ...factorColumnKeys],
+    [independentTickers, factorColumnKeys]
+  );
   const regressionSummary = React.useMemo(() => {
     return performRegressionAnalysis(
       returnsByTicker,
       dates,
       dependentTicker,
-      independentTickers,
+      regressionIndependentTickers,
       linearEngineType,
       rollingWindow
     );
-  }, [returnsByTicker, dates, dependentTicker, independentTickers, linearEngineType, rollingWindow]);
+  }, [returnsByTicker, dates, dependentTicker, regressionIndependentTickers, linearEngineType, rollingWindow]);
 
   // Multi-asset TCN-Attention Sequence model (1d / 5d / 22d, cached)
   const indepKey = independentTickers.join(',');
@@ -668,6 +762,51 @@ export function RegressionView({
             </button>
           ))}
         </div>
+
+        {/* Factor regressors — injected as named columns alongside ticker returns. */}
+        <div className="mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-800/60">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <span className="text-zinc-400 text-xs">Factor Regressors (add as X columns):</span>
+            <span className="text-[10px] font-mono text-zinc-500">
+              {factorColumnKeys.length} active · {ALL_FACTORS.length} available
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            {ALL_FACTORS.map((f) => {
+              const active = selectedFactorIds.includes(f.id);
+              const unavailable =
+                active &&
+                factorColumnCoverage.some((c) => c.id === f.id && !c.available);
+              return (
+                <button
+                  key={f.id}
+                  type="button"
+                  title={`${f.formula} — ${f.rationale}${unavailable ? ' (no data for this symbol)' : ''}`}
+                  onClick={() =>
+                    setSelectedFactorIds((prev) =>
+                      prev.includes(f.id) ? prev.filter((x) => x !== f.id) : [...prev, f.id]
+                    )
+                  }
+                  className={`px-2 py-0.5 rounded font-mono text-[10px] border transition-colors ${
+                    active
+                      ? unavailable
+                        ? 'bg-amber-500/10 border-amber-500/40 text-amber-700 dark:text-amber-400'
+                        : 'bg-gold-500/15 border-gold-500/50 text-gold-700 dark:text-gold-300'
+                      : 'bg-zinc-50 dark:bg-zinc-900/60 border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:border-gold-500'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              );
+            })}
+          </div>
+          {factorColumnCoverage.some((c) => !c.available) && (
+            <p className="mt-1.5 text-[10px] text-amber-600 dark:text-amber-400">
+              Some selected factors have no data for {dependentTicker} in this range and were omitted. Fundamental
+              history begins at first observation; analyst/option inputs are current snapshots.
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Observation Availability Notice */}
@@ -874,7 +1013,9 @@ export function RegressionView({
 
         <div className="bg-white dark:bg-[#101014] border border-zinc-200 dark:border-zinc-800 p-4 rounded-xl bg-gold-500/20 dark:bg-gold-500/20 border-gold-500 dark:border-gold-500/40">
           <div className="flex items-center justify-between">
-            <span className="text-xs text-gold-700 dark:text-gold-300 block font-semibold">Next-Day Forecast</span>
+            <span className="text-xs text-gold-700 dark:text-gold-300 block font-semibold">
+              {factorColumnKeys.length > 0 ? 'Next-Day Forecast (factor inputs held at t)' : 'Next-Day Forecast'}
+            </span>
             <ExpectedReturnEquation display="inline" className="text-[10px]" />
           </div>
           <span
@@ -890,6 +1031,12 @@ export function RegressionView({
             95% CI: [{(regressionSummary.forecastNextDay.predictionInterval95[0] * 100).toFixed(1)}%,{' '}
             {(regressionSummary.forecastNextDay.predictionInterval95[1] * 100).toFixed(1)}%]
           </span>
+          {factorColumnKeys.length > 0 && (
+            <span className="text-[10px] text-amber-700 dark:text-amber-400 block mt-1">
+              Factor columns are levels, not returns — this forecast plugs their latest values into the fitted
+              coefficients and is not a return prediction.
+            </span>
+          )}
         </div>
       </div>
 
@@ -933,7 +1080,14 @@ export function RegressionView({
               return (
                 <tr key={row.variable} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30">
                   <td className="py-2.5 px-3 font-bold text-zinc-900 dark:text-zinc-100">
-                    {row.variable}
+                    {row.variable.startsWith('F:') ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <span>{FACTOR_BY_ID[row.variable.slice(2)]?.label ?? row.variable.slice(2)}</span>
+                        <span className="text-[9px] font-mono text-gold-600 dark:text-gold-400">factor</span>
+                      </span>
+                    ) : (
+                      row.variable
+                    )}
                   </td>
                   <td className="py-2.5 px-3 text-right font-bold tabular-nums text-zinc-900 dark:text-zinc-100">
                     {row.coefficient.toFixed(4)}
@@ -986,6 +1140,17 @@ export function RegressionView({
       <ChartFullscreen title="Regression Residual Diagnostics">
         <ResidualDiagnosticsChart summary={regressionSummary} />
       </ChartFullscreen>
+
+      {/* Cross-sectional factor research — rankings, z-scores, composite and IC */}
+      <FactorResearchPanel
+        symbols={universeSymbols}
+        allStockBars={allStockBars}
+        factorData={factorData}
+        onSymbolsChange={setUniverseSymbols}
+        startDate={startDate}
+        endDate={endDate}
+        barsSource={barsSource}
+      />
     </div>
   );
 }
