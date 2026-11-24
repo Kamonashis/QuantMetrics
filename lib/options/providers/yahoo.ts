@@ -125,6 +125,8 @@ export interface RawContract {
 export interface FullChainResult {
   quote: {
     regularMarketPrice?: number;
+    regularMarketPreviousClose?: number;
+    regularMarketTime?: number;
     currency?: string;
     shortName?: string;
     quoteType?: string;
@@ -308,6 +310,9 @@ async function fetchYahooChain(
     substitution,
     asOf: new Date().toISOString(),
     spot,
+    prevClose: Number.isFinite(quote.regularMarketPreviousClose) && quote.regularMarketPreviousClose! > 0 ? quote.regularMarketPreviousClose! : null,
+    quoteAsOf: typeof quote.regularMarketTime === 'number' && quote.regularMarketTime > 0 && quote.regularMarketTime < 1e11
+      ? new Date(quote.regularMarketTime * 1000).toISOString() : null,
     currency: quote.currency ?? 'USD',
     name: quote.shortName ?? symbol,
     changePct: quote.regularMarketChangePercent ?? null,

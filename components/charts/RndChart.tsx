@@ -12,7 +12,7 @@ export interface DensityCurve {
 }
 
 /**
- * Interactive Plotly Risk-Neutral Density (Breeden–Litzenberger) vs realized 21d log-return histogram.
+ * Interactive Plotly risk-neutral density vs. horizon-matched historical log returns.
  */
 export function RndChart({
   rnd,
@@ -74,7 +74,7 @@ export function RndChart({
       }
       list.push({
         type: 'bar',
-        name: 'Realized 21d Returns',
+        name: 'Historical horizon returns',
         x: bins.map((b) => b.centerPct),
         y: bins.map((b) => b.count / (Math.max(1, realizedReturns.length) * binWidth)),
         customdata: bins.map((b) => b.count),

@@ -177,6 +177,9 @@ export async function GET(req: NextRequest) {
         asOf: new Date().toISOString(),
         quote: {
           price: spot,
+          prevClose: chain.prevClose ?? null,
+          asOf: chain.quoteAsOf ?? null,
+          source: 'yahoo_regular_market',
           currency: chain.currency,
           name: chain.name,
           changePct: chain.changePct,

@@ -8,6 +8,8 @@
 // Convention: European BSM approximation with continuous dividend yield q —
 // equity options are American; treat every IV number as an approximation.
 
+import { densityMean, normalizeDensity } from './rnd';
+
 // ---------------------------------------------------------------------------
 // Basic distribution helpers (Abramowitz & Stegun approximations, as used
 // across the codebase)
@@ -757,36 +759,39 @@ export function riskNeutralDensity(
   T: number,
   r: number,
   q: number,
-  nPoints = 81
-): { strikes: number[]; density: number[]; minDensity: number; integrated: number } {
-  const Kmin = Math.max(1, spot * 0.35);
-  const Kmax = spot * 3.0;
-  const h = (Kmax - Kmin) / (nPoints - 1);
-  const strikes: number[] = [];
-  for (let i = 0; i < nPoints; i++) strikes.push(Kmin + i * h);
+  nPoints = 601,
+) {
+  const carryForward = spot * Math.exp((r - q) * T);
+  const minVariance = fit.a + fit.b * fit.sigma * Math.sqrt(1 - fit.rho ** 2);
+  if (![spot, forward, T, r, q, fit.a, fit.b, fit.rho, fit.m, fit.sigma].every(Number.isFinite) ||
+      !(spot > 0 && forward > 0 && T > 0 && minVariance > 0 && fit.sigma > 0) ||
+      fit.b < 0 || Math.abs(fit.rho) >= 1 || fit.b * (1 + Math.abs(fit.rho)) >= 2) return null;
+  const halfWidth = Math.max(0.3, 9 * Math.sqrt(sviTotalVariance(fit, 0)));
+  const wingWidth = Math.max(halfWidth, 9 * Math.sqrt(Math.max(sviTotalVariance(fit, -halfWidth), sviTotalVariance(fit, halfWidth))));
+  const logWidth = Math.min(12, wingWidth);
+  const strikes = Array.from({ length: nPoints }, (_, i) => forward * Math.exp(logWidth * (2 * i / (nPoints - 1) - 1)));
 
-  const callPrice = (K: number) => {
+  const price = (K: number, type: 'call' | 'put') => {
     const k = Math.log(K / forward);
     const iv = Math.sqrt(Math.max(1e-12, sviTotalVariance(fit, k)) / T);
-    return bsPrice({ spot, strike: K, t: T, rate: r, dividendYield: q, vol: iv, type: 'call' });
+    return bsPrice({ spot, strike: K, t: T, rate: r, dividendYield: q, vol: iv, type });
   };
 
   const disc = Math.exp(r * T);
-  const density: number[] = [];
-  let minDensity = Infinity;
-  let integrated = 0;
-  for (let i = 0; i < nPoints; i++) {
-    const K = strikes[i];
-    const Cm = K - h >= 0 ? callPrice(K - h) : callPrice(K);
-    const Cp = callPrice(K + h);
-    const C0 = callPrice(K);
-    const d2C = (Cp - 2 * C0 + Cm) / (h * h);
-    const dens = disc * d2C;
-    density.push(dens);
-    if (dens < minDensity) minDensity = dens;
-    integrated += dens * h;
-  }
-  return { strikes, density, minDensity, integrated };
+  const raw = strikes.map((K) => {
+    const h = K * 0.0005;
+    // Put/call parity is linear in K, so either side has the same curvature.
+    const type = K < carryForward ? 'put' : 'call';
+    return disc * (price(K + h, type) - 2 * price(K, type) + price(K - h, type)) / h ** 2;
+  });
+  const grid = normalizeDensity(strikes, raw);
+  if (!grid) return null;
+  const forwardError = Math.abs(densityMean(grid, (k) => k) / carryForward - 1);
+  const lo = strikes[0], hi = strikes[strikes.length - 1];
+  const slope = (k: number, type: 'call' | 'put') => disc *
+    (price(k * 1.0005, type) - price(k * 0.9995, type)) / (k * 0.001);
+  const edgeMass = Math.abs(slope(lo, 'put')) + Math.abs(slope(hi, 'call'));
+  return { ...grid, forwardError, edgeMass };
 }
 
 /** Expected move: 1σ from ATM IV, and the straddle-implied ≈ 0.8 × (call + put ATM). */

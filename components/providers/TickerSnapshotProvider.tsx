@@ -76,16 +76,19 @@ export function TickerSnapshotProvider({
   latestQuotes?: Record<string, { price: number; changePct: number; asOf: string }>;
   children: React.ReactNode;
 }) {
-  const [chain, setChain] = useState<ChainPayload | null>(null);
+  const [chainResult, setChainResult] = useState<{ key: string; payload: ChainPayload } | null>(null);
   const [indices, setIndices] = useState<IndicesPayload | null>(null);
   const [ivHistory, setIvHistory] = useState<IvHistoryEntry[]>([]);
   const [panel, setPanel] = useState<PanelRowOut[]>([]);
-  const [fnoPanel, setFnoPanel] = useState<PanelPayload | null>(null);
+  const [fnoResult, setFnoResult] = useState<{ key: string; payload: PanelPayload } | null>(null);
   const [earnings, setEarnings] = useState<{ ticker: string; date: string; isEstimate: boolean; sessions: number } | null>(null);
   const watch = useWatchlist();
-  const [fnoLoadedKey, setFnoLoadedKey] = useState<string | null>(null);
-  const [chainLoading, setChainLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
+  const key = `${ticker}:${refreshKey}`;
+  const chainLoading = chainResult?.key !== key;
+  const fnoLoading = fnoResult?.key !== key;
+  const chain = chainLoading ? null : chainResult.payload;
+  const fnoPanel = fnoLoading ? null : fnoResult.payload;
 
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
 
@@ -109,7 +112,7 @@ export function TickerSnapshotProvider({
     ])
       .then(([chainData, historyData, panelData, earningsData]) => {
         if (cancelled) return;
-        setChain({ ...chainData, requested: chainData.requested ?? ticker.toUpperCase() });
+        setChainResult({ key, payload: { ...chainData, requested: chainData.requested ?? ticker.toUpperCase() } });
         setIvHistory(Array.isArray(historyData?.history) ? historyData.history : []);
         setPanel(Array.isArray(panelData?.panel) ? panelData.panel : []);
         if (earningsData?.available && earningsData.nextEarningsDate) {
@@ -123,10 +126,9 @@ export function TickerSnapshotProvider({
         } else {
           setEarnings(null);
         }
-      })
-      .finally(() => { if (!cancelled) setChainLoading(false); });
+      });
     return () => { cancelled = true; };
-  }, [ticker, refreshKey]);
+  }, [ticker, key]);
 
   useEffect(() => {
     let cancelled = false;
@@ -137,15 +139,14 @@ export function TickerSnapshotProvider({
     return () => { cancelled = true; };
   }, [refreshKey]);
 
-  const fnoLoading = fnoLoadedKey !== `${ticker}:${refreshKey}`;
   useEffect(() => {
     let cancelled = false;
     fetch(`/api/fno?mode=panel&symbol=${encodeURIComponent(ticker)}`)
       .then((r) => r.json() as Promise<PanelPayload>)
-      .then((d) => { if (!cancelled) { setFnoPanel(d); setFnoLoadedKey(`${ticker}:${refreshKey}`); } })
-      .catch(() => { if (!cancelled) { setFnoPanel({ available: false, reason: 'fetch failed' }); setFnoLoadedKey(`${ticker}:${refreshKey}`); } });
+      .then((d) => { if (!cancelled) setFnoResult({ key, payload: d }); })
+      .catch(() => { if (!cancelled) setFnoResult({ key, payload: { available: false, reason: 'fetch failed' } }); });
     return () => { cancelled = true; };
-  }, [ticker, refreshKey]);
+  }, [ticker, key]);
 
   const rvSeries = useMemo(() => canonicalRvSeries(bars.map((b) => b.close)), [bars]);
   const garchFit = useMemo(() => {

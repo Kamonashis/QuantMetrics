@@ -540,11 +540,10 @@ export async function GET(req: NextRequest) {
 
     // Headline slice for RND: nearest ≥ 21 DTE slice, else the first
     const headline = slices.find((s) => s.dte >= 21) ?? slices[0];
-    let rnd: { strikes: number[]; density: number[]; minDensity: number; integrated: number } | null = null;
+    let rnd: ReturnType<typeof riskNeutralDensity> = null;
     let pricedBand: { oneSigmaPct: number; probDrawdown15: number; probTouch10: number } | null = null;
     if (headline.svi) {
-      const density = riskNeutralDensity(headline.svi, spot, headline.forward, headline.t, rate, dividendYield, 81);
-      rnd = density;
+      rnd = riskNeutralDensity(headline.svi, spot, headline.forward, headline.t, rate, dividendYield);
       const rn = riskNeutralProbabilities(spot, spot * 0.85, headline.t, rate, dividendYield, headline.atmIv ?? 0.2);
       const rnTouch = riskNeutralProbabilities(spot, spot * 0.9, headline.t, rate, dividendYield, headline.atmIv ?? 0.2);
       const sigAtm = headline.atmIv ?? 0.2;
@@ -578,6 +577,10 @@ export async function GET(req: NextRequest) {
         asOf: new Date().toISOString(),
         quote: {
           price: spot,
+          prevClose: chain.prevClose ?? null,
+          asOf: chain.quoteAsOf ?? null,
+          source: 'yahoo_regular_market',
+          securityType: chain.quoteType,
           currency: chain.currency,
           name: chain.name,
           changePct: chain.changePct,

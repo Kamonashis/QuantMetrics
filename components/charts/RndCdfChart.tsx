@@ -2,14 +2,14 @@
 
 import React, { useMemo } from 'react';
 import type { Data, Layout } from 'plotly.js';
-import type { MarketRnd } from '@/lib/rnd';
+import { densityCdf, type DensityGrid } from '@/lib/rnd';
 import { PlotlyChart } from '@/components/charts/PlotlyChart';
 import { QUANT_COLORS } from '@/lib/plotly-theme';
 
 /**
  * Interactive Plotly cumulative distribution function (CDF) of the market-price RND.
  */
-export function RndCdfChart({ rnd }: { rnd: MarketRnd }) {
+export function RndCdfChart({ rnd, label }: { rnd: DensityGrid & { spot: number }; label: string }) {
   const { traces, layout, tail } = useMemo(() => {
     const pts = rnd.strikes.map((K, i) => ({
       k: Math.log(K / rnd.spot),
@@ -20,24 +20,14 @@ export function RndCdfChart({ rnd }: { rnd: MarketRnd }) {
     }));
 
     const cdfAt = (K: number): number => {
-      if (pts.length === 0) return 0;
-      const k = Math.log(K / rnd.spot);
-      if (k <= pts[0].k) return pts[0].p;
-      if (k >= pts[pts.length - 1].k) return pts[pts.length - 1].p;
-      for (let i = 1; i < pts.length; i++) {
-        if (k <= pts[i].k) {
-          const f = (k - pts[i - 1].k) / Math.max(1e-12, pts[i].k - pts[i - 1].k);
-          return pts[i - 1].p + f * (pts[i].p - pts[i - 1].p);
-        }
-      }
-      return 1;
+      return densityCdf(rnd, K);
     };
 
     const list: Data[] = [
       {
         type: 'scatter',
         mode: 'lines',
-        name: 'Market-Price CDF',
+        name: label,
         x: pts.map((p) => p.kPct),
         y: pts.map((p) => p.pPct),
         customdata: pts.map((p) => p.strike),
@@ -111,7 +101,7 @@ export function RndCdfChart({ rnd }: { rnd: MarketRnd }) {
         up20: cdfAt(rnd.spot * 1.2),
       },
     };
-  }, [rnd]);
+  }, [rnd, label]);
 
   return (
     <div>
@@ -129,7 +119,7 @@ export function RndCdfChart({ rnd }: { rnd: MarketRnd }) {
         showWheelHint
       />
       <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[10px] text-zinc-500 dark:text-zinc-400">
-        <span>CDF of market-price RND</span>
+        <span>{label}</span>
         <span className="tabular-nums">P(&lt;0.8S) {(tail.deep * 100).toFixed(1)}%</span>
         <span className="tabular-nums">P(&lt;0.9S) {(tail.ten * 100).toFixed(1)}%</span>
         <span className="tabular-nums">P(&lt;S) {(tail.spot * 100).toFixed(1)}%</span>

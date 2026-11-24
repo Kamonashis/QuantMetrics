@@ -12,6 +12,7 @@ import { fitGaussianHmm, type HmmFit } from '@/lib/hmm';
 import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 import { PlotlyChart } from '@/components/charts/PlotlyChart';
 import { QUANT_COLORS } from '@/lib/plotly-theme';
+import { creditBridge } from '@/lib/credit-bridge';
 
 const f2 = (v: number | null | undefined, d = 2) =>
   v === null || v === undefined || !isFinite(v) ? '—' : v.toFixed(d);
@@ -28,6 +29,13 @@ interface ScanRow {
   skew9010: number | null;
   mfivDiff: number | null;
   accrualDays: number;
+  assetVol: number | null;
+  dd: number | null;
+  pd: number | null;
+}
+
+function unavailableRow(symbol: string): ScanRow {
+  return { symbol, iv30: null, rr25: null, bf25: null, skew9010: null, mfivDiff: null, accrualDays: 0, assetVol: null, dd: null, pd: null };
 }
 
 export function T6CrossAssetTab({
@@ -59,7 +67,7 @@ export function T6CrossAssetTab({
             const res = await fetch(`/api/options?mode=chain&symbol=${symbol}`);
             const d = (await res.json()) as ChainPayload;
             if (!d.available) {
-              return { symbol, iv30: null, rr25: null, bf25: null, skew9010: null, mfivDiff: null, accrualDays: 0 };
+              return unavailableRow(symbol);
             }
             const headline = d.slices?.find((s) => s.dte >= 21) ?? d.slices?.[0];
             const mfivDiff =
@@ -67,6 +75,7 @@ export function T6CrossAssetTab({
                 ? (headline.mfivAnnualized as number) - (headline.atmIv as number)
                 : null;
             const rr25 = d.slices?.find((s) => s.dte >= 15 && s.dte <= 45)?.rr25 ?? headline?.rr25 ?? null;
+            const credit = d.quote?.securityType === 'EQUITY' && !d.substitution ? creditBridge(d.quote.marketCap, d.iv30, null, d.rate) : null;
             return {
               symbol,
               iv30: d.iv30 ?? null,
@@ -75,9 +84,12 @@ export function T6CrossAssetTab({
               skew9010: d.slices?.find((s) => s.dte >= 15 && s.dte <= 45)?.skew9010 ?? headline?.skew9010 ?? null,
               mfivDiff,
               accrualDays: d.snapshot?.iv30HistoryCount ?? 0,
+              assetVol: credit?.assetVol ?? null,
+              dd: credit?.dd ?? null,
+              pd: credit?.pd ?? null,
             };
           } catch {
-            return { symbol, iv30: null, rr25: null, bf25: null, skew9010: null, mfivDiff: null, accrualDays: 0 };
+            return unavailableRow(symbol);
           }
         })
       );
@@ -94,9 +106,10 @@ export function T6CrossAssetTab({
     return [...scanRows].sort((a, b) => {
       const av = a[sortKey];
       const bv = b[sortKey];
-      const an = av === null || av === undefined ? -Infinity : (av as number);
-      const bn = bv === null || bv === undefined ? -Infinity : (bv as number);
-      return (an - bn) * sortDir;
+      if (typeof av === 'string' && typeof bv === 'string') return av.localeCompare(bv) * sortDir;
+      if (av === null) return bv === null ? a.symbol.localeCompare(b.symbol) : 1;
+      if (bv === null) return -1;
+      return (Number(av) - Number(bv)) * sortDir || a.symbol.localeCompare(b.symbol);
     });
   }, [scanRows, sortKey, sortDir]);
 
@@ -230,7 +243,7 @@ export function T6CrossAssetTab({
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[680px] text-xs">
+            <table className="w-full min-w-[850px] text-xs">
               <thead>
                 <tr className="text-left font-mono text-[9px] uppercase tracking-wider text-zinc-400">
                   {([
@@ -241,6 +254,9 @@ export function T6CrossAssetTab({
                     ['skew9010', 'Skew 90/10'],
                     ['mfivDiff', 'MFIV−ATM'],
                     ['accrualDays', 'Accrual'],
+                    ['assetVol', 'Asset vol'],
+                    ['dd', 'Distance to default'],
+                    ['pd', '1y model PD'],
                   ] as [keyof ScanRow, string][]).map(([key, label]) => (
                     <th key={String(key)} className="py-1.5">
                       <button
@@ -266,6 +282,9 @@ export function T6CrossAssetTab({
                     <td className="py-1.5 tabular-nums text-zinc-700 dark:text-zinc-200">{pts(row.skew9010)}</td>
                     <td className="py-1.5 tabular-nums text-zinc-700 dark:text-zinc-200">{pts(row.mfivDiff)}</td>
                     <td className="py-1.5 tabular-nums text-zinc-500">{row.accrualDays}d</td>
+                    <td className="py-1.5 tabular-nums">{pct(row.assetVol, 2)}</td>
+                    <td className="py-1.5 tabular-nums">{f2(row.dd)}</td>
+                    <td className="py-1.5 tabular-nums">{pct(row.pd, 2)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -273,6 +292,7 @@ export function T6CrossAssetTab({
           </div>
         )}
         <p className="mt-2 font-mono text-[9px] text-zinc-400">European BSM approximation · European-listed proxies where noted · Yahoo ~15min delayed</p>
+        <p className="mt-1 font-mono text-[9px] text-zinc-500">Comparable equity fragility proxies only: debt assumed at 30% of equity value, IV30 as equity vol, σ_A ≈ σ_E·E/V, 1y horizon. Not calibrated credit ratings; ETFs and missing inputs are withheld.</p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">

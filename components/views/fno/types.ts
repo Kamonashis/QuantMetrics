@@ -64,7 +64,7 @@ export interface PanelPayload {
   substitution?: string | null;
   reason?: string;
   asOf?: string;
-  quote?: { price: number; currency: string; name: string; changePct: number | null; marketCap: number | null };
+  quote?: { price: number; currency: string; name: string; changePct: number | null; marketCap: number | null; asOf?: string | null; prevClose?: number | null; source?: string };
   rate?: number;
   dividendYield?: number;
   iv30?: number | null;

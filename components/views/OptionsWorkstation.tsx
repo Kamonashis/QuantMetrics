@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   ArrowLeftRight,
@@ -25,6 +25,10 @@ import { T2SurfaceTab } from './volatility/T2SurfaceTab';
 import { T3TermStructureTab } from './volatility/T3TermStructureTab';
 import { T4ForecastTab } from './volatility/T4ForecastTab';
 import { T5DensityTab } from './volatility/T5DensityTab';
+import { T5Calibration } from './volatility/T5Calibration';
+import { buildRndResearch, MAX_SPOT_GAP, spotGap } from '@/lib/rnd-integrity';
+import { useOptionsResearch } from '@/hooks/use-options-research';
+import { trailingResearchRv } from '@/lib/options-research';
 import { T6CrossAssetTab } from './volatility/T6CrossAssetTab';
 import { T7DealerTab } from './volatility/T7DealerTab';
 import { T8DecisionTab } from './volatility/T8DecisionTab';
@@ -110,8 +114,18 @@ export function OptionsWorkstation({
   };
 
   const substitution = s.chain?.substitution ?? s.fnoPanel?.substitution ?? null;
-  const spot = s.chain?.quote?.price ?? s.fnoPanel?.quote?.price ?? null;
+  const chainQuote = s.chain?.quote;
+  const fnoQuote = s.fnoPanel?.quote;
+  const headerQuote = chainQuote ?? fnoQuote;
+  const matchedFno = s.chain?.symbol && s.chain.symbol === s.fnoPanel?.symbol ? fnoQuote : undefined;
+  const underlyingQuote = s.chain?.symbol === ticker.toUpperCase() ? s.latestQuotes[ticker.toUpperCase()] : undefined;
+  const gap = spotGap(chainQuote, matchedFno);
+  const underlyingGap = spotGap(chainQuote, underlyingQuote);
   const loading = s.chainLoading || s.fnoLoading;
+  const rnd = useMemo(() => buildRndResearch(s.chain, matchedFno, underlyingQuote), [s.chain, matchedFno, underlyingQuote]);
+  const rv20 = useMemo(() => barsSource === 'live_market' && !substitution ? trailingResearchRv(bars, chainQuote?.asOf) : null,
+    [bars, barsSource, substitution, chainQuote?.asOf]);
+  const ledger = useOptionsResearch({ chain: s.chain, research: rnd, rv20, loading, showLedger: tab === 'v5' });
 
   return (
     <div className="space-y-4">
@@ -137,7 +151,11 @@ export function OptionsWorkstation({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            {spot !== null && <span className="font-mono text-xl font-bold tabular-nums text-zinc-900 dark:text-zinc-50">{spot.toFixed(2)}</span>}
+            {headerQuote && <div className="font-mono tabular-nums">
+              <div className="text-[10px] text-zinc-500">{chainQuote ? 'Chain spot' : 'Positioning spot'}</div>
+              <div className="text-xl font-bold text-zinc-900 dark:text-zinc-50">{headerQuote.price.toFixed(2)}</div>
+              {headerQuote.prevClose != null && <div className="text-[10px] text-zinc-500">Prior close {headerQuote.prevClose.toFixed(2)}</div>}
+            </div>}
             <button
               type="button"
               onClick={s.refresh}
@@ -151,15 +169,19 @@ export function OptionsWorkstation({
         </div>
         <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-[var(--hairline)] pt-3 font-mono text-[10px]">
           <span className={s.chain?.available ? 'text-[var(--positive)]' : 'text-zinc-400'}>
-            chain: {s.chain?.available ? `live${s.chain.asOf ? ` · fetched ${new Date(s.chain.asOf).toLocaleString()}` : ''}` : 'unavailable'}
+            chain: {s.chain?.available ? `Yahoo${chainQuote?.asOf ? ` · quoted ${new Date(chainQuote.asOf).toLocaleString()}` : ' · quote time unavailable'}${s.chain.asOf ? ` · fetched ${new Date(s.chain.asOf).toLocaleString()}` : ''}` : 'unavailable'}
           </span>
-          <span className={s.fnoPanel?.available ? 'text-[var(--positive)]' : 'text-zinc-400'}>positioning: {s.fnoPanel?.available ? 'live · EOD OI' : 'unavailable'}</span>
+          <span className={s.fnoPanel?.available ? 'text-[var(--positive)]' : 'text-zinc-400'}>positioning: {fnoQuote ? `${fnoQuote.price.toFixed(2)} · ${fnoQuote.asOf ? `quoted ${new Date(fnoQuote.asOf).toLocaleString()}` : 'quote time unavailable'} · EOD OI` : 'unavailable'}</span>
+          {gap !== null && gap > MAX_SPOT_GAP && <span className="font-semibold text-amber-700 dark:text-amber-400">Chain and positioning spot differ by {(gap * 100).toFixed(2)}%</span>}
+          {underlyingQuote && <span className={underlyingGap !== null && underlyingGap > MAX_SPOT_GAP ? 'font-semibold text-amber-700 dark:text-amber-400' : 'text-zinc-400'}>
+            market-data spot: {underlyingQuote.price.toFixed(2)} · quoted {new Date(underlyingQuote.asOf).toLocaleString()}{underlyingGap !== null && underlyingGap > MAX_SPOT_GAP && ` · differs by ${(underlyingGap * 100).toFixed(2)}%`}
+          </span>}
           <span className="text-zinc-400">quotes: ~15-min delayed European BSM · not executable</span>
           {substitution && <span className="text-zinc-400">{substitution}</span>}
         </div>
       </div>
 
-      <OptionsVerdictStrip chain={s.chain} fnoPanel={s.fnoPanel} rv20={s.rv20} />
+      <OptionsVerdictStrip chain={s.chain} fnoPanel={s.fnoPanel} rv20={rv20} rndQuality={rnd?.quality} />
 
       <AnimatedTabs
         value={tab}
@@ -171,7 +193,7 @@ export function OptionsWorkstation({
       {tab === 'v2' && <T2SurfaceTab chain={s.chain} indices={s.indices} />}
       {tab === 'v3' && <T3TermStructureTab chain={s.chain} indices={s.indices} bars={bars} ticker={ticker} barsSource={barsSource} rvSeriesCanonical={s.rvSeries} vixContextProp={s.vix} garchFitProp={s.garchFit} />}
       {tab === 'v4' && <T4ForecastTab chain={s.chain} indices={s.indices} bars={bars} ticker={ticker} ivHistory={s.ivHistory} />}
-      {tab === 'v5' && <T5DensityTab chain={s.chain} bars={bars} ticker={ticker} />}
+      {tab === 'v5' && <><T5DensityTab chain={s.chain} bars={bars} barsSource={barsSource} ticker={ticker} research={rnd} /><T5Calibration {...ledger} /></>}
       {tab === 'v6' && <T6CrossAssetTab chain={s.chain} indices={s.indices} bars={bars} ticker={ticker} />}
       {tab === 'v7' && <T7DealerTab chain={s.chain} panel={s.panel} bars={bars} ticker={ticker} />}
       {tab === 'v8' && <T8DecisionTab chain={s.chain} bars={bars} ticker={ticker} ivHistory={s.ivHistory} intradayBars={intradayBars} intradaySource={intradaySource} rvSeries={s.rvSeries} garchFitProp={s.garchFit} earningsProp={s.earnings} />}

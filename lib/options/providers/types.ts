@@ -52,6 +52,8 @@ export interface ProviderChainResult {
   substitution: string | null;
   asOf: string;
   spot: number;
+  quoteAsOf?: string | null;
+  prevClose?: number | null;
   currency: string;
   name: string;
   changePct: number | null;

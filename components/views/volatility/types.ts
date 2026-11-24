@@ -42,6 +42,10 @@ export interface RndOut {
   density: number[];
   minDensity: number;
   integrated: number;
+  cdf: number[];
+  clippedFraction: number;
+  forwardError: number;
+  edgeMass: number;
 }
 
 export interface ChainPayload {
@@ -51,7 +55,7 @@ export interface ChainPayload {
   substitution?: string | null;
   reason?: string;
   asOf?: string;
-  quote?: { price: number; currency: string; name: string; changePct: number | null; marketCap?: number | null };
+  quote?: { price: number; currency: string; name: string; changePct: number | null; marketCap?: number | null; asOf?: string | null; prevClose?: number | null; source?: string; securityType?: string };
   rate?: number;
   dividendYield?: number;
   iv30?: number | null;
