@@ -707,16 +707,23 @@ export function PlotlyChart({
         surfaceMargin.r = Math.max(surfaceMargin.r ?? 8, 12);
       }
 
-      return {
+      const merged: Record<string, unknown> = {
         ...base,
         ...over,
         margin: surfaceMargin,
         font: { ...(base.font ?? {}), ...(over.font ?? {}) },
         legend: { ...(base.legend ?? {}), ...(over.legend ?? {}) },
         hoverlabel: { ...(base.hoverlabel ?? {}), ...(over.hoverlabel ?? {}) },
-        xaxis: mergedX as Layout['xaxis'],
-        yaxis: mergedY as Layout['yaxis'],
       };
+      // Plotly.cleanLayout dereferences every axis-like layout key unguarded
+      // (reads `.anchor`), so a literal `xaxis: undefined` crashes Plotly.react.
+      // 3D figures have no cartesian axes — emit the keys only when they exist.
+      if (mergedX) merged.xaxis = mergedX;
+      else delete merged.xaxis;
+      if (mergedY) merged.yaxis = mergedY;
+      else delete merged.yaxis;
+
+      return merged as Partial<Layout>;
     },
     [
       isDark,
