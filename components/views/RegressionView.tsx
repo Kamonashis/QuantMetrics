@@ -19,7 +19,7 @@ import { ExplainTab } from '@/components/views/regression/ExplainTab';
 import { StabilityTab } from '@/components/views/regression/StabilityTab';
 import { PredictTab } from '@/components/views/regression/PredictTab';
 import { MethodsTab } from '@/components/views/regression/MethodsTab';
-import { Callout } from '@/components/views/regression/lab-ui';
+import { Callout } from '@/components/ui/lab-ui';
 import { ShimmerButton } from '@/components/ui/ShimmerButton';
 import { TickerSuggest } from '@/components/ui/TickerSuggest';
 import { ProvenanceBadge } from '@/components/ui/provenance-badge';

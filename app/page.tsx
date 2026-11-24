@@ -753,9 +753,8 @@ export default function App() {
             returnType={returnType}
             allStockBars={stockBarsCache}
             isLoading={isLoading}
-            onRunCorrelation={(tickers) => fetchTickers(tickers, '10y', startDate, endDate)}
-            intradayBars={currentIntradayBars}
-            barsSource={currentBarsSource}
+            onRunCorrelation={(tickers) => fetchTickers(tickers, '10y', startDate, endDate, { skipIntraday: true })}
+            sourcesByTicker={stockSourceCache}
           />
         )}
 

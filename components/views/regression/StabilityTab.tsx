@@ -15,7 +15,7 @@ import {
 import { standardNormalQuantile } from '@/lib/quant-engine';
 import { PlotlyChart, usePlotlyDarkTheme } from '@/components/charts/PlotlyChart';
 import { getPlotlyThemeTokens, QUANT_COLORS } from '@/lib/plotly-theme';
-import { Callout, SectionHeader, SegmentedControl, fmtNum, fmtP } from './lab-ui';
+import { Callout, SectionHeader, SegmentedControl, fmtNum, pText } from '@/components/ui/lab-ui';
 
 type CheckStatus = 'pass' | 'note' | 'flag';
 
@@ -172,7 +172,7 @@ export function StabilityTab({ sample, fit }: { sample: FactorSample; fit: Facto
         lb.p < 0.05
           ? 'Residuals are autocorrelated. Newey–West ranges already allow for this, but a lagged factor may be missing.'
           : 'No meaningful autocorrelation is left in the residuals.',
-      stat: `Ljung–Box Q(${lb.lags}) = ${lb.q.toFixed(1)}, p = ${fmtP(lb.p)} · DW ${fit.durbinWatson.toFixed(2)}`,
+      stat: `Ljung–Box Q(${lb.lags}) = ${lb.q.toFixed(1)}, ${pText(lb.p)} · DW ${fit.durbinWatson.toFixed(2)}`,
     });
     const jb = fit.jarqueBera;
     out.push({
@@ -182,7 +182,7 @@ export function StabilityTab({ sample, fit }: { sample: FactorSample; fit: Facto
         jb.p < 0.01
           ? `Residuals have fat tails (excess kurtosis ${jb.excessKurtosis.toFixed(1)}). This is normal for daily stock returns. Estimates are still valid, but single-day tail risk is larger than σ suggests.`
           : 'Residual tails look close to normal.',
-      stat: `Jarque–Bera = ${jb.stat.toFixed(0)}, p = ${fmtP(jb.p)} · skew ${jb.skew.toFixed(2)}`,
+      stat: `Jarque–Bera = ${jb.stat.toFixed(0)}, ${pText(jb.p)} · skew ${jb.skew.toFixed(2)}`,
     });
     out.push({
       status: fit.maxVif !== null && fit.maxVif > 5 ? 'flag' : fit.maxVif !== null && fit.maxVif > 2.5 ? 'note' : 'pass',
@@ -333,7 +333,7 @@ export function StabilityTab({ sample, fit }: { sample: FactorSample; fit: Facto
                   Joint Newey–West test that the {comparison.addedKeys.length} added exposures are all zero:{' '}
                   {comparison.wald ? (
                     <span className="font-mono">
-                      χ²({comparison.wald.df}) = {comparison.wald.stat.toFixed(1)}, p = {fmtP(comparison.wald.p)}
+                      χ²({comparison.wald.df}) = {comparison.wald.stat.toFixed(1)}, {pText(comparison.wald.p)}
                     </span>
                   ) : (
                     'not computable'

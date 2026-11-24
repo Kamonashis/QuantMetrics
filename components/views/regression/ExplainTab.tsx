@@ -14,7 +14,7 @@ import {
 } from '@/lib/factor-regression';
 import { PlotlyChart, usePlotlyDarkTheme } from '@/components/charts/PlotlyChart';
 import { getPlotlyThemeTokens, QUANT_COLORS } from '@/lib/plotly-theme';
-import { EvidenceChip, IntervalBar, SectionHeader, StatTile, fmtNum, fmtP } from './lab-ui';
+import { EvidenceChip, IntervalBar, SectionHeader, StatTile, fmtNum, fmtP, pText } from '@/components/ui/lab-ui';
 
 const COMPONENT_COLORS = [QUANT_COLORS.gold, QUANT_COLORS.sky, QUANT_COLORS.violet, QUANT_COLORS.amber, QUANT_COLORS.cyan, QUANT_COLORS.positive, '#F472B6', '#94A3B8'];
 
@@ -365,12 +365,12 @@ function StatisticalDetail({ fit }: { fit: FactorFit }) {
             </span>
             {fit.waldAll && (
               <span>
-                Joint test, all slopes = 0 (HAC Wald): χ²({fit.waldAll.df}) = {fit.waldAll.stat.toFixed(1)}, p = {fmtP(fit.waldAll.p)}
+                Joint test, all slopes = 0 (HAC Wald): χ²({fit.waldAll.df}) = {fit.waldAll.stat.toFixed(1)}, {pText(fit.waldAll.p)}
               </span>
             )}
             {fit.fStat !== null && fit.fP !== null && (
               <span>
-                Classical F({fit.p - 1}, {fit.df}) = {fit.fStat.toFixed(1)}, p = {fmtP(fit.fP)}
+                Classical F({fit.p - 1}, {fit.df}) = {fit.fStat.toFixed(1)}, {pText(fit.fP)}
               </span>
             )}
             <span>

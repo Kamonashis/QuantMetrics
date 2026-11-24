@@ -3,7 +3,7 @@
 import React from 'react';
 import { MathDisplay } from '@/components/ui/MathDisplay';
 import type { FactorFit, FactorSample } from '@/lib/factor-regression';
-import { SectionHeader } from './lab-ui';
+import { SectionHeader } from '@/components/ui/lab-ui';
 
 export function MethodsTab({
   sample,

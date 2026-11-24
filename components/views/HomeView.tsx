@@ -112,10 +112,10 @@ const WORKSTATIONS: readonly WorkstationItem[] = [
   {
     num: '06',
     view: 'correlation',
-    title: 'Correlation & Covariance',
-    subtitle: 'Ledoit–Wolf · RMT · GMV',
+    title: 'Correlation Lab',
+    subtitle: 'Diversification · Tail Risk · Risk Budget',
     description:
-      'Marchenko–Pastur eigenvalue denoising, shrinkage covariance estimation, minimum spanning trees, and global minimum-variance portfolio weights.',
+      'Find out whether a basket really diversifies: how correlated it is now, whether that is changing, what happens in sell-offs, and where a portfolio’s risk comes from.',
     icon: Network,
   },
   {

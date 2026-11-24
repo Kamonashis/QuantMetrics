@@ -170,3 +170,5 @@ export function SegmentedControl<T extends string | number>({
 
 export const fmtNum = (v: number, d = 2) => (Number.isFinite(v) ? v.toFixed(d) : '—');
 export const fmtP = (p: number) => (!Number.isFinite(p) ? '—' : p < 0.0001 ? '< 0.0001' : p.toFixed(4));
+/** “p < 0.0001” or “p = 0.0123”. */
+export const pText = (p: number) => (!Number.isFinite(p) ? 'p = —' : p < 0.0001 ? 'p < 0.0001' : `p = ${p.toFixed(4)}`);

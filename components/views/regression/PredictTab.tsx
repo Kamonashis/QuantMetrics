@@ -20,7 +20,7 @@ import {
   getPlotlyThemeTokens,
   QUANT_COLORS,
 } from '@/lib/plotly-theme';
-import { Callout } from './lab-ui';
+import { Callout } from '@/components/ui/lab-ui';
 
 function TcnRegressionOosChart({ tcnReg }: { tcnReg: TcnMultiAssetRegressionResult }) {
   const isDark = usePlotlyDarkTheme();

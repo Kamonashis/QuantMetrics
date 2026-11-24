@@ -1032,8 +1032,6 @@ export function forecastGarch(
 // -------------------------------------------------------------
 // CORRELATION MATRIX & COVARIANCE
 // -------------------------------------------------------------
-export * from './correlation-engine';
-
 export function computeCorrelationMatrix(
   returnsByTicker: { [ticker: string]: number[] }
 ): CorrelationMatrixResult {

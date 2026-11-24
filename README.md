@@ -31,14 +31,15 @@ QuantMetrics is an advanced quantitative stock analysis, econometric diagnostics
   - **Generalized Error Distribution (GED / Subbotin)**: Tail flexibility with shape parameter $\kappa$.
 - **Model Selection**: Comparative scoring via Log-Likelihood, Akaike Information Criterion (AIC), Bayesian Information Criterion (BIC), $\Delta\text{AIC}$, and Kolmogorov-Smirnov (KS) goodness-of-fit statistics.
 
-### 4. Multivariate Correlation & Risk Suite
-- **Pairwise Correlation Metrics**: Pearson linear, Spearman rank, and Kendall's tau correlation matrices.
-- **Multiple Hypothesis Control**: Fisher $z$-transform $p$-values with Benjamini-Hochberg False Discovery Rate (FDR) adjustment.
-- **Ledoit-Wolf Shrinkage**: Optimal linear shrinkage towards constant correlation target to condition ill-behaved covariance matrices.
-- **Random Matrix Theory (RMT)**: Marchenko-Pastur spectral density clipping to denoise eigenvalues from sample noise:
-  $$\lambda_{\pm} = \sigma^2 \left(1 \pm \sqrt{N/T}\right)^2$$
-- **Network Topology**: Minimum Spanning Tree (MST) asset clustering using distance metric $d_{ij} = \sqrt{2(1 - \rho_{ij})}$.
-- **Portfolio Construction**: Global Minimum Variance (GMV) optimization and Euler marginal risk contribution decomposition.
+### 4. Correlation Lab
+Build a basket of 2–12 assets; the lab answers "do these really diversify each other?" in six tabs.
+- **Now**: headline (independent bets, average correlation now vs. long run), lower-triangle heatmap with a fitted colour scale (standard / rank / direct-links partial / Ledoit–Wolf shrunk; as-entered or cluster-grouped), pair drill-down with a block-bootstrap 95% range, correlation by return horizon, and an on-demand two-asset intraday check by sampling interval.
+- **Over time**: rolling average correlation, independent bets and top-factor share with percentile context; pattern-change rate between adjacent windows; Jennrich test of the latest window vs. the one before; pair rolling correlation with a confidence band, EWMA, and a DCC(1,1) model (GARCH margins, likelihood-fitted, LR-tested against constant correlation); experimental TCN forecast.
+- **Under stress**: exceedance correlations in joint sell-offs and rallies against a normal benchmark at the same correlation; rank-based joint-crash probabilities vs. a normal copula; the basket's ten worst days.
+- **Portfolio**: editable weights; Euler risk shares; component VaR and expected shortfall that sum to the totals; six long-only mixes (equal, inverse-vol, equal risk, HRP, max diversification, minimum variance); correlation-stress scenarios; hedge ratios; a walk-forward check of promised vs. realised volatility.
+- **Structure**: principal factors with a Marchenko–Pastur noise edge $\lambda_{+} = (1 + \sqrt{N/T})^2$; residual correlation and minimum spanning tree after removing the market; lead–lag with a robust Granger test.
+- **Methods & data**: per-ticker audit (bars, price basis, live vs. simulated) and definitions.
+- Engine: `lib/correlation-engine.ts`. Samples join on dates and refuse rather than simulate; covariances are daily and annualised exactly once.
 
 ### 5. Risk Diagnostics & Regulatory Backtesting
 - **5-Model VaR & Expected Shortfall (ES / CVaR)** at 95% and 99% confidence:
@@ -130,7 +131,7 @@ QuantMetrics/
 │       ├── HomeView.tsx            # Terminal landing & market pulse
 │       ├── AnalysisView.tsx        # Econometrics & microstructure tabs
 │       ├── ModelingView.tsx        # GARCH, EWMA & HAR-RV volatility studio
-│       ├── CorrelationView.tsx     # Matrix, RMT, MST & portfolio risk tabs
+│       ├── CorrelationView.tsx     # Correlation Lab coordinator (tabs in views/correlation/)
 │       └── RegressionView.tsx      # CAPM & factor diagnostics
 ├── lib/
 │   ├── fno/                        # US F&O suite: expiry ladder, positioning, term structure, expected move, config
