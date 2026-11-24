@@ -76,6 +76,29 @@ export interface MultiDomainRunOptions {
   isCancelled?: () => boolean;
 }
 
+/**
+ * Fits currently running, keyed by cache key (data signature + config).
+ * Concurrent callers requesting the same key join the in-flight fit instead
+ * of double-training it — the startup bootstrap and a retrain button pressed
+ * moments apart on the same data observe one fit. A joined caller inherits
+ * the owner's cancellation: if the owner aborts (e.g. a ticker switch), the
+ * joiner resolves null like the owner did, and its next press refits.
+ */
+const inFlightRuns = new Map<string, Promise<unknown>>();
+
+function joinOrStartFit<T>(cacheKey: string, start: () => Promise<T>): Promise<T> {
+  const prior = inFlightRuns.get(cacheKey) as Promise<T> | undefined;
+  if (prior) return prior;
+  const run = start();
+  inFlightRuns.set(cacheKey, run as Promise<unknown>);
+  run
+    .finally(() => {
+      if (inFlightRuns.get(cacheKey) === run) inFlightRuns.delete(cacheKey);
+    })
+    .catch(() => undefined);
+  return run;
+}
+
 // ---------------------------------------------------------------------------
 // 1. DOMAIN OUTPUT INTERFACES
 // ---------------------------------------------------------------------------
@@ -1556,6 +1579,22 @@ export async function runTcnVolatilityForecast(
     }
   }
 
+  return joinOrStartFit(cacheKey, () =>
+    trainTcnVolatilityForecast(ticker, bars, nRet, cfg, dataSignature, cacheKey, useCache, options)
+  );
+}
+
+/** Uncached training body — entry is the coalescing wrapper above. */
+async function trainTcnVolatilityForecast(
+  ticker: string,
+  bars: PriceBar[],
+  nRet: number,
+  cfg: TcnMultiDomainConfig,
+  dataSignature: string,
+  cacheKey: string,
+  useCache: boolean,
+  options?: MultiDomainRunOptions & { forecastDays?: number }
+): Promise<TcnVolatilityForecast | null> {
   const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
 
   // Build log returns & Garman-Klass daily variance proxy
@@ -1942,6 +1981,23 @@ export async function runTcnRiskVarForecast(
     if (cached) return { ...cached, cacheHit: true };
   }
 
+  return joinOrStartFit(cacheKey, () =>
+    trainTcnRiskVarForecast(ticker, returns, dates, n, cfg, dataSignature, cacheKey, useCache, options)
+  );
+}
+
+/** Uncached training body — entry is the coalescing wrapper above. */
+async function trainTcnRiskVarForecast(
+  ticker: string,
+  returns: number[],
+  dates: string[],
+  n: number,
+  cfg: TcnMultiDomainConfig,
+  dataSignature: string,
+  cacheKey: string,
+  useCache: boolean,
+  options?: MultiDomainRunOptions
+): Promise<TcnRiskVarForecast | null> {
   const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
 
   // Build 6-channel tail-risk feature matrix: [loss_t, |r_t|, negShock_t, vol5, vol22, skew22]
@@ -2347,6 +2403,37 @@ export async function runTcnMultiAssetRegression(
     if (cached) return { ...cached, cacheHit: true };
   }
 
+  return joinOrStartFit(cacheKey, () =>
+    trainTcnMultiAssetRegression(
+      dependentTicker,
+      factors,
+      yRaw,
+      factorSeries,
+      dates,
+      n,
+      cfg,
+      dataSignature,
+      cacheKey,
+      useCache,
+      options
+    )
+  );
+}
+
+/** Uncached training body — entry is the coalescing wrapper above. */
+async function trainTcnMultiAssetRegression(
+  dependentTicker: string,
+  factors: string[],
+  yRaw: number[],
+  factorSeries: number[][],
+  dates: string[],
+  n: number,
+  cfg: TcnMultiDomainConfig,
+  dataSignature: string,
+  cacheKey: string,
+  useCache: boolean,
+  options?: MultiDomainRunOptions
+): Promise<TcnMultiAssetRegressionResult | null> {
   const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
 
   // Align tail to common length n

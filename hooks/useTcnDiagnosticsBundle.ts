@@ -16,15 +16,17 @@ import {
   getCachedTcnRiskVarForecast,
   getCachedTcnVolatilityForecast,
   getTcnMultiDomainCacheStats,
-  runTcnMultiAssetRegression,
-  runTcnRiskVarForecast,
-  runTcnVolatilityForecast,
   type TcnConfluenceSummary,
   type TcnDomainKey,
   type TcnMultiAssetRegressionResult,
   type TcnRiskVarForecast,
   type TcnVolatilityForecast,
 } from '@/lib/tcn-multi-domain';
+import {
+  runTcnHeadSequence,
+  subscribeTcnBootUpdates,
+} from '@/lib/tcn-training-queue';
+import type { TcnTrainableHead } from '@/lib/tcn-bootstrap-policy';
 import {
   selectDefaultRegressionFactors,
   type TcnModuleStatus,
@@ -33,7 +35,7 @@ import {
 
 const yieldFrame = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-export type TrainableTcnHead = 'volatility' | 'risk_var' | 'regression';
+export type TrainableTcnHead = TcnTrainableHead;
 
 interface BundleState {
   ticker: string;
@@ -100,9 +102,12 @@ function makeInitialState(ticker: string): BundleState {
 /**
  * React-19-safe sequential orchestrator for the Unified TCN-Attention Diagnostics Dashboard.
  *
- * Training is manual-only. Cache hydration follows ticker/data changes (including live
- * quote ticks) and never starts a fit. Fits are started exclusively by `retrainAll`
- * or `retrainSingle`; clearing caches only resets to the untrained state.
+ * This hook never starts a fit on its own: cache hydration follows ticker/data
+ * changes (including live quote ticks) without training. Fits start in exactly
+ * two places — the app-level bootstrap trainer (the first live-data fit per
+ * ticker per session, which also notifies this hook to re-hydrate) and the
+ * `retrainAll` / `retrainSingle` retrain buttons. Clearing caches only resets
+ * to the untrained state.
  */
 export function useTcnDiagnosticsBundle(params: {
   ticker: string;
@@ -160,6 +165,19 @@ export function useTcnDiagnosticsBundle(params: {
   const forceMask = runTrigger.forceHeads.join(',');
   const triggerNonce = runTrigger.nonce;
   const triggerMode = runTrigger.mode;
+
+  // The app-level bootstrap trainer writes artifacts into the shared engine
+  // caches outside this hook; a completed head nudges hydration so the
+  // fresh result surfaces immediately instead of waiting for the next bar
+  // tick to re-run effect 1.
+  const [bootBump, setBootBump] = useState(0);
+  useEffect(
+    () =>
+      subscribeTcnBootUpdates((symbol) => {
+        if (symbol === upperTicker) setBootBump((v) => v + 1);
+      }),
+    [upperTicker]
+  );
 
   // 1. Cache hydration only — follows data/ticker changes, never trains.
   useEffect(() => {
@@ -240,9 +258,10 @@ export function useTcnDiagnosticsBundle(params: {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [upperTicker, barsLen, firstDate, lastDate, lastClose, stockCacheKeyCount]);
+  }, [upperTicker, barsLen, firstDate, lastDate, lastClose, stockCacheKeyCount, bootBump]);
 
-  // 2. Explicit training only — started by the retrain buttons, never by data changes.
+  // 2. Explicit training only — started by the retrain buttons (and the
+  // app-level bootstrap trainer outside this hook), never by data changes.
   useEffect(() => {
     if (triggerNonce === 0) return;
     let cancelled = false;
@@ -257,10 +276,6 @@ export function useTcnDiagnosticsBundle(params: {
         const curBars = barsRef.current ?? [];
         const curAllBars = allBarsRef.current ?? {};
         const hasEnoughBars = curBars.length >= 70;
-        const dates = curBars.map((b) => b.date);
-        const closes = curBars.map((b) => b.close);
-        const returns = hasEnoughBars ? calculateReturns(closes, 'log') : [];
-        const retDates = dates.slice(1);
         const regInputs = hasEnoughBars
           ? selectDefaultRegressionFactors(upperTicker, curBars, curAllBars)
           : null;
@@ -286,84 +301,53 @@ export function useTcnDiagnosticsBundle(params: {
         });
 
         let done = 0;
-        for (const head of queue) {
-          if (cancelled) return;
-          setBundle((prev) => ({
-            ...prev,
-            statuses: { ...prev.statuses, [head]: 'training' as TcnModuleStatus },
-            activeStepLabel: STEP_LABELS[head],
-          }));
-          await yieldFrame();
-          if (cancelled) return;
-
-          if (head === 'volatility') {
-            const res = await runTcnVolatilityForecast(upperTicker, curBars, {
-              forecastDays: 30,
-              forceRetrain: true,
-              yieldControl: yieldFrame,
-              isCancelled: () => cancelled,
-            });
-            if (cancelled) return;
-            done++;
-            setBundle((prev) => ({
-              ...prev,
-              volatility: res,
-              statuses: {
-                ...prev.statuses,
-                volatility: res ? 'ready' : 'insufficient',
-                confluence: res ? 'ready' : 'insufficient',
-              },
-              completedSteps: done,
-              multiDomainCounts: getTcnMultiDomainCacheStats(),
-              decompStats: getTcnCacheStats(),
-            }));
-          } else if (head === 'risk_var') {
-            const res = await runTcnRiskVarForecast(upperTicker, returns, retDates, {
-              forceRetrain: true,
-              yieldControl: yieldFrame,
-              isCancelled: () => cancelled,
-            });
-            if (cancelled) return;
-            done++;
-            setBundle((prev) => ({
-              ...prev,
-              riskVar: res,
-              statuses: {
-                ...prev.statuses,
-                risk_var: res ? 'ready' : 'insufficient',
-              },
-              completedSteps: done,
-              multiDomainCounts: getTcnMultiDomainCacheStats(),
-              decompStats: getTcnCacheStats(),
-            }));
-          } else if (head === 'regression' && regInputs) {
-            const res = await runTcnMultiAssetRegression(
-              regInputs.dependentTicker,
-              regInputs.independentTickers,
-              regInputs.returnsByTicker,
-              regInputs.dates,
-              {
-                forceRetrain: true,
-                yieldControl: yieldFrame,
-                isCancelled: () => cancelled,
-              }
-            );
-            if (cancelled) return;
-            done++;
-            setBundle((prev) => ({
-              ...prev,
-              regression: res,
-              statuses: {
-                ...prev.statuses,
-                regression: res ? 'ready' : 'insufficient',
-              },
-              completedSteps: done,
-              multiDomainCounts: getTcnMultiDomainCacheStats(),
-              decompStats: getTcnCacheStats(),
-            }));
+        await runTcnHeadSequence(
+          queue,
+          {
+            ticker: upperTicker,
+            bars: curBars,
+            allStockBars: curAllBars,
+            forceRetrain: true,
+            yieldControl: yieldFrame,
+            isCancelled: () => cancelled,
+          },
+          {
+            onHeadStart: (head) => {
+              if (cancelled) return;
+              setBundle((prev) => ({
+                ...prev,
+                statuses: { ...prev.statuses, [head]: 'training' as TcnModuleStatus },
+                activeStepLabel: STEP_LABELS[head],
+              }));
+            },
+            onHeadDone: (head, result) => {
+              if (cancelled) return;
+              done++;
+              setBundle((prev) => {
+                const statuses: TcnModuleStatuses = { ...prev.statuses };
+                if (head === 'volatility') {
+                  statuses.volatility = result ? 'ready' : 'insufficient';
+                  statuses.confluence = result ? 'ready' : 'insufficient';
+                } else if (head === 'risk_var') {
+                  statuses.risk_var = result ? 'ready' : 'insufficient';
+                } else {
+                  statuses.regression = result ? 'ready' : 'insufficient';
+                }
+                return {
+                  ...prev,
+                  volatility: head === 'volatility' ? (result as TcnVolatilityForecast | null) : prev.volatility,
+                  riskVar: head === 'risk_var' ? (result as TcnRiskVarForecast | null) : prev.riskVar,
+                  regression:
+                    head === 'regression' ? (result as TcnMultiAssetRegressionResult | null) : prev.regression,
+                  statuses,
+                  completedSteps: done,
+                  multiDomainCounts: getTcnMultiDomainCacheStats(),
+                  decompStats: getTcnCacheStats(),
+                };
+              });
+            },
           }
-          await yieldFrame();
-        }
+        );
 
         if (!cancelled) {
           setBundle((prev) => ({
@@ -372,8 +356,8 @@ export function useTcnDiagnosticsBundle(params: {
             multiDomainCounts: getTcnMultiDomainCacheStats(),
             decompStats: getTcnCacheStats(),
           }));
+          trainingRef.current = false;
         }
-        trainingRef.current = false;
       })();
     }, 0);
 

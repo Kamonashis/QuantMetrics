@@ -15,6 +15,7 @@ import {
 } from '@/lib/ticker-snapshot';
 import type { ChainPayload, IndicesPayload, IvHistoryEntry, PanelRowOut } from '@/components/views/volatility/types';
 import type { PanelPayload } from '@/components/views/fno/types';
+import { useTcnBootstrap, type TcnBootStatus } from '@/hooks/use-tcn-bootstrap';
 
 export interface TickerSnapshotValue {
   ticker: string;
@@ -47,6 +48,13 @@ export interface TickerSnapshotValue {
   scanWatchlist: (force?: boolean) => Promise<void>;
   barsSource?: string | null;
   intradaySource?: string | null;
+  /**
+   * App-level one-time-per-ticker TCN bootstrap trainer: state 'training'
+   * means the first fit of the session is running for `ticker`; 'done' means
+   * it completed (or was fully answered from cache). After that, only the
+   * retrain buttons start fits.
+   */
+  tcnBoot: TcnBootStatus;
 }
 
 const SnapshotContext = createContext<TickerSnapshotValue | null>(null);
@@ -161,13 +169,14 @@ export function TickerSnapshotProvider({
   );
   const curve = useMemo(() => curveVerdict(chain?.termStructure ?? []), [chain]);
   const session = useMemo(() => sessionDiff(panel), [panel]);
+  const tcnBoot = useTcnBootstrap({ ticker, bars, barsSource, allStockBars });
 
   const value = useMemo<TickerSnapshotValue>(() => ({
     ticker, chain, indices, ivHistory, panel, fnoPanel, fnoLoading, chainLoading, refresh,
     rvLadder, rvSeries, garchFit, rv20, vix, curve, session,
     earnings, allStockBars, latestQuotes, watchRows: watch.rows, scanWatchlist: watch.scan,
-    barsSource, intradaySource,
-  }), [ticker, chain, indices, ivHistory, panel, fnoPanel, fnoLoading, chainLoading, refresh, rvLadder, rvSeries, garchFit, rv20, vix, curve, session, earnings, allStockBars, latestQuotes, watch.rows, watch.scan, barsSource, intradaySource]);
+    barsSource, intradaySource, tcnBoot,
+  }), [ticker, chain, indices, ivHistory, panel, fnoPanel, fnoLoading, chainLoading, refresh, rvLadder, rvSeries, garchFit, rv20, vix, curve, session, earnings, allStockBars, latestQuotes, watch.rows, watch.scan, barsSource, intradaySource, tcnBoot]);
 
   return <SnapshotContext.Provider value={value}>{children}</SnapshotContext.Provider>;
 }

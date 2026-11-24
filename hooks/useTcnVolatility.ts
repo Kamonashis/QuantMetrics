@@ -7,6 +7,7 @@ import {
   runTcnVolatilityForecast,
   type TcnVolatilityForecast,
 } from '@/lib/tcn-multi-domain';
+import { subscribeTcnBootUpdates } from '@/lib/tcn-training-queue';
 
 const yieldFrame = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
@@ -14,9 +15,11 @@ const yieldFrame = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
  * Shared React-19-safe hook for the multi-horizon (1d / 5d / 22d) TCN-Attention
  * Volatility model.
  *
- * Training is manual-only: cache hydration follows the data/ticker, but fitting
- * only ever starts from an explicit `retrain()` call (a user pressing a button).
- * Live quote ticks patch bars and re-run hydration; they never start training.
+ * This hook never starts a fit on its own: cache hydration follows the
+ * data/ticker (live quote ticks patch bars and re-run hydration), and fits
+ * start in exactly two places — the app-level bootstrap trainer (the first
+ * live-data fit per ticker per session, which notifies this hook to
+ * re-hydrate) and an explicit `retrain()` call (a user pressing a button).
  */
 export function useTcnVolatility(
   ticker: string,
@@ -46,6 +49,21 @@ export function useTcnVolatility(
     setTrainRequest((prev) => ({ nonce: prev.nonce + 1, force: true }));
   }, []);
 
+  // The app-level bootstrap trainer writes artifacts into the shared engine
+  // caches outside this hook; a completed volatility head nudges hydration
+  // so the fresh forecast surfaces immediately instead of waiting for the
+  // next bar tick.
+  const [bootBump, setBootBump] = useState(0);
+  useEffect(
+    () =>
+      subscribeTcnBootUpdates((symbol, head) => {
+        if (head === 'volatility' && symbol === ticker.trim().toUpperCase()) {
+          setBootBump((v) => v + 1);
+        }
+      }),
+    [ticker]
+  );
+
   // Cache hydration only — follows the data, never starts a fit.
   useEffect(() => {
     if (barsLen < 70) return;
@@ -63,7 +81,7 @@ export function useTcnVolatility(
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [ticker, barsLen, firstDate, lastDate, lastClose, forecastDays]);
+  }, [ticker, barsLen, firstDate, lastDate, lastClose, forecastDays, bootBump]);
 
   // Explicit training only — started by the retrain button.
   useEffect(() => {

@@ -22,6 +22,7 @@ QuantMetrics is an advanced quantitative stock analysis, econometric diagnostics
   $$RV_{t+1d} = \beta_0 + \beta_d RV_t^{(d)} + \beta_w RV_t^{(w)} + \beta_m RV_t^{(m)} + \epsilon_{t+1}$$
 - **Jump Decomposition**: Barndorff-Nielsen & Shephard Bipower Variation (BV) separating continuous diffusion from discrete jumps ($J_t$).
 - **Intraday Diurnal U-Shape**: Minute-level diurnal seasonality tracking and Two-Scale Realized Volatility (TSRV) noise-robust estimation.
+- **TCN-Attention Boot Training**: the multi-domain TCN suite (volatility, risk VaR/ES, multi-asset regression heads — see the Modeling view) fits once automatically per ticker, at first load or on the first ticker switch, as soon as live bars are available. Every later fit is manual via the retrain buttons; concurrent fits of the same data coalesce into one run, and synthetic fallback data never boot-trains.
 
 ### 3. Return Distribution Fitting & Tail Risk
 - **Parametric Maximum Likelihood Fitting**:
