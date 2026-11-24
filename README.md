@@ -52,10 +52,13 @@ QuantMetrics is an advanced quantitative stock analysis, econometric diagnostics
   - **Christoffersen Independence Test**: First-order Markov test evaluating violation clustering and serial independence.
 - **Performance Evaluation**: Underwater drawdown profiles, Pain Index, and Bailey & López de Prado's Probabilistic Sharpe Ratio (PSR) and Deflated Sharpe Ratio (DSR).
 
-### 6. Regression & Factor Diagnostics
-- Ordinary Least Squares (OLS) single-index CAPM model against benchmark index (SPY).
-- Parameter estimates: Jensen's Alpha ($\alpha$), Beta ($\beta$), $t$-statistics, $p$-values, $R^2$, and Adjusted $R^2$.
-- Durbin-Watson residual autocorrelation statistic and residual Q-Q diagnostic plots.
+### 6. Factor Regression Lab
+- **Explain returns**: regress any asset's daily returns on a benchmark plus optional style-factor proxies (Size IWM−SPY, Value IWD−IWF, Momentum MTUM−SPY, Quality QUAL−SPY, Low-vol USMV−SPY, Nasdaq tilt QQQ−SPY) and up to four extra tickers. Results lead with plain-language readouts, exposure intervals, variance shares (sum to R²), and an exact return attribution over time.
+- **Test stability**: rolling 3M/6M/1Y exposures with 95% bands, a same-sample market-only comparison (HAC Wald + BIC), factor correlation and VIF overlap, Cook's-distance influential dates, a Huber robustness check, and Ljung–Box / Jarque–Bera residual checks.
+- **Predict (experimental)**: the TCN-Attention sequence model on lagged factor returns, scored out of sample against lag-matched OLS. It is kept apart from the descriptive fits.
+- **Cross-section screen**: factor rankings, IC, and composite long–short (the existing cross-sectional panel).
+- **Methods & data**: exact specification, per-series audit (bars, price basis, live vs. synthetic), and limits.
+- Engine: `lib/factor-regression.ts`. Returns are computed on the intersection of price dates, never by array position. OLS uses QR with collinearity refusal, Newey–West HAC inference, and exact t/F/χ² p-values. Returns are raw (not excess), so alpha is not Jensen's alpha.
 
 ---
 

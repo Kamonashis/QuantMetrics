@@ -142,7 +142,7 @@ export default function App() {
     'AAPL, MSFT, GOOGL, NVDA, TSLA, SPY'
   );
   const [regressionTickers, setRegressionTickers] = useState<string>(
-    'AAPL, SPY, QQQ'
+    'AAPL, SPY'
   );
 
   // Market Data In-Memory Cache with lazy instant initialization (defaulting to 10 years of history)
@@ -770,8 +770,9 @@ export default function App() {
             returnType={returnType}
             allStockBars={stockBarsCache}
             isLoading={isLoading}
-            onRunRegression={(tickers) => fetchTickers(tickers, '10y', startDate, endDate)}
+            onRunRegression={(tickers) => fetchTickers(tickers, '10y', startDate, endDate, { skipIntraday: true })}
             barsSource={currentBarsSource}
+            sourcesByTicker={stockSourceCache}
           />
         )}
       </main>

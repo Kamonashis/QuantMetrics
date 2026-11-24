@@ -122,9 +122,9 @@ const WORKSTATIONS: readonly WorkstationItem[] = [
     num: '07',
     view: 'regression',
     title: 'Factor & Regression Lab',
-    subtitle: 'CAPM · Rolling Beta · Newey–West',
+    subtitle: 'Style Factors · Rolling Exposures · Newey–West',
     description:
-      'Single- and multi-factor OLS regressions with HAC standard errors, rolling beta stability, residual normality checks, and out-of-sample accuracy.',
+      'Explain any stock’s returns with market and style-factor exposures, see what drove its risk and return, test whether the exposures held up, and keep forecasting in a separate out-of-sample lab.',
     icon: LineChart,
   },
 ];
