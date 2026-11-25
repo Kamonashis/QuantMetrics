@@ -17,6 +17,11 @@ import {
   fitGarch11,
 } from '@/lib/quant-engine';
 import {
+  buildDecompositionSeries,
+  effectiveDecompositionModel,
+  type DecompositionSeriesKind,
+} from '@/lib/decomposition-series';
+import {
   computeStationarityBattery,
   computeArchLmLjungBoxBattery,
   computeEvtTailEstimator,
@@ -95,6 +100,7 @@ export type AnalysisSubTabId =
   | 'microstructure';
 
 let persistedCycleBand: { min: number; max: number } = { ...DEFAULT_DECOMPOSITION_CYCLE_BAND };
+let persistedDecompSeries: DecompositionSeriesKind = 'price';
 
 export function AnalysisView({
   intradaySource = null,
@@ -130,6 +136,12 @@ export function AnalysisView({
   const setCycleBand = (next: { min: number; max: number }) => {
     persistedCycleBand = next;
     setCycleBandState(next);
+  };
+  // Decomposition series (Price / Realized Vol / Returns) — survives tab switches.
+  const [decompSeries, setDecompSeriesState] = useState<DecompositionSeriesKind>(() => persistedDecompSeries);
+  const setDecompSeries = (next: DecompositionSeriesKind) => {
+    persistedDecompSeries = next;
+    setDecompSeriesState(next);
   };
 
   // Deep-link: ?tab=dynamics restores the T1–T5 selection (replaceState keeps history clean).
@@ -194,9 +206,26 @@ export function AnalysisView({
   }, [dates, returns, parsedWindows]);
 
   // Compute Structural Decomposition (Trend, Fourier Cyclical, Seasonal, Irregular)
+  // Price keeps the exact original inputs (cache-key parity with the app-load fit);
+  // vol/returns come from the series builders (with closes aligned for the regime channel).
+  const decompSeriesData = useMemo(
+    () =>
+      decompSeries === 'price'
+        ? { kind: 'price' as const, dates, values: prices, closes: prices }
+        : buildDecompositionSeries(decompSeries, filteredBars, returnType),
+    [decompSeries, dates, prices, filteredBars, returnType]
+  );
+  const effectiveDecompModel = effectiveDecompositionModel(decompSeries, decompModel);
   const decompResult = useMemo(() => {
-    return decomposeTimeSeries(dates, prices, decompPeriod, decompModel, cycleBand.min, cycleBand.max);
-  }, [dates, prices, decompPeriod, decompModel, cycleBand.min, cycleBand.max]);
+    return decomposeTimeSeries(
+      decompSeriesData.dates,
+      decompSeriesData.values,
+      decompPeriod,
+      effectiveDecompModel,
+      cycleBand.min,
+      cycleBand.max
+    );
+  }, [decompSeriesData, decompPeriod, effectiveDecompModel, cycleBand.min, cycleBand.max]);
 
   // Compute ADF test on decomposition residuals
   const adfResult = useMemo(() => {
@@ -693,6 +722,9 @@ export function AnalysisView({
           hurstAndVr={hurstAndVr}
           innovation={innovationDiagnostics}
           decompResult={decompResult}
+          decompSeries={decompSeries}
+          onDecompSeriesChange={setDecompSeries}
+          decompSeriesData={decompSeriesData}
           adfResult={adfResult}
           decompPeriod={decompPeriod}
           onDecompPeriodChange={onDecompPeriodChange}

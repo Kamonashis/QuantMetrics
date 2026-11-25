@@ -18,6 +18,8 @@ import { TimeSeriesChart } from '@/components/charts/TimeSeriesChart';
 import { ReturnsChart } from '@/components/charts/ReturnsChart';
 import { RollingVolatilityChart } from '@/components/charts/RollingVolatilityChart';
 import { DecompositionChart } from '@/components/charts/DecompositionChart';
+import { SegmentedControl } from '@/components/ui/lab-ui';
+import { DECOMPOSITION_SERIES_META, type DecompositionSeriesKind } from '@/lib/decomposition-series';
 import { RegimeTimeline, regimeNames } from '@/components/charts/RegimeTimeline';
 import type { Data, Layout } from 'plotly.js';
 import { RegimeChip } from '@/components/ui/RegimeChip';
@@ -57,6 +59,9 @@ interface AnalysisOverviewTabProps {
   /** σ̂-standardized battery (GARCH conditional variance filter) — optional */
   innovation?: InnovationDiagnostics | null;
   decompResult: DecompositionResult;
+  decompSeries: DecompositionSeriesKind;
+  onDecompSeriesChange: (k: DecompositionSeriesKind) => void;
+  decompSeriesData: { kind: DecompositionSeriesKind; closes: number[]; returnsLog?: boolean };
   adfResult: AdfTestResult;
   decompPeriod: number;
   onDecompPeriodChange: (p: number) => void;
@@ -89,6 +94,9 @@ export function AnalysisOverviewTab({
   hurstAndVr,
   innovation = null,
   decompResult,
+  decompSeries,
+  onDecompSeriesChange,
+  decompSeriesData,
   adfResult,
   decompPeriod,
   onDecompPeriodChange,
@@ -605,11 +613,26 @@ export function AnalysisOverviewTab({
               </h3>
             </div>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-              Fourier bandpass cyclical extraction with component-wise Dilated Causal TCN + Multi-Head Self-Attention next-day price reconstruction
+              Fourier bandpass cyclical extraction with component-wise Dilated Causal TCN + Multi-Head Self-Attention next-day{' '}
+              {DECOMPOSITION_SERIES_META[decompSeries].label.toLowerCase()} reconstruction
             </p>
+            {decompSeries !== 'price' && (
+              <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 max-w-[80ch]">
+                {DECOMPOSITION_SERIES_META[decompSeries].description}
+              </p>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
+            <SegmentedControl
+              ariaLabel="Decomposition series"
+              value={decompSeries}
+              onChange={(v) => onDecompSeriesChange(v as DecompositionSeriesKind)}
+              options={(['price', 'vol', 'returns'] as const).map((k) => ({
+                value: k,
+                label: DECOMPOSITION_SERIES_META[k].shortLabel,
+              }))}
+            />
             <div className="flex items-center gap-1.5">
               <label htmlFor="overview-decomp-period" className="text-xs text-zinc-500 font-medium">
                 Seasonal:
@@ -653,8 +676,14 @@ export function AnalysisOverviewTab({
               <button
                 type="button"
                 onClick={() => onDecompModelChange('multiplicative')}
-                className={`shrink-0 px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer ${
-                  decompModel === 'multiplicative'
+                disabled={!DECOMPOSITION_SERIES_META[decompSeries].allowsMultiplicative}
+                title={
+                  DECOMPOSITION_SERIES_META[decompSeries].allowsMultiplicative
+                    ? undefined
+                    : 'Returns can be negative — multiplicative decomposition needs a positive series'
+                }
+                className={`shrink-0 px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 ${
+                  decompModel === 'multiplicative' && DECOMPOSITION_SERIES_META[decompSeries].allowsMultiplicative
                     ? 'bg-white dark:bg-zinc-800 text-gold-600 dark:text-gold-400 shadow-xs'
                     : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
                 }`}
@@ -665,7 +694,7 @@ export function AnalysisOverviewTab({
                 type="button"
                 onClick={() => onDecompModelChange('additive')}
                 className={`shrink-0 px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer ${
-                  decompModel === 'additive'
+                  decompModel === 'additive' || !DECOMPOSITION_SERIES_META[decompSeries].allowsMultiplicative
                     ? 'bg-white dark:bg-zinc-800 text-gold-600 dark:text-gold-400 shadow-xs'
                     : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
                 }`}
@@ -678,7 +707,14 @@ export function AnalysisOverviewTab({
 
         <div className="mt-4">
           <ChartFullscreen title="Structural Decomposition & TCN-Attention Forecast">
-            <DecompositionChart ticker={ticker} decomposition={decompResult} adfTest={adfResult} />
+            <DecompositionChart
+              ticker={ticker}
+              decomposition={decompResult}
+              adfTest={adfResult}
+              seriesKind={decompSeries}
+              regimeCloses={decompSeriesData.closes}
+              returnsLog={decompSeriesData.returnsLog}
+            />
           </ChartFullscreen>
         </div>
       </div>

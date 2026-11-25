@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { Data, Layout, Shape } from 'plotly.js';
 import type { DecompositionResult } from '@/lib/quant-engine';
 import {
@@ -19,8 +19,14 @@ import {
   type TcnAttentionConfig,
   type TcnDecompositionForecast,
   type TcnSensitivityResult,
+  type TcnSeriesKind,
   type TcnTrainingProgress,
 } from '@/lib/tcn-attention';
+import {
+  DECOMPOSITION_SERIES_META,
+  formatSeriesCompact,
+  formatSeriesDelta,
+} from '@/lib/decomposition-series';
 import { TcnAttentionEquation } from '@/components/math/MathEquations';
 import { ShimmerButton } from '@/components/ui/ShimmerButton';
 import { getHmmRegimeToken } from '@/lib/hmm-regime-overlay';
@@ -53,6 +59,8 @@ import {
 
 interface TcnForecastPanelProps {
   ticker: string;
+  /** Modelled series (price / realized vol / returns) — drives units & copy. */
+  seriesKind?: TcnSeriesKind;
   decomposition: DecompositionResult;
   config: TcnAttentionConfig;
   onConfigChange: (next: TcnAttentionConfig) => void;
@@ -90,19 +98,33 @@ const DILATION_PRESETS: { label: string; value: string; dilations: number[] }[] 
 
 const BACKTEST_COST_OPTIONS: BacktestCostBps[] = [0, 5, 10, 25];
 
+/** Series units for every value/delta in the panel (price $, vol points, returns %). */
+const SeriesKindContext = createContext<TcnSeriesKind>('price');
+
+function seriesFormatters(kind: TcnSeriesKind) {
+  return {
+    kind,
+    /** Value in series units */
+    fv: (v: number) => formatSeriesCompact(kind, v),
+    /** Signed change in series units */
+    fd: (v: number) => formatSeriesDelta(kind, v),
+  };
+}
+
+function useSeriesFmt() {
+  return seriesFormatters(useContext(SeriesKindContext));
+}
+
 function formatComponentValue(
   key: DecompositionComponentKey,
   val: number,
-  model: 'additive' | 'multiplicative'
+  model: 'additive' | 'multiplicative',
+  kind: TcnSeriesKind = 'price'
 ): string {
-  if (key === 'trend') return `$${val.toFixed(2)}`;
+  if (key === 'trend') return formatSeriesCompact(kind, val);
   if (model === 'multiplicative') return `${val.toFixed(4)}×`;
+  if (kind === 'returns') return `${val >= 0 ? '+' : ''}${(val * 100).toFixed(3)}%`;
   return `${val >= 0 ? '+' : ''}${val.toFixed(2)}`;
-}
-
-function formatSignedDollar(val: number): string {
-  const sign = val >= 0 ? '+' : '-';
-  return `${sign}$${Math.abs(val).toFixed(2)}`;
 }
 
 function formatSignedPct(val: number): string {
@@ -134,6 +156,7 @@ function PredictionIntervalBar({
   lower99: number;
   upper99: number;
 }) {
+  const { fv } = useSeriesFmt();
   const minVal = Math.min(lower99, lastPrice, predictedPrice);
   const maxVal = Math.max(upper99, lastPrice, predictedPrice);
   const pad = Math.max((maxVal - minVal) * 0.12, lastPrice * 0.005, 0.25);
@@ -161,7 +184,7 @@ function PredictionIntervalBar({
         viewBox={`0 0 ${w} ${h}`}
         className="block w-full h-[54px] select-none"
         role="img"
-        aria-label={`99% prediction interval from $${lower99.toFixed(2)} to $${upper99.toFixed(2)}, predicted $${predictedPrice.toFixed(2)}`}
+        aria-label={`99% prediction interval from ${fv(lower99)} to ${fv(upper99)}, predicted ${fv(predictedPrice)}`}
       >
         {/* Base rail */}
         <line
@@ -232,7 +255,7 @@ function PredictionIntervalBar({
           textAnchor="start"
           className="text-[10px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
         >
-          L99 ${lower99.toFixed(2)}
+          L99 {fv(lower99)}
         </text>
         <text
           x={xHigh}
@@ -240,7 +263,7 @@ function PredictionIntervalBar({
           textAnchor="end"
           className="text-[10px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
         >
-          U99 ${upper99.toFixed(2)}
+          U99 {fv(upper99)}
         </text>
         <text
           x={xLast}
@@ -248,7 +271,7 @@ function PredictionIntervalBar({
           textAnchor="middle"
           className="text-[9px] font-mono fill-zinc-500 dark:fill-zinc-400 tabular-nums"
         >
-          Last ${lastPrice.toFixed(2)}
+          Last {fv(lastPrice)}
         </text>
       </svg>
     </div>
@@ -465,6 +488,7 @@ function LookbackSensitivityChart({
 }: {
   sensitivity: TcnSensitivityResult;
 }) {
+  const { fv, fd, kind } = useSeriesFmt();
   const isDark = usePlotlyDarkTheme();
   const tokens = useMemo(() => getPlotlyThemeTokens(isDark), [isDark]);
   const [pinnedIdx, setPinnedIdx] = useState<number | null>(null);
@@ -505,7 +529,7 @@ function LookbackSensitivityChart({
         {
           type: 'scatter',
           mode: 'lines+markers',
-          name: 'Predicted Price (99% PI)',
+          name: `Predicted ${DECOMPOSITION_SERIES_META[kind].shortLabel} (99% PI)`,
           x: xs,
           y: ys,
           customdata: custom,
@@ -558,7 +582,7 @@ function LookbackSensitivityChart({
             yref: 'y',
             x: 1,
             y: lastPrice,
-            text: `Last $${lastPrice.toFixed(2)}`,
+            text: `Last ${formatSeriesCompact(kind, lastPrice)}`,
             showarrow: false,
             xanchor: 'right',
             yanchor: 'bottom',
@@ -571,12 +595,14 @@ function LookbackSensitivityChart({
           gridcolor: tokens.grid,
         },
         yaxis: {
-          tickprefix: '$',
+          tickprefix: kind === 'price' ? '$' : '',
+          ticksuffix: kind === 'vol' ? ' vol' : '',
+          tickformat: kind === 'returns' ? '.3%' : undefined,
           gridcolor: tokens.grid,
         },
       },
     };
-  }, [k, runs, summary.bestRmseLookback, summary.meanPrice, lastPrice, isDark, tokens]);
+  }, [k, runs, summary.bestRmseLookback, summary.meanPrice, lastPrice, isDark, tokens, kind]);
 
   if (k === 0 || !activeRun) return null;
 
@@ -594,26 +620,26 @@ function LookbackSensitivityChart({
           <span>
             Pred{' '}
             <strong className="text-zinc-900 dark:text-zinc-100">
-              ${activeRun.forecast.predictedPrice.toFixed(2)}
+              {fv(activeRun.forecast.predictedPrice)}
             </strong>{' '}
             <span
               className={
                 activeRun.forecast.deltaDollar >= 0 ? 'text-[#3fb27f]' : 'text-[#e0655f]'
               }
             >
-              ({formatSignedDollar(activeRun.forecast.deltaDollar)} /{' '}
+              ({fd(activeRun.forecast.deltaDollar)} /{' '}
               {formatSignedPct(activeRun.forecast.deltaPct)})
             </span>
           </span>
           <span>·</span>
           <span>
-            99% PI [${activeRun.forecast.lower99.toFixed(2)}, ${activeRun.forecast.upper99.toFixed(2)}]
+            99% PI [{fv(activeRun.forecast.lower99)}, {fv(activeRun.forecast.upper99)}]
           </span>
           <span>·</span>
           <span>
             OOS RMSE{' '}
             <strong className="text-zinc-900 dark:text-zinc-100">
-              ${activeRun.forecast.holdoutPriceRmse.toFixed(2)}
+              {fv(activeRun.forecast.holdoutPriceRmse)}
             </strong>
           </span>
         </div>
@@ -659,7 +685,7 @@ function LookbackSensitivityChart({
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="w-3 border-t border-dotted border-[#DEC084] inline-block" />
-            Sweep mean ${summary.meanPrice.toFixed(2)}
+            Sweep mean {fv(summary.meanPrice)}
           </span>
         </div>
         <span>Click any lookback marker to pin readout</span>
@@ -674,6 +700,7 @@ function HistoricalBacktestChart({
 }: {
   backtest: HistoricalBacktestResult;
 }) {
+  const { fv, kind } = useSeriesFmt();
   const isDark = usePlotlyDarkTheme();
   const tokens = useMemo(() => getPlotlyThemeTokens(isDark), [isDark]);
   const [showRegimeOverlay, setShowRegimeOverlay] = useState(true);
@@ -851,7 +878,7 @@ function HistoricalBacktestChart({
           subtitle="Stratified by dominant HMM regime at t−1 prediction origin"
           columns={[
             { key: 'hit', label: 'Dir Hit Rate' },
-            { key: 'rmse', label: 'Price RMSE' },
+            { key: 'rmse', label: `${DECOMPOSITION_SERIES_META[kind].shortLabel} RMSE` },
             { key: 'meanNet', label: 'Mean Net / Day' },
             { key: 'cumNet', label: 'Cum Net P&L' },
           ]}
@@ -863,7 +890,7 @@ function HistoricalBacktestChart({
                 r.directionalHitRatePct !== null
                   ? `${r.directionalHitRatePct.toFixed(0)}%`
                   : '—',
-              rmse: r.rmseDollar !== null ? `$${r.rmseDollar.toFixed(2)}` : '—',
+              rmse: r.rmseDollar !== null ? `${fv(r.rmseDollar)}` : '—',
               meanNet:
                 r.meanNetReturnPct !== null ? (
                   <span
@@ -916,6 +943,7 @@ const persistedPanelUiState: {
 
 export function TcnForecastPanel({
   ticker,
+  seriesKind = 'price',
   decomposition,
   config,
   onConfigChange,
@@ -931,6 +959,11 @@ export function TcnForecastPanel({
   isStale,
   onTrain,
 }: TcnForecastPanelProps) {
+  const { fv, fd, kind } = seriesFormatters(seriesKind);
+  const seriesMeta = DECOMPOSITION_SERIES_META[kind];
+  const lastValueLabel = kind === 'vol' ? 'Last Realized Vol' : kind === 'returns' ? 'Last Return' : 'Last Close';
+  // Flat-move threshold in native units (returns are decimals: 0.005 would be 0.5%).
+  const moveEps = kind === 'returns' ? 1e-5 : 0.005;
   const [diagComponent, setDiagComponent] = useState<DecompositionComponentKey>(
     () => persistedPanelUiState.diagComponent
   );
@@ -952,7 +985,8 @@ export function TcnForecastPanel({
   }, [diagComponent, diagHead, backtestVisible, backtestCostBps]);
 
   const nObs = decomposition.observed.length;
-  const backtest = forecast
+  // Vol has no tradable P&L: no backtest (forecast-error statistics only).
+  const backtest = forecast && seriesMeta.hasTradingBacktest && forecast.backtestSignals.length > 0
     ? computeHistoricalBacktest(forecast.backtestSignals, backtestCostBps)
     : null;
   const effectiveConfig = sanitizeTcnConfig(config, Math.max(nObs, MIN_BARS_FOR_TCN));
@@ -1009,6 +1043,7 @@ export function TcnForecastPanel({
     : 1;
 
   return (
+    <SeriesKindContext.Provider value={kind}>
     <div className="mt-5 pt-5 border-t border-zinc-200/80 dark:border-zinc-800/80 space-y-4">
       {/* Section Header */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
@@ -1408,10 +1443,10 @@ export function TcnForecastPanel({
               <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <div className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                    Last Close ({forecast.lastDate})
+                    {lastValueLabel} ({forecast.lastDate})
                   </div>
                   <div className="mt-1 font-mono text-xl font-semibold text-zinc-900 dark:text-zinc-100 tabular-nums">
-                    ${forecast.lastPrice.toFixed(2)}
+                    {fv(forecast.lastPrice)}
                   </div>
                   <div className="mt-0.5 text-[11px] font-mono text-zinc-500 dark:text-zinc-400">
                     {ticker} · {forecast.model}
@@ -1423,26 +1458,27 @@ export function TcnForecastPanel({
                     Predicted ({forecast.nextDateLabel})
                   </div>
                   <div className="mt-1 font-mono text-2xl font-bold text-gold-600 dark:text-gold-400 tabular-nums">
-                    ${forecast.predictedPrice.toFixed(2)}
+                    {fv(forecast.predictedPrice)}
                   </div>
                   <div
                     className={`mt-0.5 inline-flex items-center gap-1 font-mono text-xs font-semibold tabular-nums ${
-                      forecast.deltaDollar > 0.005
+                      forecast.deltaDollar > moveEps
                         ? 'text-[#3fb27f]'
-                        : forecast.deltaDollar < -0.005
+                        : forecast.deltaDollar < -moveEps
                         ? 'text-[#e0655f]'
                         : 'text-zinc-500 dark:text-zinc-400'
                     }`}
                   >
-                    {forecast.deltaDollar > 0.005 ? (
+                    {forecast.deltaDollar > moveEps ? (
                       <TrendingUp className="w-3.5 h-3.5" />
-                    ) : forecast.deltaDollar < -0.005 ? (
+                    ) : forecast.deltaDollar < -moveEps ? (
                       <TrendingDown className="w-3.5 h-3.5" />
                     ) : (
                       <Minus className="w-3.5 h-3.5" />
                     )}
                     <span>
-                      {formatSignedDollar(forecast.deltaDollar)} ({formatSignedPct(forecast.deltaPct)})
+                      {fd(forecast.deltaDollar)}
+                      {kind !== 'returns' && ` (${formatSignedPct(forecast.deltaPct)})`}
                     </span>
                   </div>
                 </div>
@@ -1452,10 +1488,10 @@ export function TcnForecastPanel({
                     99% Prediction Interval
                   </div>
                   <div className="mt-1 font-mono text-sm font-semibold text-zinc-900 dark:text-zinc-100 tabular-nums">
-                    ${forecast.lower99.toFixed(2)} – ${forecast.upper99.toFixed(2)}
+                    {fv(forecast.lower99)} – {fv(forecast.upper99)}
                   </div>
                   <div className="mt-1 text-[11px] font-mono text-zinc-500 dark:text-zinc-400 tabular-nums">
-                    Width ±${((forecast.upper99 - forecast.lower99) / 2).toFixed(2)} (Student-t)
+                    Width ±{fv(((forecast.upper99 - forecast.lower99) / 2))} (Student-t)
                   </div>
                 </div>
               </div>
@@ -1477,7 +1513,7 @@ export function TcnForecastPanel({
                 <span className="text-zinc-400 mr-1.5">Reconstruction:</span>
                 {forecast.model === 'multiplicative' ? (
                   <>
-                    <span className="text-[#3fb27f]">${forecast.components.trend.predictedValue.toFixed(2)}</span>
+                    <span className="text-[#3fb27f]">{fv(forecast.components.trend.predictedValue)}</span>
                     <span className="text-zinc-400 mx-1">×</span>
                     <span className="text-gold-600 dark:text-gold-400">
                       {forecast.components.cyclical.predictedValue.toFixed(4)}
@@ -1492,30 +1528,27 @@ export function TcnForecastPanel({
                     </span>
                     <span className="text-zinc-400 mx-1.5">=</span>
                     <strong className="text-zinc-900 dark:text-zinc-100">
-                      ${forecast.predictedPrice.toFixed(2)}
+                      {fv(forecast.predictedPrice)}
                     </strong>
                   </>
                 ) : (
                   <>
-                    <span className="text-[#3fb27f]">${forecast.components.trend.predictedValue.toFixed(2)}</span>
+                    <span className="text-[#3fb27f]">{fv(forecast.components.trend.predictedValue)}</span>
                     <span className="text-zinc-400 mx-1">+</span>
                     <span className="text-gold-600 dark:text-gold-400">
-                      ({forecast.components.cyclical.predictedValue >= 0 ? '+' : ''}
-                      {forecast.components.cyclical.predictedValue.toFixed(2)})
+                      ({formatComponentValue('cyclical', forecast.components.cyclical.predictedValue, 'additive', kind)})
                     </span>
                     <span className="text-zinc-400 mx-1">+</span>
                     <span className="text-zinc-700 dark:text-zinc-300">
-                      ({forecast.components.seasonal.predictedValue >= 0 ? '+' : ''}
-                      {forecast.components.seasonal.predictedValue.toFixed(2)})
+                      ({formatComponentValue('seasonal', forecast.components.seasonal.predictedValue, 'additive', kind)})
                     </span>
                     <span className="text-zinc-400 mx-1">+</span>
                     <span className="text-[#e0655f]">
-                      ({forecast.components.residual.predictedValue >= 0 ? '+' : ''}
-                      {forecast.components.residual.predictedValue.toFixed(2)})
+                      ({formatComponentValue('residual', forecast.components.residual.predictedValue, 'additive', kind)})
                     </span>
                     <span className="text-zinc-400 mx-1.5">=</span>
                     <strong className="text-zinc-900 dark:text-zinc-100">
-                      ${forecast.predictedPrice.toFixed(2)}
+                      {fv(forecast.predictedPrice)}
                     </strong>
                   </>
                 )}
@@ -1526,21 +1559,36 @@ export function TcnForecastPanel({
                 <span>
                   OOS RMSE{' '}
                   <strong className="text-zinc-900 dark:text-zinc-100">
-                    ${forecast.holdoutPriceRmse.toFixed(2)}
+                    {fv(forecast.holdoutPriceRmse)}
                   </strong>
                 </span>
                 <span>·</span>
                 <span>
-                  Naive RW{' '}
+                  <span title={`Baseline: ${seriesMeta.baselineLabel}`}>{kind === 'returns' ? 'Zero-return' : 'Naive RW'}</span>{' '}
                   <strong className="text-zinc-700 dark:text-zinc-300">
-                    ${forecast.naiveBaselineRmse.toFixed(2)}
+                    {fv(forecast.naiveBaselineRmse)}
+                  </strong>
+                </span>
+                <span>·</span>
+                <span title="1 − RMSE_TCN / RMSE_baseline on the same out-of-sample days">
+                  Skill{' '}
+                  <strong
+                    className={
+                      forecast.naiveBaselineRmse > 0 && forecast.holdoutPriceRmse < forecast.naiveBaselineRmse
+                        ? 'text-[#3fb27f]'
+                        : 'text-[#e0655f]'
+                    }
+                  >
+                    {forecast.naiveBaselineRmse > 0
+                      ? `${((1 - forecast.holdoutPriceRmse / forecast.naiveBaselineRmse) * 100).toFixed(1)}%`
+                      : '—'}
                   </strong>
                 </span>
                 <span>·</span>
                 <span>
                   MAE{' '}
                   <strong className="text-zinc-900 dark:text-zinc-100">
-                    ${forecast.holdoutPriceMae.toFixed(2)}
+                    {fv(forecast.holdoutPriceMae)}
                   </strong>
                 </span>
                 <span>·</span>
@@ -1579,6 +1627,25 @@ export function TcnForecastPanel({
                 </span>
               </div>
             </div>
+            {kind !== 'price' && (() => {
+              const skill =
+                forecast.naiveBaselineRmse > 0 ? 1 - forecast.holdoutPriceRmse / forecast.naiveBaselineRmse : null;
+              const hit = forecast.directionalAccuracy;
+              const edge = skill !== null && skill > 0;
+              return (
+                <p className="text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-400">
+                  <strong className="text-zinc-900 dark:text-zinc-100">Out-of-sample read ({forecast.holdoutCount} days):</strong>{' '}
+                  {skill === null
+                    ? 'baseline error unavailable.'
+                    : edge
+                      ? `RMSE is ${(skill * 100).toFixed(1)}% below the ${seriesMeta.baselineLabel}.`
+                      : `no edge — RMSE is ${(-skill * 100).toFixed(1)}% above the ${seriesMeta.baselineLabel}; treat the point forecast as uninformative.`}{' '}
+                  {kind === 'returns'
+                    ? `Sign hit rate ${hit.toFixed(1)}% (50% = coin flip).`
+                    : `Direction of the next-day vol change was right ${hit.toFixed(1)}% of the time.`}
+                </p>
+              );
+            })()}
           </div>
 
           {/* Component Contribution Breakdown Table + Diverging Waterfall */}
@@ -1639,21 +1706,21 @@ export function TcnForecastPanel({
                           </div>
                         </td>
                         <td className="py-2 px-2 text-right text-zinc-600 dark:text-zinc-300">
-                          {formatComponentValue(key, comp.currentValue, forecast.model)}
+                          {formatComponentValue(key, comp.currentValue, forecast.model, kind)}
                         </td>
                         <td className="py-2 px-2 text-right font-semibold text-zinc-900 dark:text-zinc-100">
-                          {formatComponentValue(key, comp.predictedValue, forecast.model)}
+                          {formatComponentValue(key, comp.predictedValue, forecast.model, kind)}
                         </td>
                         <td className="py-2 px-2 text-right text-zinc-500 dark:text-zinc-400">
-                          [{formatComponentValue(key, comp.lower99, forecast.model)},{' '}
-                          {formatComponentValue(key, comp.upper99, forecast.model)}]
+                          [{formatComponentValue(key, comp.lower99, forecast.model, kind)},{' '}
+                          {formatComponentValue(key, comp.upper99, forecast.model, kind)}]
                         </td>
                         <td
                           className={`py-2 px-2 text-right font-semibold ${
                             isPos ? 'text-[#3fb27f]' : 'text-[#e0655f]'
                           }`}
                         >
-                          {formatSignedDollar(comp.contributionDollar)}
+                          {fd(comp.contributionDollar)}
                         </td>
                         <td
                           className={`py-2 px-2 text-right ${
@@ -1664,7 +1731,7 @@ export function TcnForecastPanel({
                         </td>
                         <td className="py-2 pl-2 text-right text-zinc-500 dark:text-zinc-400">
                           {key === 'trend'
-                            ? `$${comp.holdoutRmse.toFixed(2)}`
+                            ? `${fv(comp.holdoutRmse)}`
                             : forecast.model === 'multiplicative'
                             ? comp.holdoutRmse.toFixed(4)
                             : comp.holdoutRmse.toFixed(2)}
@@ -1700,20 +1767,20 @@ export function TcnForecastPanel({
                       Reconstructed Total (Ŷ<sub>t+1</sub>)
                     </td>
                     <td className="py-2 px-2 text-right text-zinc-600 dark:text-zinc-300">
-                      ${forecast.lastPrice.toFixed(2)}
+                      {fv(forecast.lastPrice)}
                     </td>
                     <td className="py-2 px-2 text-right text-gold-600 dark:text-gold-400">
-                      ${forecast.predictedPrice.toFixed(2)}
+                      {fv(forecast.predictedPrice)}
                     </td>
                     <td className="py-2 px-2 text-right text-zinc-500 dark:text-zinc-400">
-                      [${forecast.lower99.toFixed(2)}, ${forecast.upper99.toFixed(2)}]
+                      [{fv(forecast.lower99)}, {fv(forecast.upper99)}]
                     </td>
                     <td
                       className={`py-2 px-2 text-right ${
                         forecast.deltaDollar >= 0 ? 'text-[#3fb27f]' : 'text-[#e0655f]'
                       }`}
                     >
-                      {formatSignedDollar(forecast.deltaDollar)}
+                      {fd(forecast.deltaDollar)}
                     </td>
                     <td
                       className={`py-2 px-2 text-right ${
@@ -1723,7 +1790,7 @@ export function TcnForecastPanel({
                       {formatSignedPct(forecast.deltaPct)}
                     </td>
                     <td className="py-2 pl-2 text-right text-zinc-700 dark:text-zinc-300">
-                      ${forecast.holdoutPriceRmse.toFixed(2)}
+                      {fv(forecast.holdoutPriceRmse)}
                     </td>
                     <td className="py-2 pl-3 hidden md:table-cell text-[10px] text-zinc-400">
                       Exact LMDI sum
@@ -1803,14 +1870,14 @@ export function TcnForecastPanel({
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 py-3 border-y border-zinc-200/70 dark:border-zinc-800/70 font-mono tabular-nums">
                     <div>
                       <div className="text-[10px] uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                        Price Range
+                        Forecast Range
                       </div>
                       <div className="mt-1 text-xs font-semibold text-zinc-900 dark:text-zinc-100">
-                        ${sensitivityResult.summary.minPrice.toFixed(2)} – $
-                        {sensitivityResult.summary.maxPrice.toFixed(2)}
+                        {fv(sensitivityResult.summary.minPrice)} –{' '}
+                        {fv(sensitivityResult.summary.maxPrice)}
                       </div>
                       <div className="mt-0.5 text-[10px] text-zinc-500 dark:text-zinc-400">
-                        Spread ${sensitivityResult.summary.priceRangeDollar.toFixed(2)} (
+                        Spread {fv(sensitivityResult.summary.priceRangeDollar)} (
                         {sensitivityResult.summary.priceRangePct.toFixed(2)}%)
                       </div>
                     </div>
@@ -1820,7 +1887,7 @@ export function TcnForecastPanel({
                         Cross-Window σ
                       </div>
                       <div className="mt-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                        ±${sensitivityResult.summary.stdDevPrice.toFixed(2)}
+                        ±{fv(sensitivityResult.summary.stdDevPrice)}
                       </div>
                       <div className="mt-0.5 text-[10px] text-zinc-500 dark:text-zinc-400">
                         CV {sensitivityResult.summary.cvPct.toFixed(2)}% · Mean $
@@ -1894,7 +1961,7 @@ export function TcnForecastPanel({
                         L = {sensitivityResult.summary.bestRmseLookback}d
                       </div>
                       <div className="mt-0.5 text-[10px] text-zinc-500 dark:text-zinc-400">
-                        RMSE ${sensitivityResult.summary.bestRmseValue.toFixed(2)}
+                        RMSE {fv(sensitivityResult.summary.bestRmseValue)}
                       </div>
                     </div>
                   </div>
@@ -1909,7 +1976,7 @@ export function TcnForecastPanel({
                         Per-Component Lookback Stability Breakdown
                       </span>
                       <span className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400">
-                        Variance Share attributes cross-window price drift across T, C, S, I
+                        Variance Share attributes cross-window forecast drift across T, C, S, I
                       </span>
                     </div>
 
@@ -1945,24 +2012,24 @@ export function TcnForecastPanel({
                                   {meta.label}
                                 </td>
                                 <td className="py-2 px-2 text-right text-zinc-700 dark:text-zinc-200">
-                                  {formatComponentValue(key, cs.baseValue, sensitivityResult.model)}
+                                  {formatComponentValue(key, cs.baseValue, sensitivityResult.model, kind)}
                                 </td>
                                 <td className="py-2 px-2 text-right text-zinc-600 dark:text-zinc-300">
-                                  {formatComponentValue(key, cs.meanValue, sensitivityResult.model)}
+                                  {formatComponentValue(key, cs.meanValue, sensitivityResult.model, kind)}
                                 </td>
                                 <td className="py-2 px-2 text-right text-zinc-500 dark:text-zinc-400">
-                                  {formatComponentValue(key, cs.minValue, sensitivityResult.model)} –{' '}
-                                  {formatComponentValue(key, cs.maxValue, sensitivityResult.model)}
+                                  {formatComponentValue(key, cs.minValue, sensitivityResult.model, kind)} –{' '}
+                                  {formatComponentValue(key, cs.maxValue, sensitivityResult.model, kind)}
                                 </td>
                                 <td className="py-2 px-2 text-right text-zinc-600 dark:text-zinc-300">
                                   {key === 'trend'
-                                    ? `±$${cs.stdDevValue.toFixed(2)}`
+                                    ? `±${fv(cs.stdDevValue)}`
                                     : sensitivityResult.model === 'multiplicative'
                                     ? `±${cs.stdDevValue.toFixed(4)}`
                                     : `±${cs.stdDevValue.toFixed(2)}`}
                                 </td>
                                 <td className="py-2 px-2 text-right text-zinc-900 dark:text-zinc-100">
-                                  ${cs.contribDollarSpread.toFixed(2)}
+                                  {fv(cs.contribDollarSpread)}
                                 </td>
                                 <td className="py-2 pl-3">
                                   <div className="flex items-center gap-2">
@@ -1987,23 +2054,23 @@ export function TcnForecastPanel({
                         <tfoot>
                           <tr className="border-t border-zinc-300 dark:border-zinc-700 font-semibold">
                             <td className="py-2 pr-3 font-sans text-zinc-900 dark:text-zinc-100">
-                              Reconstructed Price (Ŷ<sub>t+1</sub>)
+                              Reconstructed {seriesMeta.shortLabel} (Ŷ<sub>t+1</sub>)
                             </td>
                             <td className="py-2 px-2 text-right text-gold-600 dark:text-gold-400">
-                              ${sensitivityResult.baseForecast.predictedPrice.toFixed(2)}
+                              {fv(sensitivityResult.baseForecast.predictedPrice)}
                             </td>
                             <td className="py-2 px-2 text-right text-zinc-900 dark:text-zinc-100">
-                              ${sensitivityResult.summary.meanPrice.toFixed(2)}
+                              {fv(sensitivityResult.summary.meanPrice)}
                             </td>
                             <td className="py-2 px-2 text-right text-zinc-600 dark:text-zinc-300">
-                              ${sensitivityResult.summary.minPrice.toFixed(2)} – $
-                              {sensitivityResult.summary.maxPrice.toFixed(2)}
+                              {fv(sensitivityResult.summary.minPrice)} –{' '}
+                              {fv(sensitivityResult.summary.maxPrice)}
                             </td>
                             <td className="py-2 px-2 text-right text-zinc-900 dark:text-zinc-100">
-                              ±${sensitivityResult.summary.stdDevPrice.toFixed(2)}
+                              ±{fv(sensitivityResult.summary.stdDevPrice)}
                             </td>
                             <td className="py-2 px-2 text-right text-zinc-900 dark:text-zinc-100">
-                              ${sensitivityResult.summary.priceRangeDollar.toFixed(2)}
+                              {fv(sensitivityResult.summary.priceRangeDollar)}
                             </td>
                             <td className="py-2 pl-3 text-right text-[11px] text-zinc-500 dark:text-zinc-400">
                               100% total
@@ -2097,7 +2164,7 @@ export function TcnForecastPanel({
                   σ ={' '}
                   {forecast.model === 'multiplicative'
                     ? `${(forecast.signalToNoise.signalStdDev * 100).toFixed(2)}%`
-                    : `$${forecast.signalToNoise.signalStdDev.toFixed(2)}`}
+                    : `${fv(forecast.signalToNoise.signalStdDev)}`}
                 </div>
               </div>
 
@@ -2115,7 +2182,7 @@ export function TcnForecastPanel({
                   σ ={' '}
                   {forecast.model === 'multiplicative'
                     ? `${(forecast.signalToNoise.noiseStdDev * 100).toFixed(2)}%`
-                    : `$${forecast.signalToNoise.noiseStdDev.toFixed(2)}`}
+                    : `${fv(forecast.signalToNoise.noiseStdDev)}`}
                 </div>
               </div>
 
@@ -2158,6 +2225,12 @@ export function TcnForecastPanel({
           </div>
 
           {/* Historical Backtest Overlay (Trailing <= 30 Trading Days, Strictly OOS) */}
+          {!backtest && forecast && kind === 'vol' && (
+            <div className="panel-inset p-3 text-[11px] text-zinc-500 dark:text-zinc-400">
+              No trading backtest for realized volatility — it is not a tradable price. Judge the model by the
+              out-of-sample RMSE / skill against the {seriesMeta.baselineLabel} and the direction hit rate above.
+            </div>
+          )}
           {backtest && (
             <div className="panel-inset p-4 space-y-3.5">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
@@ -2193,6 +2266,7 @@ export function TcnForecastPanel({
 
                     <span className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400 tabular-nums">
                       · Last {backtest.summary.tradingDays} trading days · strictly OOS · Signal-weighted tanh(r̂/σ)
+                      {kind === 'returns' && ' · position = sign/size of the predicted return, P&L = realized return'}
                     </span>
                   </div>
                   <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">
@@ -2449,5 +2523,6 @@ export function TcnForecastPanel({
         </div>
       )}
     </div>
+    </SeriesKindContext.Provider>
   );
 }

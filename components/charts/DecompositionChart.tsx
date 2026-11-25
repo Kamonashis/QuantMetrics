@@ -18,8 +18,11 @@ import {
   runTcnLookbackSensitivitySweep,
   type SensitivityStep,
   type TcnAttentionConfig,
+  type TcnSeriesKind,
+  type TcnSeriesSpec,
   type TcnTrainingProgress,
 } from '@/lib/tcn-attention';
+import { DECOMPOSITION_SERIES_META, formatSeriesCompact } from '@/lib/decomposition-series';
 import {
   DecompositionAdditiveEquation,
   DecompositionMultiplicativeEquation,
@@ -43,6 +46,12 @@ interface DecompositionChartProps {
   ticker?: string;
   decomposition: DecompositionResult;
   adfTest: AdfTestResult;
+  /** Modelled series (default price). */
+  seriesKind?: TcnSeriesKind;
+  /** Asset closes aligned to decomposition.dates (TCN regime channel). */
+  regimeCloses?: number[];
+  /** 'returns' only: log returns. */
+  returnsLog?: boolean;
 }
 
 type ComponentFilter = 'all' | 'trend' | 'cyclical' | 'seasonal' | 'residual';
@@ -276,6 +285,9 @@ export function DecompositionChart({
   ticker = 'ASSET',
   decomposition,
   adfTest,
+  seriesKind = 'price',
+  regimeCloses,
+  returnsLog,
 }: DecompositionChartProps) {
   const isDark = usePlotlyDarkTheme();
   const [activeComponent, setActiveComponentState] = useState<ComponentFilter>(
@@ -319,6 +331,10 @@ export function DecompositionChart({
   const tcnConfigRef = useRef<TcnAttentionConfig>(tcnConfig);
   const decompositionRef = useRef<DecompositionResult>(decomposition);
   const tickerRef = useRef<string>(ticker);
+  const seriesRef = useRef<TcnSeriesSpec>({ kind: seriesKind, regimeCloses, returnsLog });
+  useEffect(() => {
+    seriesRef.current = { kind: seriesKind, regimeCloses, returnsLog };
+  }, [seriesKind, regimeCloses, returnsLog]);
 
   useEffect(() => {
     tcnConfigRef.current = tcnConfig;
@@ -345,13 +361,14 @@ export function DecompositionChart({
   } = decomposition;
   const n = dates.length;
 
-  const dataSignature = buildTcnDataSignature(ticker, decomposition);
-  const fullCacheKey = buildTcnCacheKey(ticker, decomposition, tcnConfig);
+  const dataSignature = buildTcnDataSignature(ticker, decomposition, seriesKind);
+  const fullCacheKey = buildTcnCacheKey(ticker, decomposition, tcnConfig, seriesKind);
   const fullSensitivityKey = buildTcnSensitivityCacheKey(
     ticker,
     decomposition,
     tcnConfig,
-    sensitivityStep
+    sensitivityStep,
+    seriesKind
   );
 
   const exactCachedArtifact = cacheRevision >= 0 ? getCachedTcnArtifact(fullCacheKey) : null;
@@ -360,7 +377,7 @@ export function DecompositionChart({
   const fallbackCachedArtifact =
     exactCachedArtifact ??
     getLatestCachedTcnArtifactForData(dataSignature) ??
-    getLatestCachedTcnArtifactByTicker(ticker);
+    getLatestCachedTcnArtifactByTicker(ticker, seriesKind);
   const forecast = fallbackCachedArtifact?.forecast ?? null;
   const exactCachedSweep =
     cacheRevision >= 0 ? getCachedTcnSensitivity(fullSensitivityKey) : null;
@@ -378,6 +395,7 @@ export function DecompositionChart({
     ) => {
       const decomp = decompositionRef.current;
       const sym = tickerRef.current;
+      const series = seriesRef.current;
       if (decomp.observed.length < MIN_BARS_FOR_TCN) {
         setIsTraining(false);
         setProgress(null);
@@ -386,7 +404,7 @@ export function DecompositionChart({
 
       if (!forceRetrain) {
         if (runSweep) {
-          const sweepKey = buildTcnSensitivityCacheKey(sym, decomp, cfg, step);
+          const sweepKey = buildTcnSensitivityCacheKey(sym, decomp, cfg, step, series.kind);
           if (getCachedTcnSensitivity(sweepKey)) {
             setCacheRevision((v) => v + 1);
             setIsTraining(false);
@@ -394,7 +412,7 @@ export function DecompositionChart({
             return;
           }
         } else {
-          const key = buildTcnCacheKey(sym, decomp, cfg);
+          const key = buildTcnCacheKey(sym, decomp, cfg, series.kind);
           if (getCachedTcnArtifact(key)) {
             setCacheRevision((v) => v + 1);
             setIsTraining(false);
@@ -419,6 +437,7 @@ export function DecompositionChart({
           isCancelled: () => runIdRef.current !== myRunId,
           useCache: true,
           forceRetrain,
+          series,
         });
 
         if (runIdRef.current === myRunId) {
@@ -442,6 +461,7 @@ export function DecompositionChart({
         isCancelled: () => runIdRef.current !== myRunId,
         useCache: true,
         forceRetrain,
+        series,
       });
 
       if (runIdRef.current === myRunId) {
@@ -475,17 +495,22 @@ export function DecompositionChart({
       }),
     [upperTicker]
   );
+  // The app-load bootstrap only resolves the price series; vol/returns train on open.
   const bootFittingThis =
-    tcnBoot.ticker === upperTicker && tcnBoot.state === 'training' && tcnBoot.head === 'decomposition';
-  const bootPending = tcnBoot.ticker === upperTicker && tcnBoot.state !== 'done';
+    seriesKind === 'price' &&
+    tcnBoot.ticker === upperTicker &&
+    tcnBoot.state === 'training' &&
+    tcnBoot.head === 'decomposition';
+  const bootPending = seriesKind === 'price' && tcnBoot.ticker === upperTicker && tcnBoot.state !== 'done';
 
   // Not found in cache for the current decomposition (e.g. a non-default period,
   // model, cycle band or start date) → one automatic fit with the default TCN
   // parameters, cached by the engine. Waits for the bootstrap (which may be about
   // to answer this exact setup) and for live bars (synthetic history is never
   // auto-trained), and runs at most once per setup per session.
-  const hasAnyFitForSetup = forecast !== null && forecast.model === model && forecast.period === period;
-  const autoFitKey = `${upperTicker}|${model}|${period}|${cycleMinPeriod}-${cycleMaxPeriod}|${dates[0] ?? ''}`;
+  const hasAnyFitForSetup =
+    forecast !== null && (forecast.seriesKind ?? 'price') === seriesKind && forecast.model === model && forecast.period === period;
+  const autoFitKey = `${upperTicker}|${seriesKind}|${returnsLog ? 'log' : ''}|${model}|${period}|${cycleMinPeriod}-${cycleMaxPeriod}|${dates[0] ?? ''}`;
   useEffect(() => {
     if (hasAnyFitForSetup || isTraining || bootPending) return;
     if (barsSource !== 'live_market' || n < MIN_BARS_FOR_TCN) return;
@@ -500,26 +525,37 @@ export function DecompositionChart({
   const isMult = model === 'multiplicative';
   const refBaseline = isMult ? 1 : 0;
 
-  const fmtPrice = useCallback((v: number) => `$${v.toFixed(2)}`, []);
+  const fmtPrice = useCallback((v: number) => formatSeriesCompact(seriesKind, v), [seriesKind]);
   const fmtFactor = useCallback(
-    (v: number) => (isMult ? `${v.toFixed(4)}×` : `${v >= 0 ? '+' : ''}${v.toFixed(2)}`),
-    [isMult]
+    (v: number) =>
+      isMult
+        ? `${v.toFixed(4)}×`
+        : seriesKind === 'returns'
+          ? `${v >= 0 ? '+' : ''}${(v * 100).toFixed(3)}%`
+          : `${v >= 0 ? '+' : ''}${v.toFixed(2)}`,
+    [isMult, seriesKind]
   );
 
   if (n === 0) return null;
 
   const activeForecastForPlot =
-    forecast && forecast.model === model && forecast.period === period ? forecast : null;
+    forecast &&
+    (forecast.seriesKind ?? 'price') === seriesKind &&
+    forecast.model === model &&
+    forecast.period === period
+      ? forecast
+      : null;
 
   const activeSensitivityForPlot =
     sensitivityResult &&
     sensitivityResult.ticker === ticker &&
+    (sensitivityResult.baseForecast.seriesKind ?? 'price') === seriesKind &&
     sensitivityResult.model === model &&
     sensitivityResult.baseForecast.period === period
       ? sensitivityResult
       : null;
 
-  const baseRev = `${ticker}-${model}-${period}-${n}`;
+  const baseRev = `${ticker}-${seriesKind}-${model}-${period}-${n}`;
 
   return (
     <div>
@@ -585,7 +621,7 @@ export function DecompositionChart({
       <div className="space-y-3">
         {activeComponent === 'all' && (
           <DecompositionSubplot
-            title="Observed Price (Y_t)"
+            title={`Observed ${DECOMPOSITION_SERIES_META[seriesKind].label} (Y_t)`}
             subtitle={`${n} trading sessions · Wheel: Pan X · Ctrl+Wheel: Zoom`}
             dates={dates}
             data={observed}
@@ -716,6 +752,7 @@ export function DecompositionChart({
       {/* Inline TCN + Multi-Head Self-Attention Forecasting Lab */}
       <TcnForecastPanel
         ticker={ticker}
+        seriesKind={seriesKind}
         decomposition={decomposition}
         config={tcnConfig}
         onConfigChange={setTcnConfig}

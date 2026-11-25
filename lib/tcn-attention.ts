@@ -86,8 +86,31 @@ export interface ComponentForecast {
   bestEpoch: number;
 }
 
+/**
+ * Which series a decomposition forecast models. 'price' (close) is the
+ * original; 'vol' = daily Garman–Klass realized vol (annualized, vol points);
+ * 'returns' = daily log/simple returns (decimal, additive decomposition only).
+ */
+export type TcnSeriesKind = 'price' | 'vol' | 'returns';
+
+export interface TcnSeriesSpec {
+  kind: TcnSeriesKind;
+  /**
+   * Asset closes aligned 1:1 to `decomposition.dates`. The causal HMM regime
+   * channel always reads the asset's own price returns (the regime is a
+   * property of the asset, not of the modelled series). Required for 'returns'.
+   */
+  regimeCloses?: number[];
+  /** 'returns' only: values are log returns (converted to simple for P&L). */
+  returnsLog?: boolean;
+}
+
 export interface TcnDecompositionForecast {
   ticker: string;
+  /** Modelled series; absent on legacy artifacts ⇒ 'price'. */
+  seriesKind?: TcnSeriesKind;
+  /** 'returns' only: the series is log returns. */
+  returnsLog?: boolean;
   model: 'additive' | 'multiplicative';
   period: number;
   cycleMinPeriod: number;
@@ -97,7 +120,9 @@ export interface TcnDecompositionForecast {
   nextDateLabel: string;
   lastPrice: number;
   predictedPrice: number;
+  /** Ŷ − Y in native units ($ for price, vol points for vol, decimal for returns). */
   deltaDollar: number;
+  /** % change of Y (price/vol); percentage points of return for 'returns'. */
   deltaPct: number;
   lower99: number;
   upper99: number;
@@ -105,9 +130,13 @@ export interface TcnDecompositionForecast {
   holdoutPriceRmse: number;
   /** Out-of-sample composite price holdout MAE ($) */
   holdoutPriceMae: number;
-  /** Naive random-walk baseline RMSE ($) on identical holdout dates */
+  /**
+   * Naive baseline RMSE on identical holdout dates: random walk (Ŷ = Y_{t-1})
+   * for price and vol; zero-return forecast for 'returns' (a random walk on
+   * returns is a strawman the model would beat trivially).
+   */
   naiveBaselineRmse: number;
-  /** Percentage of holdout days with correct predicted move direction (0..100) */
+  /** % of holdout days with the correct direction (price/vol: move vs Y_{t-1}; returns: sign of the return) */
   directionalAccuracy: number;
   /** Number of out-of-sample holdout trading sessions evaluated */
   holdoutCount: number;
@@ -1489,7 +1518,8 @@ export const MIN_BARS_FOR_TCN = 45;
 
 const MAX_FORECAST_CACHE_ENTRIES = 24;
 const MAX_SENSITIVITY_CACHE_ENTRIES = 12;
-const MAX_PERSISTED_FORECASTS = 6;
+// 3 series (price / vol / returns) × a few tickers survive a reload.
+const MAX_PERSISTED_FORECASTS = 9;
 const MAX_PERSISTED_SWEEPS = 3;
 const TCN_CACHE_STORAGE_KEY = 'quantmetrics_tcn_model_cache_v3_hmm_perf';
 
@@ -1520,7 +1550,8 @@ function lruSet<V>(map: Map<string, V>, key: string, value: V, maxEntries: numbe
 
 export function buildTcnDataSignature(
   ticker: string,
-  decomposition: DecompositionResult
+  decomposition: DecompositionResult,
+  seriesKind: TcnSeriesKind = 'price'
 ): string {
   const obs = decomposition.observed;
   const n = obs.length;
@@ -1542,17 +1573,20 @@ export function buildTcnDataSignature(
     firstDate,
     lastDate,
     `${first.toFixed(4)}:${mid.toFixed(4)}:${last.toFixed(4)}:${checksum.toFixed(2)}`,
+    // Price keys are unchanged (existing caches + the app-load fit keep matching).
+    ...(seriesKind === 'price' ? [] : [`S:${seriesKind}`]),
   ].join('|');
 }
 
 export function buildTcnCacheKey(
   ticker: string,
   decomposition: DecompositionResult,
-  rawConfig: TcnAttentionConfig = DEFAULT_TCN_CONFIG
+  rawConfig: TcnAttentionConfig = DEFAULT_TCN_CONFIG,
+  seriesKind: TcnSeriesKind = 'price'
 ): string {
   const n = Math.max(decomposition.observed.length, MIN_BARS_FOR_TCN);
   const cfg = sanitizeTcnConfig(rawConfig, n);
-  const dataSig = buildTcnDataSignature(ticker, decomposition);
+  const dataSig = buildTcnDataSignature(ticker, decomposition, seriesKind);
   return `${dataSig}|L:${cfg.lookback}|D:${cfg.dilations.join(',')}|K:${cfg.kernelSize}|H:${cfg.numHeads}|C:${cfg.hiddenChannels}|E:${cfg.epochs}|LR:${cfg.learningRate}|SP:${cfg.trainSplit}|SD:${cfg.seed ?? 42}|HMM3P`;
 }
 
@@ -1560,9 +1594,10 @@ export function buildTcnSensitivityCacheKey(
   ticker: string,
   decomposition: DecompositionResult,
   rawConfig: TcnAttentionConfig = DEFAULT_TCN_CONFIG,
-  step: SensitivityStep = 4
+  step: SensitivityStep = 4,
+  seriesKind: TcnSeriesKind = 'price'
 ): string {
-  return `${buildTcnCacheKey(ticker, decomposition, rawConfig)}|STEP:${step}`;
+  return `${buildTcnCacheKey(ticker, decomposition, rawConfig, seriesKind)}|STEP:${step}`;
 }
 
 interface SerializedComponentWeights {
@@ -1725,14 +1760,18 @@ export function getLatestCachedTcnArtifactForData(
  * given ticker symbol without requiring decomposition parameters or triggering training.
  */
 export function getLatestCachedTcnArtifactByTicker(
-  ticker: string
+  ticker: string,
+  seriesKind: TcnSeriesKind = 'price'
 ): TcnTrainedModelArtifact | null {
   hydrateTcnCacheFromSessionStorage();
   const target = ticker.trim().toUpperCase();
   if (!target) return null;
   let latest: TcnTrainedModelArtifact | null = null;
   for (const artifact of forecastArtifactCache.values()) {
-    if (artifact.forecast.ticker.toUpperCase() === target) {
+    if (
+      artifact.forecast.ticker.toUpperCase() === target &&
+      (artifact.forecast.seriesKind ?? 'price') === seriesKind
+    ) {
       latest = artifact;
     }
   }
@@ -1872,6 +1911,8 @@ type DecompositionRunOptions = {
   useCache?: boolean;
   /** Bypass cached entry and train fresh weights, overwriting the cache slot */
   forceRetrain?: boolean;
+  /** Modelled series (default: price). */
+  series?: TcnSeriesSpec;
 };
 
 /** In-flight decomposition fits by cache key (app bootstrap + chart never double-train). */
@@ -1891,7 +1932,7 @@ export function runTcnDecompositionForecast(
 ): Promise<TcnDecompositionForecast | null> {
   if (decomposition.observed.length < MIN_BARS_FOR_TCN) return Promise.resolve(null);
   const useCache = options?.useCache !== false;
-  const key = buildTcnCacheKey(ticker, decomposition, rawConfig);
+  const key = buildTcnCacheKey(ticker, decomposition, rawConfig, options?.series?.kind ?? 'price');
   if (useCache) {
     const running = decompositionInFlight.get(key);
     if (running) return running;
@@ -1914,8 +1955,10 @@ async function runTcnDecompositionForecastImpl(
 
   const useCache = options?.useCache !== false;
   const forceRetrain = options?.forceRetrain === true;
-  const dataSignature = buildTcnDataSignature(ticker, decomposition);
-  const cacheKey = buildTcnCacheKey(ticker, decomposition, rawConfig);
+  const seriesKind: TcnSeriesKind = options?.series?.kind ?? 'price';
+  const returnsLog = seriesKind === 'returns' && options?.series?.returnsLog === true;
+  const dataSignature = buildTcnDataSignature(ticker, decomposition, seriesKind);
+  const cacheKey = buildTcnCacheKey(ticker, decomposition, rawConfig, seriesKind);
 
   if (useCache && !forceRetrain) {
     const cached = getCachedTcnArtifact(cacheKey);
@@ -1937,8 +1980,12 @@ async function runTcnDecompositionForecastImpl(
     residual: decomposition.residual.map((v) => (v !== null && Number.isFinite(v) ? v : neutral)),
   };
 
-  const hmm = await computeCausalHmmForObservedPricesAsync(
-    observed,
+  // Regime channel: always the asset's own price returns (aligned closes).
+  const regimeCloses = options?.series?.regimeCloses;
+  const regimeInput =
+    regimeCloses && regimeCloses.length === n ? regimeCloses : seriesKind === 'returns' ? null : observed;
+  const hmm = regimeInput === null ? null : await computeCausalHmmForObservedPricesAsync(
+    regimeInput,
     config.lookback,
     config.trainSplit,
     options?.yieldControl
@@ -1992,7 +2039,9 @@ async function runTcnDecompositionForecastImpl(
       : tPred + cPred + sPred + iPred;
 
   const deltaDollar = predictedPrice - lastPrice;
-  const deltaPct = lastPrice !== 0 ? (deltaDollar / lastPrice) * 100 : 0;
+  // Returns: a % change of a return is meaningless — report percentage points.
+  const deltaPct =
+    seriesKind === 'returns' ? deltaDollar * 100 : lastPrice !== 0 ? (deltaDollar / lastPrice) * 100 : 0;
 
   const sharedHoldoutIndices: number[] = [];
   for (const idx of results.trend.holdoutPredByIndex.keys()) {
@@ -2013,6 +2062,11 @@ async function runTcnDecompositionForecastImpl(
   const firstHoldoutIdx = sharedHoldoutIndices.length > 0 ? sharedHoldoutIndices[0] : n;
   const trainSimpleReturns: number[] = [];
   for (let i = 1; i < firstHoldoutIdx; i++) {
+    if (seriesKind === 'returns') {
+      // The series *is* the return: size signals by its own training dispersion.
+      if (Number.isFinite(observed[i])) trainSimpleReturns.push(observed[i]);
+      continue;
+    }
     const prev = observed[i - 1];
     const curr = observed[i];
     if (prev > 0 && Number.isFinite(prev) && Number.isFinite(curr)) {
@@ -2046,12 +2100,18 @@ async function runTcnDecompositionForecastImpl(
     holdoutPredCyclical.push(hc);
     holdoutResiduals.push(seriesMap.residual[idx]);
 
-    const predictedReturn = yPrev > 0 ? (yHat - yPrev) / yPrev : 0;
-    const actualReturn = yPrev > 0 ? (yActual - yPrev) / yPrev : 0;
+    // Price: trade the predicted move of the price. Returns: trade the sign of the
+    // predicted return, earn the realized (simple) return. Vol: not a tradable
+    // P&L — no backtest signals (forecast-error statistics only).
+    const toSimple = (r: number) => (returnsLog ? Math.expm1(r) : r);
+    const predictedReturn =
+      seriesKind === 'returns' ? toSimple(yHat) : yPrev > 0 ? (yHat - yPrev) / yPrev : 0;
+    const actualReturn =
+      seriesKind === 'returns' ? toSimple(yActual) : yPrev > 0 ? (yActual - yPrev) / yPrev : 0;
     const weight = Math.tanh(predictedReturn / trainReturnStd);
     // Strictly causal prediction-origin HMM regime at t - 1 (= idx - 1)
     const originIdx = Math.max(0, idx - 1);
-    allHoldoutSignals.push({
+    if (seriesKind !== 'vol') allHoldoutSignals.push({
       date: dates[idx] || `t-${n - 1 - idx}`,
       prevPrice: yPrev,
       actualPrice: yActual,
@@ -2067,10 +2127,13 @@ async function runTcnDecompositionForecastImpl(
     priceSqErr += err * err;
     priceAbsErr += Math.abs(err);
 
-    const naiveErr = yActual - yPrev;
+    // Baseline: zero-return forecast for returns, random walk otherwise.
+    const naiveErr = seriesKind === 'returns' ? yActual : yActual - yPrev;
     naiveSqErr += naiveErr * naiveErr;
 
-    if ((yHat - yPrev) * (yActual - yPrev) >= 0) {
+    const directionHit =
+      seriesKind === 'returns' ? yHat * yActual > 0 || (yHat === 0 && yActual === 0) : (yHat - yPrev) * (yActual - yPrev) >= 0;
+    if (directionHit) {
       dirHits++;
     }
 
@@ -2138,7 +2201,8 @@ async function runTcnDecompositionForecastImpl(
     for (const { key } of COMPONENT_ORDER) {
       const base = results[key].forecast;
       const contribDollar = base.predictedValue - base.currentValue;
-      const contribPct = lastPrice !== 0 ? (contribDollar / lastPrice) * 100 : 0;
+      const contribPct =
+        seriesKind === 'returns' ? contribDollar * 100 : lastPrice !== 0 ? (contribDollar / lastPrice) * 100 : 0;
       components[key] = {
         ...base,
         contributionDollar: contribDollar,
@@ -2151,6 +2215,8 @@ async function runTcnDecompositionForecastImpl(
 
   const forecast: TcnDecompositionForecast = {
     ticker,
+    seriesKind,
+    ...(seriesKind === 'returns' ? { returnsLog } : {}),
     model,
     period: decomposition.period,
     cycleMinPeriod: decomposition.cycleMinPeriod,
@@ -2497,6 +2563,7 @@ export async function runTcnLookbackSensitivitySweep(
     isCancelled?: () => boolean;
     useCache?: boolean;
     forceRetrain?: boolean;
+    series?: TcnSeriesSpec;
   }
 ): Promise<TcnSensitivityResult | null> {
   const n = decomposition.observed.length;
@@ -2504,9 +2571,10 @@ export async function runTcnLookbackSensitivitySweep(
 
   const useCache = options?.useCache !== false;
   const forceRetrain = options?.forceRetrain === true;
-  const dataSignature = buildTcnDataSignature(ticker, decomposition);
-  const baseCacheKey = buildTcnCacheKey(ticker, decomposition, rawConfig);
-  const sweepCacheKey = buildTcnSensitivityCacheKey(ticker, decomposition, rawConfig, step);
+  const sweepKind: TcnSeriesKind = options?.series?.kind ?? 'price';
+  const dataSignature = buildTcnDataSignature(ticker, decomposition, sweepKind);
+  const baseCacheKey = buildTcnCacheKey(ticker, decomposition, rawConfig, sweepKind);
+  const sweepCacheKey = buildTcnSensitivityCacheKey(ticker, decomposition, rawConfig, step, sweepKind);
 
   if (useCache && !forceRetrain) {
     const cachedSweep = getCachedTcnSensitivity(sweepCacheKey);
@@ -2545,6 +2613,7 @@ export async function runTcnLookbackSensitivitySweep(
       isCancelled: options?.isCancelled,
       useCache,
       forceRetrain,
+      series: options?.series,
     });
 
     if (!forecast || options?.isCancelled?.()) return null;

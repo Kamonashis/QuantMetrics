@@ -121,7 +121,9 @@ export async function runAutoTcnJob<T>(
 
   autoTrainedKeys.add(key);
 
-  const jobPromise = (async (): Promise<T | null> => {
+  // Declared before assignment: the IIFE's `finally` compares against it (TS2454).
+  let jobPromise: Promise<T | null> | undefined = undefined;
+  jobPromise = (async (): Promise<T | null> => {
     try {
       const result = await runner();
       if (result === null && isCancelled?.()) {
@@ -157,7 +159,9 @@ export async function runManualTcnJob<T>(
 ): Promise<T | null> {
   autoTrainedKeys.add(key);
 
-  const jobPromise = (async (): Promise<T | null> => {
+  // Declared before assignment: the IIFE's `finally` compares against it (TS2454).
+  let jobPromise: Promise<T | null> | undefined = undefined;
+  jobPromise = (async (): Promise<T | null> => {
     try {
       return await runner();
     } finally {
