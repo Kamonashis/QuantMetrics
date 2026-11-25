@@ -123,3 +123,30 @@ export function reconcileBarsWithLiveTick(
     changed: true,
   };
 }
+
+/**
+ * Bounded per-ticker cache write. `next` is the cache after inserting/updating
+ * `touched` symbols; touched keys move to the most-recent end (object key
+ * order = insertion order) and the oldest unprotected keys are evicted until at
+ * most `maxUnprotected` unprotected entries remain. Protected symbols (default
+ * universe, active ticker, lab baskets) are never evicted. Returns a new object.
+ */
+export function pruneTickerCache<T>(
+  next: Record<string, T>,
+  touched: readonly string[],
+  protectedSymbols: ReadonlySet<string>,
+  maxUnprotected: number
+): Record<string, T> {
+  const out: Record<string, T> = {};
+  const touchedSet = new Set(touched);
+  for (const [k, v] of Object.entries(next)) if (!touchedSet.has(k)) out[k] = v;
+  for (const k of touched) if (k in next) out[k] = next[k];
+  const unprotected = Object.keys(out).filter((k) => !protectedSymbols.has(k));
+  let excess = unprotected.length - Math.max(0, maxUnprotected);
+  for (const k of unprotected) {
+    if (excess <= 0) break;
+    delete out[k];
+    excess--;
+  }
+  return out;
+}

@@ -4,7 +4,7 @@ QuantMetrics: a quantitative stock-analysis / volatility-modeling terminal. Next
 
 ## Commands
 
-- `npm run dev` — dev server on :3528.
+- `npm run dev` — dev server on :3528 (Turbopack); `npm run dev:webpack` for the webpack dev server.
 - `npm run lint` — ESLint 9 flat config (`eslint.config.mjs`). Currently passes clean.
 - `npx tsc --noEmit` — typecheck. Currently passes clean. This is the real type gate.
 - `npm run build` / `npm run start` — production build / serve.
@@ -47,6 +47,9 @@ QuantMetrics: a quantitative stock-analysis / volatility-modeling terminal. Next
 - The "hot" React 19 compiler rules (`react-hooks/preserve-manual-memoization`, `set-state-in-effect`, purity) are enforced — derive loading from result state (`result.ticker === ticker`), extract module-level pure compute functions, and avoid `Date.now()`/`Math.random()` in render.
 - `Map` from `lucide-react` shadows the global `Map` — alias icon imports when you also need the constructor (`Map as MapIcon`).
 - Charts use Canvas/SVG directly (no chart library); KaTeX CSS is imported once in `app/layout.tsx`.
+- Plotly loads **partial bundles** lazily in `components/charts/PlotlyChart.tsx`: `plotly.js-cartesian-dist-min` for 2D (scatter/bar/heatmap) and `plotly.js-gl3d-dist-min` only for `plotType="3d"` (typings shim: `types/plotly-partial.d.ts`). A new trace type outside those bundles (e.g. pie, candlestick, sankey) needs a different bundle — check before using it.
+- Memory budget: the machine this runs on has ~6.7 GB RAM. Per-ticker bar caches in `app/page.tsx` are **bounded** via `pruneTickerCache` (`lib/market-cache.ts`): default universe + active ticker + lab baskets are protected, other daily tickers LRU-capped (`MAX_EXTRA_DAILY_TICKERS`), intraday capped to the 3 most recent. Provenance of the active series is derived from whether its bars are actually cached (a synthetic fallback is never labelled live). Non-landing views are `next/dynamic` code-split. For day-to-day use prefer `npm run build && npm run start` (~175 MB server) over `next dev` (~1 GB).
+- TCN training yields to the main thread in ~12 ms slices (`lib/yield-frame.ts`, MessageChannel) and the bootstrap starts on idle; `fitGaussianHmm` is a generator internally with a time-sliced `fitGaussianHmmAsync` twin — keep long new loops in that pattern.
 
 ## Design system (post-redesign)
 

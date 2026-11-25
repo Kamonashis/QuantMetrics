@@ -14,6 +14,7 @@ import {
   buildStreamTickerList,
   isEndDateUpToPresent,
   reconcileBarsWithLiveTick,
+  pruneTickerCache,
 } from '@/lib/market-cache';
 import { useMarketStream } from '@/hooks/use-market-stream';
 import { Navbar } from '@/components/layout/Navbar';
@@ -39,6 +40,11 @@ const RegressionView = dynamic(() => import('@/components/views/RegressionView')
 type AppView = 'now' | 'home' | 'analysis' | 'modeling' | 'correlation' | 'regression' | 'volatility' | 'fno';
 const VALID_VIEWS: AppView[] = ['now', 'home', 'analysis', 'modeling', 'correlation', 'regression', 'volatility', 'fno'];
 const DEFAULT_UNIVERSE = ['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'TSLA', 'SPY', 'QQQ', 'AMZN', 'META', 'JPM'] as const;
+/** Looked-up tickers kept resident beyond the protected set (LRU). */
+const MAX_EXTRA_DAILY_TICKERS = 6;
+/** Intraday 1-minute series kept resident (most recently fetched). */
+const MAX_INTRADAY_TICKERS = 3;
+const NO_PROTECTED: ReadonlySet<string> = new Set<string>();
 
 interface LiveQuoteEntry {
   price: number;
@@ -192,14 +198,12 @@ export default function App() {
   const [initialLiveFetchDone, setInitialLiveFetchDone] = useState<boolean>(false);
   const tickerSeqRef = useRef<Record<string, number>>({});
 
-  // 1-Minute Intraday Data In-Memory Cache (5-7 trading days)
-  const [intradayBarsCache, setIntradayBarsCache] = useState<{ [ticker: string]: IntradayBar[] }>(() => {
-    const initialCache: { [ticker: string]: IntradayBar[] } = {};
-    DEFAULT_UNIVERSE.forEach((sym) => {
-      initialCache[sym] = generateRealisticIntradayHistory(sym, 7);
-    });
-    return initialCache;
-  });
+  // 1-Minute Intraday Data In-Memory Cache (5-7 trading days). Only the active
+  // ticker's intraday bars are ever read, so only the initial ticker is seeded
+  // (others fall back to a memoized synthetic series) and the cache is bounded.
+  const [intradayBarsCache, setIntradayBarsCache] = useState<{ [ticker: string]: IntradayBar[] }>(() => ({
+    AAPL: generateRealisticIntradayHistory('AAPL', 7),
+  }));
   // Source per ticker for the intraday cache — the seeded default is synthetic, always labelled as such.
   const [intradaySourceCache, setIntradaySourceCache] = useState<{ [ticker: string]: string }>(() => {
     const init: { [ticker: string]: string } = {};
@@ -227,6 +231,32 @@ export default function App() {
   });
 
   const [isLoading, setIsLoading] = useState<boolean>(false);
+
+  // Cache bounds: symbols that must stay resident (default universe, active
+  // ticker, both lab baskets) are protected; other looked-up tickers are kept
+  // LRU up to a small cap so a long browsing session cannot grow memory
+  // without bound (each ticker = up to 20y of daily bars).
+  const protectedSymbolsRef = useRef<Set<string>>(new Set(DEFAULT_UNIVERSE));
+  useEffect(() => {
+    const parse = (s: string) => s.split(',').map((t) => t.trim().toUpperCase()).filter(Boolean);
+    protectedSymbolsRef.current = new Set<string>([
+      ...DEFAULT_UNIVERSE,
+      activeTicker,
+      ...parse(correlationTickers),
+      ...parse(regressionTickers),
+    ]);
+  }, [activeTicker, correlationTickers, regressionTickers]);
+  const boundDaily = useCallback(
+    <T,>(next: Record<string, T>, touched: string[]) =>
+      pruneTickerCache(next, touched, protectedSymbolsRef.current, MAX_EXTRA_DAILY_TICKERS),
+    []
+  );
+  // Intraday is only read for the active ticker: keep the most recent few.
+  const boundIntraday = useCallback(
+    <T,>(next: Record<string, T>, touched: string[]) =>
+      pruneTickerCache(next, touched, NO_PROTECTED, MAX_INTRADAY_TICKERS),
+    []
+  );
 
   // Fetch ticker data (daily and intraday) from API
   const fetchTickers = useCallback(
@@ -305,12 +335,14 @@ export default function App() {
 
               setStockBarsCache((prev) => {
                 const updated = { ...prev };
+                const touched: string[] = [];
                 for (const [sym, payload] of entries) {
                   if (isLatestForSym(sym) && payload.bars && payload.bars.length > 0) {
                     updated[sym] = payload.bars;
+                    touched.push(sym);
                   }
                 }
-                return updated;
+                return boundDaily(updated, touched);
               });
               setStockSourceCache((prev) => {
                 const updated = { ...prev };
@@ -346,10 +378,9 @@ export default function App() {
             if (intraJson.success && intraJson.data?.[primarySym]?.intradayBars) {
               const intraPayload = intraJson.data[primarySym];
               const intraSource = typeof intraPayload.source === 'string' ? intraPayload.source : null;
-              setIntradayBarsCache((prev) => ({
-                ...prev,
-                [primarySym]: intraPayload.intradayBars,
-              }));
+              setIntradayBarsCache((prev) =>
+                boundIntraday({ ...prev, [primarySym]: intraPayload.intradayBars }, [primarySym])
+              );
               setIntradaySourceCache((prev) => ({
                 ...prev,
                 [primarySym]: intraSource ?? 'synthetic_gbm',
@@ -366,34 +397,20 @@ export default function App() {
               updated[sym] = generateRealisticStockHistory(sym, 2600, undefined, startDate);
             }
           });
-          return updated;
+          return boundDaily(updated, syms);
         });
         setStockSourceCache((prev) => {
           const updated = { ...prev };
           syms.forEach((sym) => { updated[sym] = 'synthetic_gbm'; });
           return updated;
         });
-        setIntradayBarsCache((prev) => {
-          const updated = { ...prev };
-          syms.forEach((sym) => {
-            if (!updated[sym]) {
-              updated[sym] = generateRealisticIntradayHistory(sym, 7);
-            }
-          });
-          return updated;
-        });
-        setIntradaySourceCache((prev) => {
-          const updated = { ...prev };
-          syms.forEach((sym) => {
-            if (!updated[sym]) updated[sym] = 'synthetic_gbm';
-          });
-          return updated;
-        });
+        // Intraday: no per-symbol seeding — the active ticker falls back to a
+        // memoized synthetic series (labelled synthetic) until a fetch lands.
       } finally {
         if (!options?.quotesOnly) setIsLoading(false);
       }
     },
-    [startDate, endDate]
+    [startDate, endDate, boundDaily, boundIntraday]
   );
 
   // Browser Back/Forward restores the full context (view + ticker + dates), not just a tab.
@@ -552,10 +569,9 @@ export default function App() {
         const json = await res.json();
         const payload = json?.data?.[activeTicker];
         if (json?.success && payload?.intradayBars?.length > 0 && active) {
-          setIntradayBarsCache((prev) => ({
-            ...prev,
-            [activeTicker]: payload.intradayBars,
-          }));
+          setIntradayBarsCache((prev) =>
+            boundIntraday({ ...prev, [activeTicker]: payload.intradayBars }, [activeTicker])
+          );
           setIntradaySourceCache((prev) => ({
             ...prev,
             [activeTicker]: typeof payload.source === 'string' ? payload.source : 'synthetic_gbm',
@@ -574,7 +590,7 @@ export default function App() {
       active = false;
       clearInterval(intervalId);
     };
-  }, [activeTicker, resolution]);
+  }, [activeTicker, resolution, boundIntraday]);
 
   // Handle start date changes: automatically query earlier historical periods if date exceeds current cache
   const handleStartDateChange = useCallback(
@@ -659,8 +675,10 @@ export default function App() {
     [cachedIntraday, activeTicker]
   );
   const currentIntradayBars = (cachedIntraday || fallbackIntraday) as IntradayBar[];
-  const currentIntradaySource = intradaySourceCache[activeTicker] ?? 'synthetic_gbm';
-  const currentBarsSource = stockSourceCache[activeTicker] ?? 'synthetic_gbm';
+  // Provenance follows the bars actually shown: an evicted or not-yet-fetched ticker renders
+  // the memoized synthetic fallback, which must never carry a live label.
+  const currentIntradaySource = cachedIntraday ? intradaySourceCache[activeTicker] ?? 'synthetic_gbm' : 'synthetic_gbm';
+  const currentBarsSource = cachedBars ? stockSourceCache[activeTicker] ?? 'synthetic_gbm' : 'synthetic_gbm';
   const currentCompanyName =
     companyNames[activeTicker] ||
     KNOWN_TICKERS[activeTicker]?.name ||

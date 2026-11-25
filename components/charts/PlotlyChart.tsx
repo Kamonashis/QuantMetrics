@@ -22,15 +22,22 @@ import {
 
 type PlotlyModule = typeof import('plotly.js');
 
-let plotlySingletonPromise: Promise<PlotlyModule> | null = null;
+// Partial bundles: 2D charts (scatter/bar/heatmap) load the cartesian build
+// (~1.5 MB vs 4.7 MB for the full dist); the gl3d build (surface/scatter3d)
+// is only fetched when a 3D chart mounts.
+let plotly2dPromise: Promise<PlotlyModule> | null = null;
+let plotly3dPromise: Promise<PlotlyModule> | null = null;
 
-function loadPlotly(): Promise<PlotlyModule> {
-  if (!plotlySingletonPromise) {
-    plotlySingletonPromise = import('plotly.js-dist-min').then((mod) => {
-      return ((mod as unknown as { default?: PlotlyModule }).default ?? mod) as unknown as PlotlyModule;
-    });
+const unwrapPlotly = (mod: unknown): PlotlyModule =>
+  ((mod as { default?: PlotlyModule }).default ?? mod) as PlotlyModule;
+
+function loadPlotly(plotType: PlotlyChartProps['plotType']): Promise<PlotlyModule> {
+  if (plotType === '3d') {
+    plotly3dPromise ??= import('plotly.js-gl3d-dist-min').then(unwrapPlotly);
+    return plotly3dPromise;
   }
-  return plotlySingletonPromise;
+  plotly2dPromise ??= import('plotly.js-cartesian-dist-min').then(unwrapPlotly);
+  return plotly2dPromise;
 }
 
 /**
@@ -250,7 +257,7 @@ function PlotlyCanvas({
     const el = plotRef.current;
     if (!el) return;
 
-    void loadPlotly().then((Plotly) => {
+    void loadPlotly(plotType).then((Plotly) => {
       if (cancelled || !plotRef.current) return;
       plotlyModRef.current = Plotly;
       const gd = plotRef.current as unknown as InternalPlotlyGraphDiv;
@@ -282,7 +289,7 @@ function PlotlyCanvas({
       if (rafId !== null) cancelAnimationFrame(rafId);
       if (settleTimer !== null) clearTimeout(settleTimer);
     };
-  }, [data, layout, config, graphRef, plotlyModRef]);
+  }, [data, layout, config, plotType, graphRef, plotlyModRef]);
 
   // Apply transferred zoom/pan/3D-camera snapshot when entering or exiting fullscreen
   useEffect(() => {
