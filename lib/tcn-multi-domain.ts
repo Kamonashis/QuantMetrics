@@ -500,7 +500,23 @@ const domainCaches: Record<TcnDomainKey, Map<string, unknown>> = {
 };
 
 const latestVolatilityByTicker = new Map<string, string>();
+const latestRiskVarByTicker = new Map<string, string>();
+const latestRegressionByKey = new Map<string, string>();
+const latestCorrelationByPair = new Map<string, string>();
 let sessionHydrated = false;
+
+function makeRegressionLookupKey(dependentTicker: string, independentTickers: string[]): string {
+  const dep = dependentTicker.trim().toUpperCase();
+  const indeps = independentTickers
+    .slice(0, 6)
+    .map((t) => t.trim().toUpperCase())
+    .join(',');
+  return `${dep}|${indeps}`;
+}
+
+function makeCorrelationLookupKey(tickerA: string, tickerB: string): string {
+  return `${tickerA.trim().toUpperCase()}|${tickerB.trim().toUpperCase()}`;
+}
 
 function lruGet<T>(map: Map<string, unknown>, key: string): T | null {
   if (!map.has(key)) return null;
@@ -532,6 +548,9 @@ function persistMultiDomainCache(): void {
       v: 3,
       caches: payload,
       latestVol: Array.from(latestVolatilityByTicker.entries()).slice(-12),
+      latestRisk: Array.from(latestRiskVarByTicker.entries()).slice(-12),
+      latestReg: Array.from(latestRegressionByKey.entries()).slice(-12),
+      latestCorr: Array.from(latestCorrelationByPair.entries()).slice(-12),
     });
     if (serialized.length < 2_500_000) {
       window.sessionStorage.setItem(SESSION_KEY, serialized);
@@ -552,6 +571,9 @@ export function hydrateTcnMultiDomainCache(): void {
       v?: number;
       caches?: Record<string, [string, unknown][]>;
       latestVol?: [string, string][];
+      latestRisk?: [string, string][];
+      latestReg?: [string, string][];
+      latestCorr?: [string, string][];
     };
     if (!parsed || parsed.v !== 3 || !parsed.caches) return;
     for (const domain of Object.keys(domainCaches) as TcnDomainKey[]) {
@@ -571,6 +593,27 @@ export function hydrateTcnMultiDomainCache(): void {
         }
       }
     }
+    if (Array.isArray(parsed.latestRisk)) {
+      for (const [tk, ck] of parsed.latestRisk) {
+        if (typeof tk === 'string' && typeof ck === 'string') {
+          latestRiskVarByTicker.set(tk, ck);
+        }
+      }
+    }
+    if (Array.isArray(parsed.latestReg)) {
+      for (const [tk, ck] of parsed.latestReg) {
+        if (typeof tk === 'string' && typeof ck === 'string') {
+          latestRegressionByKey.set(tk, ck);
+        }
+      }
+    }
+    if (Array.isArray(parsed.latestCorr)) {
+      for (const [tk, ck] of parsed.latestCorr) {
+        if (typeof tk === 'string' && typeof ck === 'string') {
+          latestCorrelationByPair.set(tk, ck);
+        }
+      }
+    }
   } catch {
     // Corrupted cache ignored
   }
@@ -580,11 +623,17 @@ export function clearTcnMultiDomainCache(domain?: TcnDomainKey): void {
   if (domain) {
     domainCaches[domain].clear();
     if (domain === 'volatility') latestVolatilityByTicker.clear();
+    if (domain === 'risk_var') latestRiskVarByTicker.clear();
+    if (domain === 'regression') latestRegressionByKey.clear();
+    if (domain === 'correlation') latestCorrelationByPair.clear();
   } else {
     for (const d of Object.keys(domainCaches) as TcnDomainKey[]) {
       domainCaches[d].clear();
     }
     latestVolatilityByTicker.clear();
+    latestRiskVarByTicker.clear();
+    latestRegressionByKey.clear();
+    latestCorrelationByPair.clear();
   }
   if (typeof window !== 'undefined' && window.sessionStorage) {
     try {
@@ -633,12 +682,19 @@ export function getCachedTcnRiskVarForecast(
   config?: Partial<TcnMultiDomainConfig>
 ): TcnRiskVarForecast | null {
   hydrateTcnMultiDomainCache();
-  if (returns.length < 60) return null;
-  const sig = hashSeriesFingerprint(returns, dates, `risk_${ticker.toUpperCase()}`);
-  const cfg = mergeConfig(config, returns.length);
-  const key = `risk|${sig}|${configKey(cfg)}`;
-  const cached = lruGet<TcnRiskVarForecast>(domainCaches.risk_var, key);
-  return cached ? { ...cached, cacheHit: true } : null;
+  if (returns.length >= 60) {
+    const sig = hashSeriesFingerprint(returns, dates, `risk_${ticker.toUpperCase()}`);
+    const cfg = mergeConfig(config, returns.length);
+    const key = `risk|${sig}|${configKey(cfg)}`;
+    const exact = lruGet<TcnRiskVarForecast>(domainCaches.risk_var, key);
+    if (exact) return { ...exact, cacheHit: true };
+  }
+  const latestKey = latestRiskVarByTicker.get(ticker.toUpperCase());
+  if (latestKey) {
+    const found = lruGet<TcnRiskVarForecast>(domainCaches.risk_var, latestKey);
+    if (found) return { ...found, cacheHit: true };
+  }
+  return null;
 }
 
 export function getCachedTcnRegressionForecast(
@@ -650,13 +706,20 @@ export function getCachedTcnRegressionForecast(
 ): TcnMultiAssetRegressionResult | null {
   hydrateTcnMultiDomainCache();
   const y = returnsByTicker[dependentTicker] ?? [];
-  if (y.length < 60) return null;
   const factors = independentTickers.slice(0, 6);
-  const sig = buildRegressionSignature(dependentTicker, factors, returnsByTicker, dates);
-  const cfg = mergeConfig(config, y.length);
-  const key = `reg|${sig}|${configKey(cfg)}`;
-  const cached = lruGet<TcnMultiAssetRegressionResult>(domainCaches.regression, key);
-  return cached ? { ...cached, cacheHit: true } : null;
+  if (y.length >= 60) {
+    const sig = buildRegressionSignature(dependentTicker, factors, returnsByTicker, dates);
+    const cfg = mergeConfig(config, y.length);
+    const key = `reg|${sig}|${configKey(cfg)}`;
+    const exact = lruGet<TcnMultiAssetRegressionResult>(domainCaches.regression, key);
+    if (exact) return { ...exact, cacheHit: true };
+  }
+  const latestKey = latestRegressionByKey.get(makeRegressionLookupKey(dependentTicker, factors));
+  if (latestKey) {
+    const found = lruGet<TcnMultiAssetRegressionResult>(domainCaches.regression, latestKey);
+    if (found) return { ...found, cacheHit: true };
+  }
+  return null;
 }
 
 export function getCachedTcnCorrelationForecast(
@@ -670,12 +733,19 @@ export function getCachedTcnCorrelationForecast(
 ): TcnCorrelationForecast | null {
   hydrateTcnMultiDomainCache();
   const n = Math.min(returnsA.length, returnsB.length);
-  if (n < 60) return null;
-  const sig = buildCorrelationSignature(tickerA, tickerB, returnsA, returnsB, dates, forecastDays);
-  const cfg = mergeConfig(config, n);
-  const key = `corr|${sig}|${configKey(cfg)}`;
-  const cached = lruGet<TcnCorrelationForecast>(domainCaches.correlation, key);
-  return cached ? { ...cached, cacheHit: true } : null;
+  if (n >= 60) {
+    const sig = buildCorrelationSignature(tickerA, tickerB, returnsA, returnsB, dates, forecastDays);
+    const cfg = mergeConfig(config, n);
+    const key = `corr|${sig}|${configKey(cfg)}`;
+    const exact = lruGet<TcnCorrelationForecast>(domainCaches.correlation, key);
+    if (exact) return { ...exact, cacheHit: true };
+  }
+  const latestKey = latestCorrelationByPair.get(makeCorrelationLookupKey(tickerA, tickerB));
+  if (latestKey) {
+    const found = lruGet<TcnCorrelationForecast>(domainCaches.correlation, latestKey);
+    if (found) return { ...found, cacheHit: true };
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -2001,7 +2071,10 @@ export async function runTcnRiskVarForecast(
 
   if (useCache && !forceRetrain) {
     const cached = lruGet<TcnRiskVarForecast>(domainCaches.risk_var, cacheKey);
-    if (cached) return { ...cached, cacheHit: true };
+    if (cached) {
+      latestRiskVarByTicker.set(ticker.toUpperCase(), cacheKey);
+      return { ...cached, cacheHit: true };
+    }
   }
 
   return joinOrStartFit(cacheKey, () =>
@@ -2346,6 +2419,7 @@ async function trainTcnRiskVarForecast(
 
   if (useCache) {
     lruSet(domainCaches.risk_var, cacheKey, result);
+    latestRiskVarByTicker.set(ticker.toUpperCase(), cacheKey);
     persistMultiDomainCache();
   }
   return result;
@@ -2423,7 +2497,10 @@ export async function runTcnMultiAssetRegression(
 
   if (useCache && !forceRetrain) {
     const cached = lruGet<TcnMultiAssetRegressionResult>(domainCaches.regression, cacheKey);
-    if (cached) return { ...cached, cacheHit: true };
+    if (cached) {
+      latestRegressionByKey.set(makeRegressionLookupKey(dependentTicker, factors), cacheKey);
+      return { ...cached, cacheHit: true };
+    }
   }
 
   return joinOrStartFit(cacheKey, () =>
@@ -2793,6 +2870,7 @@ async function trainTcnMultiAssetRegression(
 
   if (useCache) {
     lruSet(domainCaches.regression, cacheKey, result);
+    latestRegressionByKey.set(makeRegressionLookupKey(dependentTicker, factors), cacheKey);
     persistMultiDomainCache();
   }
   return result;
@@ -2841,7 +2919,10 @@ export async function runTcnCorrelationForecast(
 
   if (useCache && !forceRetrain) {
     const cached = lruGet<TcnCorrelationForecast>(domainCaches.correlation, cacheKey);
-    if (cached) return { ...cached, cacheHit: true };
+    if (cached) {
+      latestCorrelationByPair.set(makeCorrelationLookupKey(tickerA, tickerB), cacheKey);
+      return { ...cached, cacheHit: true };
+    }
   }
 
   const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
@@ -3178,6 +3259,7 @@ export async function runTcnCorrelationForecast(
 
   if (useCache) {
     lruSet(domainCaches.correlation, cacheKey, result);
+    latestCorrelationByPair.set(makeCorrelationLookupKey(tickerA, tickerB), cacheKey);
     persistMultiDomainCache();
   }
   return result;
