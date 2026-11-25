@@ -155,6 +155,23 @@ export interface TapeItemInput {
  * closes for the sparkline. Respects live quotes and `pending` honesty so
  * synthetic fallback closes are never displayed as live prices during initial load.
  */
+// Card regime fits are a full HMM fit each (~12ms); live quote ticks only patch
+// the latest bar's close, so cards refit when the session set changes (new bar,
+// different history), not on every intraday tick. Bounded memo.
+const cardHmmCache = new Map<string, ActiveHmmSeriesResult | null>();
+function cachedCardHmm(ticker: string, bars: PriceBar[]): ActiveHmmSeriesResult | null {
+  const n = bars.length;
+  const key = `${ticker}|${n}|${bars[0]?.date ?? ''}|${bars[n - 1]?.date ?? ''}`;
+  if (cardHmmCache.has(key)) return cardHmmCache.get(key) ?? null;
+  const res = computeActiveCausalHmmSeries(bars, 252);
+  cardHmmCache.set(key, res);
+  if (cardHmmCache.size > 64) {
+    const oldest = cardHmmCache.keys().next().value;
+    if (oldest !== undefined) cardHmmCache.delete(oldest);
+  }
+  return res;
+}
+
 export function computeHomeUniverseCard(
   meta: HomeUniverseSymbolMeta,
   bars: PriceBar[] | null | undefined,
@@ -188,7 +205,7 @@ export function computeHomeUniverseCard(
   }
 
   const rv20 = computeTrailingRv(safeBars, 20);
-  const hmm = computeActiveCausalHmmSeries(safeBars, 252);
+  const hmm = cachedCardHmm(meta.ticker, safeBars);
 
   return {
     ticker: meta.ticker,

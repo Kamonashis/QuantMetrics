@@ -139,9 +139,10 @@ export function HomeView({
   tapeItems,
 }: HomeViewProps) {
   const [equationsOpen, setEquationsOpen] = useState(false);
-  const { allStockBars, latestQuotes, rv20, vix, chain, chainLoading } = useTickerSnapshot();
+  const { allStockBars, latestQuotes, rv20, vix, chain, chainLoading, garchFit } = useTickerSnapshot();
 
-  // Core econometric summary on active ticker's daily bars
+  // Core econometric summary on active ticker's daily bars. Reuses the provider's
+  // shared GARCH(1,1) fit (same bars, same sample gate) instead of refitting.
   const activeStats = useMemo(() => {
     if (!bars || bars.length < 60) return null;
     const rets = calculateReturns(
@@ -150,7 +151,7 @@ export function HomeView({
     );
     if (rets.length < 50) return null;
     const ewma = computeEwmaVolatility(rets, 0.94).summary.latestAnnualizedVol;
-    const garch = fitGarch11(rets);
+    const garch = garchFit ?? fitGarch11(rets);
     const sorted = [...rets].sort((a, b) => a - b);
     const q01 = sorted[Math.floor(0.01 * (sorted.length - 1))] ?? 0;
     return {
@@ -158,7 +159,7 @@ export function HomeView({
       persistence: garch.summary.persistence,
       historicalVar99: Math.max(0, -q01),
     };
-  }, [bars]);
+  }, [bars, garchFit]);
 
   // Strictly causal 3-state HMM series for the interactive Hero chart & Pulse Strip
   const activeHmm = useMemo(() => computeActiveCausalHmmSeries(bars, 504), [bars]);

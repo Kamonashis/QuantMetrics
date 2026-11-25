@@ -190,6 +190,37 @@ function forwardBackward(
 }
 
 export function fitGaussianHmm(features: number[][], opts: HmmFitOptions = {}): HmmFit | null {
+  const steps = fitGaussianHmmSteps(features, opts);
+  let r = steps.next();
+  while (!r.done) r = steps.next();
+  return r.value;
+}
+
+/**
+ * Same fit as `fitGaussianHmm`, but hands the main thread back (time-sliced,
+ * ~12ms) between EM iterations. Identical math and result.
+ */
+export async function fitGaussianHmmAsync(
+  features: number[][],
+  opts: HmmFitOptions,
+  yieldControl: () => Promise<void>
+): Promise<HmmFit | null> {
+  const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const steps = fitGaussianHmmSteps(features, opts);
+  let sliceStart = nowMs();
+  let r = steps.next();
+  while (!r.done) {
+    if (nowMs() - sliceStart > 12) {
+      await yieldControl();
+      sliceStart = nowMs();
+    }
+    r = steps.next();
+  }
+  return r.value;
+}
+
+/** EM fit as a generator: yields once per EM iteration so callers may slice it. */
+function* fitGaussianHmmSteps(features: number[][], opts: HmmFitOptions = {}): Generator<void, HmmFit | null, void> {
   const K = opts.k ?? 3;
   const maxIters = opts.maxIters ?? 200;
   const tol = opts.tol ?? 1e-7;
@@ -280,6 +311,7 @@ export function fitGaussianHmm(features: number[][], opts: HmmFitOptions = {}): 
       means[k] = m;
       stdDevs[k] = sd;
     }
+    yield;
   }
 
   // Final forward-backward on converged parameters
@@ -531,6 +563,26 @@ export function fitAndFilterCausalHmm(
     k: 3,
     rankFeature,
   });
+  return finishCausalHmm(features, end, fit);
+}
+
+/** Time-sliced twin of `fitAndFilterCausalHmm` (identical result). */
+export async function fitAndFilterCausalHmmAsync(
+  features: number[][],
+  trainEndIdx: number,
+  yieldControl: () => Promise<void>,
+  opts: HmmFitOptions = {}
+): Promise<CausalHmmResult | null> {
+  if (!features || features.length < 30) return null;
+  const end = Math.min(features.length, Math.max(0, Math.floor(trainEndIdx)));
+  if (end < 30) return null;
+  const trainSlice = features.slice(0, end);
+  const rankFeature = opts.rankFeature ?? Math.max(0, (features[0]?.length ?? 1) - 1);
+  const fit = await fitGaussianHmmAsync(trainSlice, { ...opts, k: 3, rankFeature }, yieldControl);
+  return finishCausalHmm(features, end, fit);
+}
+
+function finishCausalHmm(features: number[][], end: number, fit: HmmFit | null): CausalHmmResult | null {
   if (!fit || fit.k !== 3) return null;
 
   const filteredPosteriors = filterGaussianHmmForward(

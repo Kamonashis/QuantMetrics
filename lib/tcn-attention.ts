@@ -1259,6 +1259,10 @@ async function trainSingleComponent(
   let adamStepNum = 0;
   let lastHoldoutLoss = 1;
 
+  // Time-sliced yielding (~12ms) so training never blocks frames; math unchanged.
+  const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+  let sliceStart = nowMs();
+
   for (let epoch = 1; epoch <= config.epochs; epoch++) {
     if (isCancelled?.()) break;
 
@@ -1297,6 +1301,10 @@ async function trainSingleComponent(
 
       adamStepNum++;
       adamStep(net, end - start, lr, adamStepNum);
+      if (yieldControl && nowMs() - sliceStart > 12) {
+        await yieldControl();
+        sliceStart = nowMs();
+      }
     }
 
     const avgTrainLoss = epochTrainLoss / Math.max(1, trainCount);
@@ -1322,8 +1330,9 @@ async function trainSingleComponent(
     if (onEpoch && (epoch === 1 || epoch % 5 === 0 || epoch === config.epochs)) {
       onEpoch(epoch);
     }
-    if (yieldControl && epoch % 8 === 0) {
+    if (yieldControl && nowMs() - sliceStart > 12) {
       await yieldControl();
+      sliceStart = nowMs();
     }
   }
 

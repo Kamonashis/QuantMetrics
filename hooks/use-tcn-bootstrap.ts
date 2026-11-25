@@ -6,7 +6,9 @@ import { nextTcnBootstrapAction, type TcnTrainableHead } from '@/lib/tcn-bootstr
 import { notifyTcnBootUpdate, runTcnHeadSequence } from '@/lib/tcn-training-queue';
 import { selectDefaultRegressionFactors } from '@/lib/tcn-diagnostics';
 
-const yieldFrame = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+import { yieldToMain } from '@/lib/yield-frame';
+
+const yieldFrame = yieldToMain;
 
 /**
  * Tickers whose one-time bootstrap completed (or was fully answered from the
@@ -104,7 +106,18 @@ export function useTcnBootstrap({
   useEffect(() => {
     if (!request || bootstrapped.has(request.ticker)) return;
     let cancelled = false;
-    const timer = setTimeout(() => {
+    // Start only once the browser is idle (first paint, hydration and the
+    // initial view mount get the main thread first); hard cap at 4s.
+    const ric = typeof window !== 'undefined' ? window.requestIdleCallback : undefined;
+    const schedule = (fn: () => void): (() => void) => {
+      if (typeof ric === 'function') {
+        const id = ric(fn, { timeout: 4000 });
+        return () => window.cancelIdleCallback(id);
+      }
+      const id = setTimeout(fn, 1500);
+      return () => clearTimeout(id);
+    };
+    const cancelSchedule = schedule(() => {
       if (cancelled || epochRef.current !== request.epoch) return;
       const runTicker = request.ticker;
       trainingRef.current = true;
@@ -141,10 +154,10 @@ export function useTcnBootstrap({
         }
         setReval((v) => v + 1);
       });
-    }, 0);
+    });
     return () => {
       cancelled = true;
-      clearTimeout(timer);
+      cancelSchedule();
     };
   }, [request]);
 

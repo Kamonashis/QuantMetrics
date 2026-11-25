@@ -9,7 +9,9 @@ import {
 } from '@/lib/tcn-multi-domain';
 import { subscribeTcnBootUpdates } from '@/lib/tcn-training-queue';
 
-const yieldFrame = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+import { yieldToMain } from '@/lib/yield-frame';
+
+const yieldFrame = yieldToMain;
 
 /**
  * Shared React-19-safe hook for the multi-horizon (1d / 5d / 22d) TCN-Attention

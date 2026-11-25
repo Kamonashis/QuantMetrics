@@ -33,7 +33,9 @@ import {
   type TcnModuleStatuses,
 } from '@/lib/tcn-diagnostics';
 
-const yieldFrame = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+import { yieldToMain } from '@/lib/yield-frame';
+
+const yieldFrame = yieldToMain;
 
 export type TrainableTcnHead = TcnTrainableHead;
 

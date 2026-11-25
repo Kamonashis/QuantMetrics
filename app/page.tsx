@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, startTransition } from 'react';
 import { TickerSnapshotProvider } from '@/components/providers/TickerSnapshotProvider';
-import { EdgeView } from '@/components/views/EdgeView';
+import dynamic from 'next/dynamic';
 import { PriceBar, IntradayBar } from '@/lib/quant-engine';
 import {
   generateRealisticStockHistory,
@@ -19,11 +19,22 @@ import { useMarketStream } from '@/hooks/use-market-stream';
 import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
 import { HomeView } from '@/components/views/HomeView';
-import { AnalysisView } from '@/components/views/AnalysisView';
-import { OptionsWorkstation } from '@/components/views/OptionsWorkstation';
-import { ModelingView } from '@/components/views/ModelingView';
-import { CorrelationView } from '@/components/views/CorrelationView';
-import { RegressionView } from '@/components/views/RegressionView';
+
+// Non-landing views are code-split: each loads only when first opened, so the
+// Home view no longer parses every engine, tab and chart in the terminal.
+function ViewLoading() {
+  return (
+    <div className="panel flex h-64 items-center justify-center">
+      <span className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400">Loading view…</span>
+    </div>
+  );
+}
+const EdgeView = dynamic(() => import('@/components/views/EdgeView').then((m) => m.EdgeView), { ssr: false, loading: ViewLoading });
+const AnalysisView = dynamic(() => import('@/components/views/AnalysisView').then((m) => m.AnalysisView), { ssr: false, loading: ViewLoading });
+const OptionsWorkstation = dynamic(() => import('@/components/views/OptionsWorkstation').then((m) => m.OptionsWorkstation), { ssr: false, loading: ViewLoading });
+const ModelingView = dynamic(() => import('@/components/views/ModelingView').then((m) => m.ModelingView), { ssr: false, loading: ViewLoading });
+const CorrelationView = dynamic(() => import('@/components/views/CorrelationView').then((m) => m.CorrelationView), { ssr: false, loading: ViewLoading });
+const RegressionView = dynamic(() => import('@/components/views/RegressionView').then((m) => m.RegressionView), { ssr: false, loading: ViewLoading });
 
 type AppView = 'now' | 'home' | 'analysis' | 'modeling' | 'correlation' | 'regression' | 'volatility' | 'fno';
 const VALID_VIEWS: AppView[] = ['now', 'home', 'analysis', 'modeling', 'correlation', 'regression', 'volatility', 'fno'];
@@ -110,8 +121,29 @@ export default function App() {
     return () => clearTimeout(timer);
   }, []);
 
+  // Warm the code-split view chunks once the browser is idle after first paint.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const warm = () => {
+      void import('@/components/views/EdgeView');
+      void import('@/components/views/AnalysisView');
+      void import('@/components/views/ModelingView');
+      void import('@/components/views/OptionsWorkstation');
+      void import('@/components/views/CorrelationView');
+      void import('@/components/views/RegressionView');
+    };
+    if (typeof window.requestIdleCallback === 'function') {
+      const id = window.requestIdleCallback(warm, { timeout: 6000 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const id = setTimeout(warm, 2500);
+    return () => clearTimeout(id);
+  }, []);
+
   const navigateView = useCallback((view: AppView, params?: Record<string, string>) => {
-    setActiveView(view);
+    // Low-priority render: the nav pill animation and input stay responsive
+    // while the destination view mounts its charts.
+    startTransition(() => setActiveView(view));
     if (typeof window !== 'undefined') {
       const url = new URL(window.location.href);
       // Clear stale sub-tab keys so a bookmark always lands on the intended panel.
@@ -614,11 +646,19 @@ export default function App() {
   }, [stockBarsCache, stockSourceCache, latestQuotes, initialLiveFetchDone]);
 
   // Active ticker bars
-  const currentBars =
-    stockBarsCache[activeTicker] ||
-    generateRealisticStockHistory(activeTicker, 2600, undefined, startDate);
-  const currentIntradayBars =
-    intradayBarsCache[activeTicker] || generateRealisticIntradayHistory(activeTicker, 7);
+  // Fallbacks are generated once per ticker/start (not on every render) while a fetch is pending.
+  const cachedBars = stockBarsCache[activeTicker];
+  const fallbackBars = useMemo(
+    () => (cachedBars ? null : generateRealisticStockHistory(activeTicker, 2600, undefined, startDate)),
+    [cachedBars, activeTicker, startDate]
+  );
+  const currentBars = (cachedBars || fallbackBars) as PriceBar[];
+  const cachedIntraday = intradayBarsCache[activeTicker];
+  const fallbackIntraday = useMemo(
+    () => (cachedIntraday ? null : generateRealisticIntradayHistory(activeTicker, 7)),
+    [cachedIntraday, activeTicker]
+  );
+  const currentIntradayBars = (cachedIntraday || fallbackIntraday) as IntradayBar[];
   const currentIntradaySource = intradaySourceCache[activeTicker] ?? 'synthetic_gbm';
   const currentBarsSource = stockSourceCache[activeTicker] ?? 'synthetic_gbm';
   const currentCompanyName =

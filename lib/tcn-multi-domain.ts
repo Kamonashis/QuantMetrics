@@ -18,6 +18,7 @@ import { computeHistoricalBacktest } from './tcn-attention';
 import {
   buildCausalReturnVolFeatures,
   fitAndFilterCausalHmm,
+  fitAndFilterCausalHmmAsync,
   type CausalHmmResult,
   type CausalHmmSummary,
 } from './hmm';
@@ -1398,6 +1399,10 @@ async function trainMultiHeadModel(params: {
   let bestHoldout = Infinity;
   let bestWeights = cloneNetWeights(net);
   let step = 0;
+  // Time-sliced yielding: hand the main thread back every ~12ms so a fit never
+  // blocks a frame for long. Yields never touch the math, so results are identical.
+  const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+  let sliceStart = nowMs();
 
   for (let epoch = 1; epoch <= config.epochs; epoch++) {
     if (isCancelled?.()) return null;
@@ -1424,6 +1429,11 @@ async function trainMultiHeadModel(params: {
       }
       step++;
       adamStepMulti(net, bEnd - bStart, lr, step);
+      if (yieldControl && nowMs() - sliceStart > 12) {
+        await yieldControl();
+        if (isCancelled?.()) return null;
+        sliceStart = nowMs();
+      }
     }
 
     // Evaluate strictly out-of-sample holdout loss
@@ -1443,8 +1453,9 @@ async function trainMultiHeadModel(params: {
       bestWeights = cloneNetWeights(net);
     }
 
-    if (yieldControl && epoch % 8 === 0) {
+    if (yieldControl && nowMs() - sliceStart > 12) {
       await yieldControl();
+      sliceStart = nowMs();
     }
   }
 
@@ -1585,6 +1596,17 @@ export async function runTcnVolatilityForecast(
 }
 
 /** Uncached training body — entry is the coalescing wrapper above. */
+/** Causal HMM fit — time-sliced when the caller supplied a yield hook. */
+function causalHmm(
+  yieldControl: (() => Promise<void>) | undefined,
+  features: number[][],
+  trainEndRow: number
+): Promise<CausalHmmResult | null> {
+  return yieldControl
+    ? fitAndFilterCausalHmmAsync(features, trainEndRow, yieldControl)
+    : Promise.resolve(fitAndFilterCausalHmm(features, trainEndRow));
+}
+
 async function trainTcnVolatilityForecast(
   ticker: string,
   bars: PriceBar[],
@@ -1653,7 +1675,8 @@ async function trainTcnVolatilityForecast(
   const trainEndRow = splitIdx + L;
 
   const { normed: baseNormed } = standardizeChannels(rawFeatures, trainEndRow);
-  const hmm = fitAndFilterCausalHmm(
+  const hmm = await causalHmm(
+    options?.yieldControl,
     buildCausalReturnVolFeatures(returns, dailyVarProxy),
     trainEndRow
   );
@@ -2037,7 +2060,7 @@ async function trainTcnRiskVarForecast(
   const splitIdx = clamp(Math.floor(numSamples * cfg.trainSplit), 10, numSamples - 8);
   const trainEndRow = splitIdx + L;
   const { normed: baseNormed } = standardizeChannels(rawFeatures, trainEndRow);
-  const hmm = fitAndFilterCausalHmm(buildCausalReturnVolFeatures(returns), trainEndRow);
+  const hmm = await causalHmm(options?.yieldControl, buildCausalReturnVolFeatures(returns), trainEndRow);
   const normed = appendHmmRegimeChannels(baseNormed, hmm);
   const cIn = 9; // 6 standardized tail-risk features + 3 causal HMM regime probabilities
 
@@ -2463,7 +2486,7 @@ async function trainTcnMultiAssetRegression(
   const splitIdx = clamp(Math.floor(numSamples * cfg.trainSplit), 10, numSamples - 8);
   const trainEndRow = splitIdx + L;
   const { normed: baseNormed } = standardizeChannels(rawFeatures, trainEndRow);
-  const hmm = fitAndFilterCausalHmm(buildCausalReturnVolFeatures(y), trainEndRow);
+  const hmm = await causalHmm(options?.yieldControl, buildCausalReturnVolFeatures(y), trainEndRow);
   const normed = appendHmmRegimeChannels(baseNormed, hmm);
   const cIn = baseCIn + 3; // + 3 causal HMM volatility regime probabilities
 
@@ -2883,7 +2906,8 @@ export async function runTcnCorrelationForecast(
     jointReturns[t] = 0.5 * (rA[t] + rB[t]);
     jointVarProxy[t] = Math.max(1e-8, 0.5 * (rA[t] * rA[t] + rB[t] * rB[t]));
   }
-  const hmm = fitAndFilterCausalHmm(
+  const hmm = await causalHmm(
+    options?.yieldControl,
     buildCausalReturnVolFeatures(jointReturns, jointVarProxy),
     trainEndRow
   );
