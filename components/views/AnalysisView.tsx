@@ -8,6 +8,7 @@ import {
   computeRollingAnnualizedVol,
   computeAcfPacfSquaredReturns,
   decomposeTimeSeries,
+  DEFAULT_DECOMPOSITION_CYCLE_BAND,
   computeAdfTest,
   IntradayBar,
   computeRealizedVolatilityAndJumps,
@@ -93,7 +94,7 @@ export type AnalysisSubTabId =
   | 'risk'
   | 'microstructure';
 
-let persistedCycleBand: { min: number; max: number } = { min: 25, max: 126 };
+let persistedCycleBand: { min: number; max: number } = { ...DEFAULT_DECOMPOSITION_CYCLE_BAND };
 
 export function AnalysisView({
   intradaySource = null,

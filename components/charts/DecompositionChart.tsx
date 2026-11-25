@@ -11,6 +11,7 @@ import {
   buildTcnSensitivityCacheKey,
   getCachedTcnArtifact,
   getCachedTcnSensitivity,
+  getLatestCachedTcnArtifactByTicker,
   getLatestCachedTcnArtifactForData,
   hydrateTcnCacheFromSessionStorage,
   runTcnDecompositionForecast,
@@ -27,6 +28,16 @@ import {
 import { TcnForecastPanel } from '@/components/charts/TcnForecastPanel';
 import { PlotlyChart, usePlotlyDarkTheme } from '@/components/charts/PlotlyChart';
 import { getPlotlyThemeTokens, QUANT_COLORS } from '@/lib/plotly-theme';
+import { useTickerSnapshot } from '@/components/providers/TickerSnapshotProvider';
+import { subscribeTcnBootUpdates } from '@/lib/tcn-training-queue';
+import { yieldToMain } from '@/lib/yield-frame';
+
+/**
+ * Decomposition setups (ticker|model|period|cycle band|sample start) that
+ * already got their one automatic default-parameter fit this session. Live
+ * ticks shift the sample end, never these, so they can never re-trigger it.
+ */
+const autoFitAttempted = new Set<string>();
 
 interface DecompositionChartProps {
   ticker?: string;
@@ -344,8 +355,12 @@ export function DecompositionChart({
   );
 
   const exactCachedArtifact = cacheRevision >= 0 ? getCachedTcnArtifact(fullCacheKey) : null;
+  // Cache lookup order: exact key → same data (other config) → latest fit for this
+  // ticker (live ticks shift the sample; the last fit stays visible, flagged stale).
   const fallbackCachedArtifact =
-    exactCachedArtifact ?? getLatestCachedTcnArtifactForData(dataSignature);
+    exactCachedArtifact ??
+    getLatestCachedTcnArtifactForData(dataSignature) ??
+    getLatestCachedTcnArtifactByTicker(ticker);
   const forecast = fallbackCachedArtifact?.forecast ?? null;
   const exactCachedSweep =
     cacheRevision >= 0 ? getCachedTcnSensitivity(fullSensitivityKey) : null;
@@ -400,10 +415,7 @@ export function DecompositionChart({
               setProgress(p);
             }
           },
-          yieldControl: () =>
-            new Promise<void>((resolve) => {
-              setTimeout(resolve, 0);
-            }),
+          yieldControl: yieldToMain,
           isCancelled: () => runIdRef.current !== myRunId,
           useCache: true,
           forceRetrain,
@@ -441,9 +453,7 @@ export function DecompositionChart({
     []
   );
 
-  // Hydrate a previously fitted model from sessionStorage on mount. Training itself
-  // is manual-only — the Train button below is the sole trigger (live quote ticks
-  // must never start a fit).
+  // Cache first: hydrate previously fitted models from sessionStorage on mount.
   useEffect(() => {
     const timer = setTimeout(() => {
       const hydrated = hydrateTcnCacheFromSessionStorage();
@@ -453,6 +463,39 @@ export function DecompositionChart({
     }, 15);
     return () => clearTimeout(timer);
   }, [executeTraining]);
+
+  // The app-level bootstrap resolves the decomposition forecast at load (cache
+  // lookup, default-parameter fit on a miss); surface its result immediately.
+  const { tcnBoot, barsSource } = useTickerSnapshot();
+  const upperTicker = ticker.toUpperCase();
+  useEffect(
+    () =>
+      subscribeTcnBootUpdates((symbol, head) => {
+        if (head === 'decomposition' && symbol === upperTicker) setCacheRevision((v) => v + 1);
+      }),
+    [upperTicker]
+  );
+  const bootFittingThis =
+    tcnBoot.ticker === upperTicker && tcnBoot.state === 'training' && tcnBoot.head === 'decomposition';
+  const bootPending = tcnBoot.ticker === upperTicker && tcnBoot.state !== 'done';
+
+  // Not found in cache for the current decomposition (e.g. a non-default period,
+  // model, cycle band or start date) → one automatic fit with the default TCN
+  // parameters, cached by the engine. Waits for the bootstrap (which may be about
+  // to answer this exact setup) and for live bars (synthetic history is never
+  // auto-trained), and runs at most once per setup per session.
+  const hasAnyFitForSetup = forecast !== null && forecast.model === model && forecast.period === period;
+  const autoFitKey = `${upperTicker}|${model}|${period}|${cycleMinPeriod}-${cycleMaxPeriod}|${dates[0] ?? ''}`;
+  useEffect(() => {
+    if (hasAnyFitForSetup || isTraining || bootPending) return;
+    if (barsSource !== 'live_market' || n < MIN_BARS_FOR_TCN) return;
+    if (autoFitAttempted.has(autoFitKey)) return;
+    const timer = setTimeout(() => {
+      autoFitAttempted.add(autoFitKey);
+      void executeTraining(DEFAULT_TCN_CONFIG, false, persistedChartUiState.sensitivityStep, false);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [hasAnyFitForSetup, isTraining, bootPending, barsSource, n, autoFitKey, executeTraining]);
 
   const isMult = model === 'multiplicative';
   const refBaseline = isMult ? 1 : 0;
@@ -683,7 +726,7 @@ export function DecompositionChart({
         onSensitivityStepChange={setSensitivityStep}
         sensitivityResult={activeSensitivityForPlot}
         isSensitivityStale={isSensitivityStale}
-        isTraining={isTraining}
+        isTraining={isTraining || bootFittingThis}
         progress={progress}
         isStale={isStale}
         onTrain={() => {

@@ -7,8 +7,17 @@
 // lets mounted view hooks re-hydrate when the bootstrap writes fresh
 // artifacts into the shared engine caches.
 
-import type { PriceBar } from './quant-engine';
-import { calculateReturns } from './quant-engine';
+import type { DecompositionResult, PriceBar } from './quant-engine';
+import { calculateReturns, decomposeTimeSeries, DEFAULT_DECOMPOSITION_CYCLE_BAND } from './quant-engine';
+import {
+  DEFAULT_TCN_CONFIG,
+  MIN_BARS_FOR_TCN,
+  buildTcnCacheKey,
+  getCachedTcnArtifact,
+  hydrateTcnCacheFromSessionStorage,
+  runTcnDecompositionForecast,
+  type TcnDecompositionForecast,
+} from './tcn-attention';
 import { selectDefaultRegressionFactors } from './tcn-diagnostics';
 import type { TcnTrainableHead } from './tcn-bootstrap-policy';
 import {
@@ -102,13 +111,90 @@ async function runHead(head: TcnTrainableHead, ctx: TcnHeadSequenceContext): Pro
 }
 
 // ---------------------------------------------------------------------------
+// TCN decomposition (Analysis → Overview) — app-load cache lookup / default fit
+// ---------------------------------------------------------------------------
+
+/** Decomposition inputs the Analysis view uses (app-level state). */
+export interface TcnDecompositionBootParams {
+  startDate?: string;
+  endDate?: string;
+  period: number;
+  model: 'additive' | 'multiplicative';
+  cycleBand?: { min: number; max: number };
+}
+
+/**
+ * Builds the exact decomposition the Analysis view renders for these params:
+ * same date filter, same `decomposeTimeSeries` call, same default cycle band.
+ * Identical input ⇒ identical TCN cache key, so a bootstrap fit is the one the
+ * chart looks up.
+ */
+export function buildBootDecomposition(
+  bars: PriceBar[],
+  params: TcnDecompositionBootParams
+): DecompositionResult | null {
+  const filtered = bars.filter(
+    (b) => !(params.startDate && b.date < params.startDate) && !(params.endDate && b.date > params.endDate)
+  );
+  if (filtered.length < MIN_BARS_FOR_TCN) return null;
+  const band = params.cycleBand ?? DEFAULT_DECOMPOSITION_CYCLE_BAND;
+  return decomposeTimeSeries(
+    filtered.map((b) => b.date),
+    filtered.map((b) => b.close),
+    params.period,
+    params.model,
+    band.min,
+    band.max
+  );
+}
+
+export interface TcnDecompositionBootResult {
+  forecast: TcnDecompositionForecast | null;
+  /** true ⇒ answered from the (session-hydrated) cache without training. */
+  fromCache: boolean;
+}
+
+/**
+ * Cache first: hydrate the session cache and look up the default-config
+ * artifact for this decomposition. Only on a miss is the model trained with
+ * DEFAULT_TCN_CONFIG (cached by the engine). A cancelled fit returns null and
+ * caches nothing.
+ */
+export async function runTcnDecompositionBootstrap(ctx: {
+  ticker: string;
+  bars: PriceBar[];
+  params: TcnDecompositionBootParams;
+  yieldControl: () => Promise<void>;
+  isCancelled: () => boolean;
+}): Promise<TcnDecompositionBootResult> {
+  const decomposition = buildBootDecomposition(ctx.bars, ctx.params);
+  if (!decomposition) return { forecast: null, fromCache: false };
+  hydrateTcnCacheFromSessionStorage();
+  const cached = getCachedTcnArtifact(buildTcnCacheKey(ctx.ticker, decomposition, DEFAULT_TCN_CONFIG));
+  if (cached) {
+    // Re-run through the engine so its data-signature index points at this artifact.
+    const forecast = await runTcnDecompositionForecast(ctx.ticker, decomposition, DEFAULT_TCN_CONFIG);
+    return { forecast, fromCache: true };
+  }
+  const forecast = await runTcnDecompositionForecast(ctx.ticker, decomposition, DEFAULT_TCN_CONFIG, {
+    yieldControl: ctx.yieldControl,
+    isCancelled: ctx.isCancelled,
+    useCache: true,
+  });
+  return { forecast: ctx.isCancelled() ? null : forecast, fromCache: false };
+}
+
+// ---------------------------------------------------------------------------
 // Bootstrap-completion notifications — mounted hooks (useTcnVolatility,
 // useTcnDiagnosticsBundle) subscribe so the boot trainer's cache writes
 // surface immediately instead of waiting for the next bar tick to re-run
 // their hydration effects.
 // ---------------------------------------------------------------------------
 
-type TcnBootListener = (ticker: string, head: TcnTrainableHead) => void;
+/** Everything the app-level bootstrap fits: the decomposition forecast plus the multi-domain heads. */
+export type TcnBootHead = TcnTrainableHead | 'decomposition';
+
+type TcnBootListener = (ticker: string, head: TcnBootHead) => void;
 
 const bootListeners = new Set<TcnBootListener>();
 
@@ -119,7 +205,7 @@ export function subscribeTcnBootUpdates(listener: TcnBootListener): () => void {
   };
 }
 
-export function notifyTcnBootUpdate(ticker: string, head: TcnTrainableHead): void {
+export function notifyTcnBootUpdate(ticker: string, head: TcnBootHead): void {
   for (const listener of [...bootListeners]) {
     try {
       listener(ticker, head);

@@ -1389,9 +1389,10 @@ export function TcnForecastPanel({
         <div className="panel-inset p-4 flex items-start gap-2.5 text-xs text-zinc-600 dark:text-zinc-400">
           <AlertCircle className="w-4 h-4 text-gold-500 shrink-0 mt-0.5" />
           <div>
-            <strong className="text-zinc-900 dark:text-zinc-100">No fitted model yet.</strong>{' '}
-            Training is manual — press <span className="font-mono text-gold-700 dark:text-gold-300">Train &amp; Predict Next-Day</span>{' '}
-            above to fit on the current {nObs} observations. Live quotes never start a fit.
+            <strong className="text-zinc-900 dark:text-zinc-100">No cached model for this setup yet.</strong>{' '}
+            A fit with the default parameters starts automatically once live bars are available (synthetic history
+            is never auto-trained). You can also press <span className="font-mono text-gold-700 dark:text-gold-300">Train &amp; Predict Next-Day</span>{' '}
+            to fit on the current {nObs} observations. Live quote ticks never start a fit.
             {isStale && ' Cached parameters differ from the current parameters — retrain to refresh.'}
           </div>
         </div>

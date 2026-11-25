@@ -16,6 +16,7 @@ import {
 import type { ChainPayload, IndicesPayload, IvHistoryEntry, PanelRowOut } from '@/components/views/volatility/types';
 import type { PanelPayload } from '@/components/views/fno/types';
 import { useTcnBootstrap, type TcnBootStatus } from '@/hooks/use-tcn-bootstrap';
+import type { TcnDecompositionBootParams } from '@/lib/tcn-training-queue';
 
 export interface TickerSnapshotValue {
   ticker: string;
@@ -74,6 +75,7 @@ export function TickerSnapshotProvider({
   intradaySource = null,
   allStockBars = {},
   latestQuotes = EMPTY_QUOTES,
+  decompositionParams,
   children,
 }: {
   ticker: string;
@@ -82,6 +84,8 @@ export function TickerSnapshotProvider({
   intradaySource?: string | null;
   allStockBars?: Record<string, PriceBar[]>;
   latestQuotes?: Record<string, { price: number; changePct: number; asOf: string }>;
+  /** Analysis decomposition inputs: the app-load TCN decomposition fit uses them. */
+  decompositionParams?: TcnDecompositionBootParams;
   children: React.ReactNode;
 }) {
   const [chainResult, setChainResult] = useState<{ key: string; payload: ChainPayload } | null>(null);
@@ -169,7 +173,7 @@ export function TickerSnapshotProvider({
   );
   const curve = useMemo(() => curveVerdict(chain?.termStructure ?? []), [chain]);
   const session = useMemo(() => sessionDiff(panel), [panel]);
-  const tcnBoot = useTcnBootstrap({ ticker, bars, barsSource, allStockBars });
+  const tcnBoot = useTcnBootstrap({ ticker, bars, barsSource, allStockBars, decompositionParams });
 
   const value = useMemo<TickerSnapshotValue>(() => ({
     ticker, chain, indices, ivHistory, panel, fnoPanel, fnoLoading, chainLoading, refresh,

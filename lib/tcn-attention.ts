@@ -8,6 +8,7 @@ import type { DecompositionResult } from './quant-engine';
 import {
   buildCausalReturnVolFeatures,
   fitAndFilterCausalHmm,
+  fitAndFilterCausalHmmAsync,
   type CausalHmmResult,
   type CausalHmmSummary,
 } from './hmm';
@@ -1070,11 +1071,12 @@ interface BuiltDataset {
   latestAnchor: number;
 }
 
-function computeCausalHmmForObservedPrices(
+/** HMM inputs (return/vol features + causal train cutoff) for observed prices. */
+function causalHmmInputsForObservedPrices(
   observed: number[],
   lookback: number,
   trainSplit: number
-): CausalHmmResult | null {
+): { features: number[][]; trainEndRow: number } | null {
   const n = observed.length;
   if (n < 35) return null;
   const priceReturns = new Array<number>(n);
@@ -1090,7 +1092,30 @@ function computeCausalHmmForObservedPrices(
   const numTrendSamples = Math.max(1, n - 1 - lookback);
   const splitIdx = Math.max(4, Math.min(numTrendSamples - 2, Math.floor(numTrendSamples * trainSplit)));
   const trainEndRow = Math.min(n, splitIdx + lookback + 1);
-  return fitAndFilterCausalHmm(buildCausalReturnVolFeatures(priceReturns), trainEndRow);
+  return { features: buildCausalReturnVolFeatures(priceReturns), trainEndRow };
+}
+
+function computeCausalHmmForObservedPrices(
+  observed: number[],
+  lookback: number,
+  trainSplit: number
+): CausalHmmResult | null {
+  const inp = causalHmmInputsForObservedPrices(observed, lookback, trainSplit);
+  return inp ? fitAndFilterCausalHmm(inp.features, inp.trainEndRow) : null;
+}
+
+/** Same result as `computeCausalHmmForObservedPrices`, time-sliced when a yield hook is supplied. */
+async function computeCausalHmmForObservedPricesAsync(
+  observed: number[],
+  lookback: number,
+  trainSplit: number,
+  yieldControl?: () => Promise<void>
+): Promise<CausalHmmResult | null> {
+  const inp = causalHmmInputsForObservedPrices(observed, lookback, trainSplit);
+  if (!inp) return null;
+  return yieldControl
+    ? fitAndFilterCausalHmmAsync(inp.features, inp.trainEndRow, yieldControl)
+    : fitAndFilterCausalHmm(inp.features, inp.trainEndRow);
 }
 
 function buildComponentDataset(
@@ -1839,19 +1864,50 @@ export function predictNextDayFromCachedWeights(
   return { predictedPrice, components: preds };
 }
 
-export async function runTcnDecompositionForecast(
+type DecompositionRunOptions = {
+  onProgress?: (progress: TcnTrainingProgress) => void;
+  yieldControl?: () => Promise<void>;
+  isCancelled?: () => boolean;
+  /** Read/write trained model weights & predictions cache (default true) */
+  useCache?: boolean;
+  /** Bypass cached entry and train fresh weights, overwriting the cache slot */
+  forceRetrain?: boolean;
+};
+
+/** In-flight decomposition fits by cache key (app bootstrap + chart never double-train). */
+const decompositionInFlight = new Map<string, Promise<TcnDecompositionForecast | null>>();
+
+/**
+ * Trains (or serves from cache) the 4-component TCN-Attention decomposition
+ * forecast. Concurrent callers for the same cache key join the running fit
+ * instead of starting a second one (progress callbacks belong to the caller
+ * that started it).
+ */
+export function runTcnDecompositionForecast(
   ticker: string,
   decomposition: DecompositionResult,
   rawConfig: TcnAttentionConfig = DEFAULT_TCN_CONFIG,
-  options?: {
-    onProgress?: (progress: TcnTrainingProgress) => void;
-    yieldControl?: () => Promise<void>;
-    isCancelled?: () => boolean;
-    /** Read/write trained model weights & predictions cache (default true) */
-    useCache?: boolean;
-    /** Bypass cached entry and train fresh weights, overwriting the cache slot */
-    forceRetrain?: boolean;
+  options?: DecompositionRunOptions
+): Promise<TcnDecompositionForecast | null> {
+  if (decomposition.observed.length < MIN_BARS_FOR_TCN) return Promise.resolve(null);
+  const useCache = options?.useCache !== false;
+  const key = buildTcnCacheKey(ticker, decomposition, rawConfig);
+  if (useCache) {
+    const running = decompositionInFlight.get(key);
+    if (running) return running;
   }
+  const run = runTcnDecompositionForecastImpl(ticker, decomposition, rawConfig, options).finally(() => {
+    if (decompositionInFlight.get(key) === run) decompositionInFlight.delete(key);
+  });
+  if (useCache) decompositionInFlight.set(key, run);
+  return run;
+}
+
+async function runTcnDecompositionForecastImpl(
+  ticker: string,
+  decomposition: DecompositionResult,
+  rawConfig: TcnAttentionConfig,
+  options?: DecompositionRunOptions
 ): Promise<TcnDecompositionForecast | null> {
   const n = decomposition.observed.length;
   if (n < MIN_BARS_FOR_TCN) return null;
@@ -1881,7 +1937,12 @@ export async function runTcnDecompositionForecast(
     residual: decomposition.residual.map((v) => (v !== null && Number.isFinite(v) ? v : neutral)),
   };
 
-  const hmm = computeCausalHmmForObservedPrices(observed, config.lookback, config.trainSplit);
+  const hmm = await computeCausalHmmForObservedPricesAsync(
+    observed,
+    config.lookback,
+    config.trainSplit,
+    options?.yieldControl
+  );
   const hmmPosteriors = hmm?.filteredPosteriors ?? null;
 
   const results = {} as Record<DecompositionComponentKey, TrainedComponentResult>;

@@ -401,6 +401,13 @@ export function computeAcfPacfSquaredReturns(
  * component (C_t) cleanly from the long-run secular trend (T_t) and periodic
  * seasonal factor (S_t). Reconstruction is exact to machine precision.
  */
+/**
+ * Default Fourier cycle band (trading days) for the structural decomposition.
+ * Shared by the Analysis view and the app-level TCN decomposition bootstrap so
+ * both build byte-identical decompositions (and therefore the same cache key).
+ */
+export const DEFAULT_DECOMPOSITION_CYCLE_BAND: Readonly<{ min: number; max: number }> = { min: 25, max: 126 };
+
 export function decomposeTimeSeries(
   dates: string[],
   prices: number[],

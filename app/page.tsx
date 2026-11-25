@@ -692,6 +692,12 @@ export default function App() {
     return { price: last, changePct: prev > 0 ? ((last - prev) / prev) * 100 : null };
   }, [activeTicker, latestQuotes, currentBars]);
 
+  // Inputs for the app-load TCN decomposition forecast (same as the Analysis view's).
+  const decompositionParams = useMemo(
+    () => ({ startDate, endDate, period: decompPeriod, model: decompModel }),
+    [startDate, endDate, decompPeriod, decompModel]
+  );
+
   return (
     <TickerSnapshotProvider
       ticker={activeTicker}
@@ -700,6 +706,7 @@ export default function App() {
       intradaySource={currentIntradaySource}
       allStockBars={stockBarsCache}
       latestQuotes={latestQuotes}
+      decompositionParams={decompositionParams}
     >
     <div className="min-h-dvh bg-[#F5F4F1] dark:bg-[#08080A] text-zinc-900 dark:text-[#ECECF1] flex flex-col font-sans transition-colors pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))] md:pb-0">
       {/* Top Navigation */}

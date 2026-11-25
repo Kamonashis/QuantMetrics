@@ -3,7 +3,13 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PriceBar } from '@/lib/quant-engine';
 import { nextTcnBootstrapAction, type TcnTrainableHead } from '@/lib/tcn-bootstrap-policy';
-import { notifyTcnBootUpdate, runTcnHeadSequence } from '@/lib/tcn-training-queue';
+import {
+  notifyTcnBootUpdate,
+  runTcnDecompositionBootstrap,
+  runTcnHeadSequence,
+  type TcnBootHead,
+  type TcnDecompositionBootParams,
+} from '@/lib/tcn-training-queue';
 import { selectDefaultRegressionFactors } from '@/lib/tcn-diagnostics';
 
 import { yieldToMain } from '@/lib/yield-frame';
@@ -22,13 +28,15 @@ const bootstrapped = new Set<string>();
 export interface TcnBootStatus {
   ticker: string;
   state: 'idle' | 'training' | 'done';
-  head: TcnTrainableHead | null;
+  head: TcnBootHead | null;
 }
 
 const idle = (ticker: string): TcnBootStatus => ({ ticker, state: 'idle', head: null });
 
 /**
- * App-level TCN bootstrap trainer: fits the multi-domain heads once per
+ * App-level TCN bootstrap trainer. Once per ticker it first resolves the TCN
+ * decomposition forecast (cache lookup; on a miss, a fit with the default
+ * parameters, cached), then fits the multi-domain heads once per
  * ticker — at first load or on the first ticker switch — as soon as live
  * bars are available. Everything after that first fit is manual (the retrain
  * buttons); this hook never re-fires on live-tick data drift, refreshes or
@@ -41,11 +49,14 @@ export function useTcnBootstrap({
   bars,
   barsSource,
   allStockBars,
+  decompositionParams,
 }: {
   ticker: string;
   bars: PriceBar[];
   barsSource?: string | null;
   allStockBars: Record<string, PriceBar[]>;
+  /** Analysis-view decomposition inputs (dates/period/model) — read at fit time. */
+  decompositionParams?: TcnDecompositionBootParams;
 }): TcnBootStatus {
   const upper = ticker.trim().toUpperCase();
   const barsLen = bars?.length ?? 0;
@@ -66,10 +77,12 @@ export function useTcnBootstrap({
   const trainingRef = useRef(false);
   const barsRef = useRef(bars);
   const allBarsRef = useRef(allStockBars);
+  const decompParamsRef = useRef(decompositionParams);
   useEffect(() => {
     barsRef.current = bars;
     allBarsRef.current = allStockBars;
-  }, [bars, allStockBars]);
+    decompParamsRef.current = decompositionParams;
+  }, [bars, allStockBars, decompositionParams]);
 
   // A ticker change invalidates any pending or in-flight bootstrap fit for
   // the previous ticker (its epoch is now stale).
@@ -120,9 +133,24 @@ export function useTcnBootstrap({
     const cancelSchedule = schedule(() => {
       if (cancelled || epochRef.current !== request.epoch) return;
       const runTicker = request.ticker;
+      const isStale = () => cancelled || epochRef.current !== request.epoch;
       trainingRef.current = true;
-      setStatus({ ticker: runTicker, state: 'training', head: request.heads[0] ?? null });
-      void runTcnHeadSequence(
+      // 1. Decomposition forecast first: cache lookup, default-parameter fit on a miss.
+      const decompParams = decompParamsRef.current;
+      setStatus({ ticker: runTicker, state: 'training', head: decompParams ? 'decomposition' : request.heads[0] ?? null });
+      const decompStep = decompParams
+        ? runTcnDecompositionBootstrap({
+            ticker: runTicker,
+            bars: barsRef.current ?? [],
+            params: decompParams,
+            yieldControl: yieldFrame,
+            isCancelled: isStale,
+          }).then(() => {
+            if (!isStale()) notifyTcnBootUpdate(runTicker, 'decomposition');
+          })
+        : Promise.resolve();
+      // 2. Then the multi-domain heads, in policy order.
+      void decompStep.then(() => isStale() ? undefined : runTcnHeadSequence(
         request.heads,
         {
           ticker: runTicker,
@@ -142,7 +170,7 @@ export function useTcnBootstrap({
             notifyTcnBootUpdate(runTicker, head);
           },
         }
-      ).finally(() => {
+      )).finally(() => {
         const aborted = cancelled || epochRef.current !== request.epoch;
         trainingRef.current = false;
         if (aborted) {
