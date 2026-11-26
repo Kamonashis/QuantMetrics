@@ -7,8 +7,8 @@ import { TickerSuggest } from '@/components/ui/TickerSuggest';
 import { ProvenanceBadge } from '@/components/ui/provenance-badge';
 
 interface NavbarProps {
-  activeView: 'now' | 'home' | 'analysis' | 'modeling' | 'correlation' | 'regression' | 'volatility' | 'fno';
-  onViewChange: (view: 'now' | 'home' | 'analysis' | 'modeling' | 'correlation' | 'regression' | 'volatility' | 'fno') => void;
+  activeView: 'home' | 'analysis' | 'modeling' | 'volatility' | 'fno' | 'correlation' | 'regression' | 'now';
+  onViewChange: (view: 'home' | 'analysis' | 'modeling' | 'volatility' | 'fno' | 'correlation' | 'regression' | 'now') => void;
   isDark: boolean;
   onToggleTheme: () => void;
   activeTicker: string;
@@ -21,13 +21,13 @@ interface NavbarProps {
 
 const NAV_ITEMS = [
   { id: 'home', label: 'Home', shortLabel: 'Home', icon: Home },
-  { id: 'now', label: 'Edge', shortLabel: 'Edge', icon: LayoutDashboard },
   { id: 'analysis', label: 'Analysis', shortLabel: 'Analysis', icon: Activity },
   { id: 'modeling', label: 'Modeling', shortLabel: 'Model', icon: Sigma },
   { id: 'volatility', label: 'Options · Vol', shortLabel: 'Vol', icon: Waves },
   { id: 'fno', label: 'Options · Position', shortLabel: 'Pos', icon: CandlestickChart },
   { id: 'correlation', label: 'Correlation', shortLabel: 'Corr.', icon: Network },
   { id: 'regression', label: 'Regression', shortLabel: 'Regr.', icon: TrendingUp },
+  { id: 'now', label: 'Edge', shortLabel: 'Edge', icon: LayoutDashboard },
 ] as const;
 
 export function Navbar({

@@ -355,7 +355,7 @@ export async function GET(req: NextRequest) {
 
   // ------------------------------------------------------------------ history
   if (mode === 'history') {
-    const raw = searchParams.get('symbol') || 'AAPL';
+    const raw = searchParams.get('symbol') || 'NVDA';
     const { symbol } = resolveSymbol(raw);
     const hist = readHistory(symbol);
     return NextResponse.json({
@@ -371,7 +371,7 @@ export async function GET(req: NextRequest) {
 
   // -------------------------------------------------------------------- panel
   if (mode === 'panel') {
-    const raw = searchParams.get('symbol') || 'AAPL';
+    const raw = searchParams.get('symbol') || 'NVDA';
     const { symbol } = resolveSymbol(raw);
     const panel = readPanel(symbol).slice(-500);
     const stats = historyStats(symbol);
@@ -434,7 +434,7 @@ export async function GET(req: NextRequest) {
   // Snapshot-only options factors for a small cross-section. No accrual here —
   // callers must label these as current reads, not a historical factor panel.
   if (mode === 'factor-scan') {
-    const raw = searchParams.get('symbols') || searchParams.get('symbol') || 'AAPL';
+    const raw = searchParams.get('symbols') || searchParams.get('symbol') || 'NVDA';
     const symbols = [...new Set(raw.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean))].slice(0, 5);
     const nowSec = Date.now() / 1000;
     const result: Record<string, unknown> = {};
@@ -493,7 +493,7 @@ export async function GET(req: NextRequest) {
   }
 
   if (mode === 'chain') {
-    const raw = searchParams.get('symbol') || 'AAPL';
+    const raw = searchParams.get('symbol') || 'NVDA';
     const { symbol, substitution } = resolveSymbol(raw);
     const chain = await fetchYahooChain(symbol, { maxExpiries: 8, maxDte: 90 });
     if (!chain) {

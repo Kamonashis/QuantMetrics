@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
-  const tickersParam = searchParams.get('tickers') || searchParams.get('ticker') || 'AAPL';
+  const tickersParam = searchParams.get('tickers') || searchParams.get('ticker') || 'NVDA';
   const mode = searchParams.get('mode') || 'bars';
   const range = searchParams.get('range') || '10y';
   const interval = searchParams.get('interval') || '1d';
@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
   }
 
   if (tickerList.length === 0) {
-    tickerList.push('AAPL');
+    tickerList.push('NVDA');
   }
 
   try {

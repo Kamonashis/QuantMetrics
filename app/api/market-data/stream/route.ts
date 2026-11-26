@@ -13,7 +13,7 @@ const MAX_STREAM_TICKERS = 12;
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
-  const tickersParam = searchParams.get('tickers') || 'AAPL';
+  const tickersParam = searchParams.get('tickers') || 'NVDA';
   const rawInterval = Number(searchParams.get('intervalMs'));
   const intervalMs = Number.isFinite(rawInterval)
     ? Math.max(MIN_INTERVAL_MS, Math.min(MAX_INTERVAL_MS, Math.round(rawInterval)))
@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
       if (tickers.length >= MAX_STREAM_TICKERS) break;
     }
   }
-  if (tickers.length === 0) tickers.push('AAPL');
+  if (tickers.length === 0) tickers.push('NVDA');
 
   const encoder = new TextEncoder();
   let closed = false;

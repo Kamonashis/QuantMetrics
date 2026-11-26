@@ -74,7 +74,7 @@ export function RegressionView({
   sourcesByTicker = {},
 }: RegressionViewProps) {
   const parsed = useMemo(() => parseTickers(regressionTickers), [regressionTickers]);
-  const asset = parsed[0] ?? 'AAPL';
+  const asset = parsed[0] ?? 'NVDA';
   const benchmark = parsed[1] && parsed[1] !== asset ? parsed[1] : 'SPY';
   const customTickers = useMemo(() => parsed.slice(2).filter((t) => t !== asset && t !== benchmark), [parsed, asset, benchmark]);
 
@@ -210,7 +210,7 @@ export function RegressionView({
           <div className="mt-4 grid grid-cols-1 gap-4 text-xs sm:grid-cols-2 lg:grid-cols-12">
             <div className="lg:col-span-2">
               <label htmlFor="lab-asset" className="mb-1 block font-medium text-zinc-700 dark:text-zinc-300">Asset to explain</label>
-              <TickerSuggest id="lab-asset" ariaLabel="Asset" value={assetDraft} onChange={setAssetDraft} placeholder="AAPL" inputClassName={inputClass} />
+              <TickerSuggest id="lab-asset" ariaLabel="Asset" value={assetDraft} onChange={setAssetDraft} placeholder="NVDA" inputClassName={inputClass} />
             </div>
             <div className="lg:col-span-2">
               <label htmlFor="lab-benchmark" className="mb-1 block font-medium text-zinc-700 dark:text-zinc-300">Market benchmark</label>

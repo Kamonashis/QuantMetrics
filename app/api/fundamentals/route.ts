@@ -57,7 +57,7 @@ async function fetchModules(symbol: string, modules: string, cookie: string, cru
 
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
-  const rawSymbols = params.get('symbols') ?? params.get('symbol') ?? 'AAPL';
+  const rawSymbols = params.get('symbols') ?? params.get('symbol') ?? 'NVDA';
   const symbols = [...new Set(rawSymbols.split(',').map(symbolOf).filter((s): s is string => s !== null))].slice(
     0,
     MAX_SYMBOLS

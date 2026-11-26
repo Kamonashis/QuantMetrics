@@ -343,7 +343,7 @@ export async function fetchLiveStockData(
   startDate?: string,
   endDate?: string
 ): Promise<TickerDataResponse> {
-  const sym = sanitizeTickerSymbol(ticker) ?? 'AAPL';
+  const sym = sanitizeTickerSymbol(ticker) ?? 'NVDA';
   const safeRange = sanitizeRange(range, '10y');
   const known = KNOWN_TICKERS[sym];
   const companyName = known?.name || `${sym} Equity`;
@@ -585,7 +585,7 @@ export async function fetchLiveIntradayData(
   ticker: string,
   range: string = '7d'
 ): Promise<IntradayTickerDataResponse> {
-  const sym = sanitizeTickerSymbol(ticker) ?? 'AAPL';
+  const sym = sanitizeTickerSymbol(ticker) ?? 'NVDA';
   const safeRange = sanitizeRange(range, '7d');
   const known = KNOWN_TICKERS[sym];
   const companyName = known?.name || `${sym} Equity`;
@@ -659,7 +659,7 @@ export async function fetchLiveIntradayData(
  * host on transient timeouts, and retains last-known-good live ticks across brief blips.
  */
 export async function fetchLiveQuoteSnapshot(ticker: string): Promise<LiveQuoteTick> {
-  const sym = sanitizeTickerSymbol(ticker) ?? 'AAPL';
+  const sym = sanitizeTickerSymbol(ticker) ?? 'NVDA';
   const now = Date.now();
   const cached = liveQuoteCache.get(sym);
   if (cached && cached.freshUntil > now) {

@@ -37,8 +37,9 @@ const ModelingView = dynamic(() => import('@/components/views/ModelingView').the
 const CorrelationView = dynamic(() => import('@/components/views/CorrelationView').then((m) => m.CorrelationView), { ssr: false, loading: ViewLoading });
 const RegressionView = dynamic(() => import('@/components/views/RegressionView').then((m) => m.RegressionView), { ssr: false, loading: ViewLoading });
 
-type AppView = 'now' | 'home' | 'analysis' | 'modeling' | 'correlation' | 'regression' | 'volatility' | 'fno';
-const VALID_VIEWS: AppView[] = ['now', 'home', 'analysis', 'modeling', 'correlation', 'regression', 'volatility', 'fno'];
+type AppView = 'home' | 'analysis' | 'modeling' | 'volatility' | 'fno' | 'correlation' | 'regression' | 'now';
+const VALID_VIEWS: AppView[] = ['home', 'analysis', 'modeling', 'volatility', 'fno', 'correlation', 'regression', 'now'];
+const DEFAULT_TICKER = 'NVDA';
 const DEFAULT_UNIVERSE = ['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'TSLA', 'SPY', 'QQQ', 'AMZN', 'META', 'JPM'] as const;
 /** Looked-up tickers kept resident beyond the protected set (LRU). */
 const MAX_EXTRA_DAILY_TICKERS = 6;
@@ -100,7 +101,8 @@ export default function App() {
   const defaultStartDateStr = '2020-01-15';
 
   // Shared Analysis Parameters — declared before navigation so URL state can reference them.
-  const [activeTicker, setActiveTicker] = useState<string>('AAPL');
+  const [activeTicker, setActiveTicker] = useState<string>(DEFAULT_TICKER);
+  const lastRequestedTickerRef = useRef(DEFAULT_TICKER);
   const [resolution, setResolution] = useState<'daily' | 'intraday'>('daily');
   const [startDate, setStartDate] = useState<string>(defaultStartDateStr);
   const [endDate, setEndDate] = useState<string>(todayStr);
@@ -118,7 +120,13 @@ export default function App() {
       const v = p.get('view');
       if (v && (VALID_VIEWS as string[]).includes(v)) setActiveView(v as AppView);
       const t = p.get('ticker');
-      if (t) setActiveTicker(t.toUpperCase());
+      if (t) {
+        const next = t.trim().toUpperCase();
+        if (next) {
+          lastRequestedTickerRef.current = next;
+          setActiveTicker(next);
+        }
+      }
       const s = p.get('start');
       if (s) setStartDate(s);
       const e = p.get('end');
@@ -180,7 +188,7 @@ export default function App() {
     'AAPL, MSFT, GOOGL, NVDA, TSLA, SPY'
   );
   const [regressionTickers, setRegressionTickers] = useState<string>(
-    'AAPL, SPY'
+    `${DEFAULT_TICKER}, SPY`
   );
 
   // Market Data In-Memory Cache with lazy instant initialization (defaulting to 10 years of history)
@@ -202,7 +210,7 @@ export default function App() {
   // ticker's intraday bars are ever read, so only the initial ticker is seeded
   // (others fall back to a memoized synthetic series) and the cache is bounded.
   const [intradayBarsCache, setIntradayBarsCache] = useState<{ [ticker: string]: IntradayBar[] }>(() => ({
-    AAPL: generateRealisticIntradayHistory('AAPL', 7),
+    [DEFAULT_TICKER]: generateRealisticIntradayHistory(DEFAULT_TICKER, 7),
   }));
   // Source per ticker for the intraday cache — the seeded default is synthetic, always labelled as such.
   const [intradaySourceCache, setIntradaySourceCache] = useState<{ [ticker: string]: string }>(() => {
@@ -422,9 +430,12 @@ export default function App() {
       if (v && (VALID_VIEWS as string[]).includes(v)) setActiveView(v as AppView);
       const t = p.get('ticker');
       if (t) {
-        const next = t.toUpperCase();
-        setActiveTicker(next);
-        fetchTickers([next]);
+        const next = t.trim().toUpperCase();
+        if (next) {
+          lastRequestedTickerRef.current = next;
+          setActiveTicker(next);
+          fetchTickers([next]);
+        }
       }
       const s = p.get('start');
       if (s) setStartDate(s);
@@ -454,13 +465,28 @@ export default function App() {
   useEffect(() => {
     let active = true;
     const timer = setTimeout(() => {
-      void fetchTickersRef
-        .current([...DEFAULT_UNIVERSE], '10y', defaultStartDateStr, undefined, {
+      const urlTicker =
+        typeof window !== 'undefined'
+          ? new URLSearchParams(window.location.search).get('ticker')?.trim().toUpperCase() || null
+          : null;
+      const inUniverse = urlTicker ? (DEFAULT_UNIVERSE as readonly string[]).includes(urlTicker) : false;
+      const primarySym = inUniverse && urlTicker ? urlTicker : DEFAULT_TICKER;
+      const bootUniverse = [primarySym, ...DEFAULT_UNIVERSE.filter((sym) => sym !== primarySym)];
+      const reqs: Promise<unknown>[] = [
+        fetchTickersRef.current(bootUniverse, '10y', defaultStartDateStr, undefined, {
           omitEndDate: true,
-        })
-        .finally(() => {
-          if (active) setInitialLiveFetchDone(true);
-        });
+        }),
+      ];
+      if (urlTicker && !inUniverse) {
+        reqs.push(
+          fetchTickersRef.current([urlTicker], '10y', defaultStartDateStr, undefined, {
+            omitEndDate: true,
+          })
+        );
+      }
+      void Promise.all(reqs).finally(() => {
+        if (active) setInitialLiveFetchDone(true);
+      });
     }, 0);
 
     return () => {
@@ -605,7 +631,6 @@ export default function App() {
   );
 
   // One ticker change for the whole terminal — called by the global navbar control.
-  const lastRequestedTickerRef = useRef(activeTicker);
   const handleGlobalTickerChange = useCallback(
     (symbol: string) => {
       const next = symbol.trim().toUpperCase();
@@ -751,8 +776,11 @@ export default function App() {
           <AnalysisView
             ticker={activeTicker}
             onTickerChange={(t) => {
-              setActiveTicker(t);
-              fetchTickers([t]);
+              const next = t.trim().toUpperCase();
+              if (!next) return;
+              lastRequestedTickerRef.current = next;
+              setActiveTicker(next);
+              fetchTickers([next]);
             }}
             startDate={startDate}
             onStartDateChange={handleStartDateChange}

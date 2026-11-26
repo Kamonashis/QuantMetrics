@@ -104,7 +104,7 @@ export async function GET(req: NextRequest) {
 
   // ------------------------------------------------------------------ status
   if (mode === 'status') {
-    const raw = searchParams.get('symbol') || 'AAPL';
+    const raw = searchParams.get('symbol') || 'NVDA';
     const { symbol } = resolveSymbol(raw);
     const stats = historyStats(symbol);
     const staleDays = stats.lastDate
@@ -124,7 +124,7 @@ export async function GET(req: NextRequest) {
 
   // ------------------------------------------------------------------ panel
   if (mode === 'panel') {
-    const raw = searchParams.get('symbol') || 'AAPL';
+    const raw = searchParams.get('symbol') || 'NVDA';
     const { symbol, substitution } = resolveSymbol(raw);
     const chain = await fetchYahooChain(symbol, { maxExpiries: 12, maxDte: 90 });
     if (!chain) {
@@ -220,7 +220,7 @@ export async function GET(req: NextRequest) {
 
   // ------------------------------------------------------------------ chain
   if (mode === 'chain') {
-    const raw = searchParams.get('symbol') || 'AAPL';
+    const raw = searchParams.get('symbol') || 'NVDA';
     const { symbol } = resolveSymbol(raw);
     const expiryParam = searchParams.get('expiry') || undefined;
     const chain = await fetchYahooChain(symbol, { maxExpiries: 12, maxDte: 90 });
