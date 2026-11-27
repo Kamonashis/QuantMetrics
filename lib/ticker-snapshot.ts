@@ -54,6 +54,8 @@ export interface PanelLike {
   atmIv30: number | null;
   trapScore: number | null;
   rv20: number | null;
+  totalGex?: number | null;
+  gammaFlip?: number | null;
 }
 
 export function sessionDiff(rows: PanelLike[]): (PanelLike & {
@@ -61,19 +63,25 @@ export function sessionDiff(rows: PanelLike[]): (PanelLike & {
   dIv30: number | null;
   dTrapScore: number | null;
   dRv20: number | null;
+  totalGexChange: number | null;
+  gammaFlipChange: number | null;
 }) | null {
   const valid = rows.filter((r) => r && r.date).sort((a, b) => a.date.localeCompare(b.date));
   if (valid.length < 2) return null;
   const now = valid[valid.length - 1];
   const prev = valid[valid.length - 2];
-  const delta = (a: number | null, b: number | null) =>
-    a !== null && b !== null && isFinite(a) && isFinite(b) ? a - b : null;
+  const delta = (a: number | null | undefined, b: number | null | undefined) =>
+    a !== null && a !== undefined && b !== null && b !== undefined && isFinite(a) && isFinite(b)
+      ? a - b
+      : null;
   return {
     ...now,
     dSpot: delta(now.spot, prev.spot),
     dIv30: delta(now.atmIv30, prev.atmIv30),
     dTrapScore: delta(now.trapScore, prev.trapScore),
     dRv20: delta(now.rv20, prev.rv20),
+    totalGexChange: delta(now.totalGex, prev.totalGex),
+    gammaFlipChange: delta(now.gammaFlip, prev.gammaFlip),
   };
 }
 
