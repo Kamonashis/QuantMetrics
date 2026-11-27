@@ -803,6 +803,7 @@ export default function App() {
             isLoading={isLoading}
             onRunAnalysis={() => fetchTickers([activeTicker], '10y', startDate, endDate)}
             companyName={currentCompanyName}
+            onNavigate={navigateView}
           />
         )}
 

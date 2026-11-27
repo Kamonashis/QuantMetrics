@@ -49,6 +49,7 @@ import { TickerSuggest } from '@/components/ui/TickerSuggest';
 import { AnimatedTabs } from '@/components/ui/animated-tabs';
 import { Iv30Chip } from '@/components/views/Iv30Chip';
 import { TrapStateChip } from '@/components/views/TrapStateChip';
+import { useTickerSnapshot } from '@/components/providers/TickerSnapshotProvider';
 import { ProvenanceBadge } from '@/components/ui/provenance-badge';
 import {
   Play,
@@ -63,7 +64,28 @@ import {
   Download,
   Settings2,
   ChevronDown,
+  ArrowUpRight,
 } from 'lucide-react';
+
+type AnalysisNavView =
+  | 'home'
+  | 'analysis'
+  | 'modeling'
+  | 'volatility'
+  | 'fno'
+  | 'correlation'
+  | 'regression'
+  | 'now';
+
+const formatGexCompact = (v: number | null | undefined): string | null => {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return null;
+  const sign = v >= 0 ? '+' : '-';
+  const abs = Math.abs(v);
+  if (abs >= 1e9) return `${sign}$${(abs / 1e9).toFixed(1)}B`;
+  if (abs >= 1e6) return `${sign}$${(abs / 1e6).toFixed(0)}M`;
+  if (abs >= 1e3) return `${sign}$${(abs / 1e3).toFixed(0)}K`;
+  return `${sign}$${abs.toFixed(0)}`;
+};
 
 interface AnalysisViewProps {
   ticker: string;
@@ -90,6 +112,7 @@ interface AnalysisViewProps {
   isLoading: boolean;
   onRunAnalysis: () => void;
   companyName: string;
+  onNavigate?: (view: AnalysisNavView, params?: Record<string, string>) => void;
 }
 
 export type AnalysisSubTabId =
@@ -126,7 +149,9 @@ export function AnalysisView({
   isLoading,
   onRunAnalysis,
   companyName,
+  onNavigate,
 }: AnalysisViewProps) {
+  const { chain } = useTickerSnapshot();
   const [localTicker, setLocalTicker] = useState(ticker);
   const [activeSubTab, setActiveSubTab] = useState<AnalysisSubTabId>('overview');
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -669,24 +694,79 @@ export function AnalysisView({
         </div>
 
         <div className="grid shrink-0 grid-cols-3 gap-px overflow-hidden rounded-lg border border-[var(--hairline)] bg-[var(--hairline)] sm:grid-cols-6">
-          {[
-            { label: 'IV30', node: <Iv30Chip /> },
-            { label: 'TRAP', node: <TrapStateChip /> },
-            { label: 'Ann Vol', node: <span className="font-mono text-sm font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">{(returnStats.annualizedVol * 100).toFixed(2)}%</span> },
-            { label: 'Skew', node: <span className="font-mono text-sm font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">{returnStats.skewness.toFixed(2)}</span> },
-            { label: 'Kurtosis', node: <span className="font-mono text-sm font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">{returnStats.excessKurtosis.toFixed(2)}</span> },
-            { label: 'Hurst H', node: <span className="font-mono text-sm font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">{hurstAndVr.hurstExponent.toFixed(3)}</span> },
-          ].map(({ label, node }) => (
-            <div
-              key={label}
-              className="flex flex-col items-center justify-center gap-0.5 bg-[var(--bg-panel)] px-2 py-2"
-            >
-              <span className="font-mono text-[8px] font-medium uppercase leading-none tracking-[0.16em] text-zinc-400 dark:text-zinc-500">
-                {label}
-              </span>
-              <span className="flex min-h-[20px] items-center">{node}</span>
-            </div>
-          ))}
+          {(() => {
+            const trap = chain?.available === true && chain.trap?.available ? chain.trap : null;
+            const gexLabel = formatGexCompact(trap?.totalGex);
+            const rawRegime = trap?.regime ?? trap?.gammaFlip?.regime ?? null;
+            const regimeLabel = rawRegime === 'long' ? 'Long γ' : rawRegime === 'short' ? 'Short γ' : null;
+            const trapSub = gexLabel || regimeLabel
+              ? [gexLabel, regimeLabel].filter(Boolean).join(' · ')
+              : null;
+            const trapTitle = trap
+              ? [
+                  `Dealer trap ${trap.score}/100 (${trap.state.toUpperCase()})`,
+                  gexLabel ? `Net GEX ${gexLabel}` : null,
+                  regimeLabel,
+                  trap.gammaFlip?.flip != null ? `Flip $${trap.gammaFlip.flip.toFixed(2)}` : null,
+                  'Assumed squeeze EOD OI — open GEX workbench',
+                ].filter(Boolean).join(' · ')
+              : 'Open Gamma Exposure & Dealer Positioning workbench';
+
+            const kpis = [
+              { label: 'IV30', node: <Iv30Chip />, sub: null as string | null, onClick: undefined as (() => void) | undefined, title: undefined as string | undefined },
+              {
+                label: 'TRAP',
+                node: <span className={onNavigate ? '[&>span]:cursor-pointer' : undefined}><TrapStateChip /></span>,
+                sub: trapSub,
+                onClick: onNavigate ? () => onNavigate('fno', { fno: 'gex' }) : undefined,
+                title: trapTitle,
+              },
+              { label: 'Ann Vol', node: <span className="font-mono text-sm font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">{(returnStats.annualizedVol * 100).toFixed(2)}%</span>, sub: null, onClick: undefined, title: undefined },
+              { label: 'Skew', node: <span className="font-mono text-sm font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">{returnStats.skewness.toFixed(2)}</span>, sub: null, onClick: undefined, title: undefined },
+              { label: 'Kurtosis', node: <span className="font-mono text-sm font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">{returnStats.excessKurtosis.toFixed(2)}</span>, sub: null, onClick: undefined, title: undefined },
+              { label: 'Hurst H', node: <span className="font-mono text-sm font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">{hurstAndVr.hurstExponent.toFixed(3)}</span>, sub: null, onClick: undefined, title: undefined },
+            ];
+
+            return kpis.map(({ label, node, sub, onClick, title }) => {
+              const content = (
+                <>
+                  <span className="inline-flex items-center gap-0.5 font-mono text-[8px] font-medium uppercase leading-none tracking-[0.16em] text-zinc-400 dark:text-zinc-500">
+                    {label}
+                    {onClick && <ArrowUpRight className="h-2.5 w-2.5 text-gold-600 dark:text-gold-400" aria-hidden="true" />}
+                  </span>
+                  <span className="flex min-h-[20px] items-center">{node}</span>
+                  {sub && (
+                    <span className="font-mono text-[9px] leading-none tabular-nums text-zinc-500 dark:text-zinc-400">
+                      {sub}
+                    </span>
+                  )}
+                </>
+              );
+
+              if (onClick) {
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={onClick}
+                    title={title}
+                    className="flex cursor-pointer flex-col items-center justify-center gap-0.5 bg-[var(--bg-panel)] px-2 py-2 transition-colors hover:bg-gold-500/[0.08] focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gold-400/60"
+                  >
+                    {content}
+                  </button>
+                );
+              }
+              return (
+                <div
+                  key={label}
+                  title={title}
+                  className="flex flex-col items-center justify-center gap-0.5 bg-[var(--bg-panel)] px-2 py-2"
+                >
+                  {content}
+                </div>
+              );
+            });
+          })()}
         </div>
       </div>
 

@@ -14,7 +14,8 @@ import {
   HurstVarianceRatioResult,
   InnovationDiagnostics,
 } from '@/lib/analysis-engine';
-import { TimeSeriesChart } from '@/components/charts/TimeSeriesChart';
+import { TimeSeriesChart, type DealerLevelsOverlay } from '@/components/charts/TimeSeriesChart';
+import { useTickerSnapshot } from '@/components/providers/TickerSnapshotProvider';
 import { ReturnsChart } from '@/components/charts/ReturnsChart';
 import { RollingVolatilityChart } from '@/components/charts/RollingVolatilityChart';
 import { DecompositionChart } from '@/components/charts/DecompositionChart';
@@ -129,6 +130,21 @@ export function AnalysisOverviewTab({
       volume: b.volume,
     }));
   }, [filteredBars]);
+
+  const { chain } = useTickerSnapshot();
+  const dealerLevels = React.useMemo<DealerLevelsOverlay | null>(() => {
+    const trap = chain?.available === true ? chain.trap : null;
+    if (!trap || !trap.available) return null;
+    return {
+      callWall: trap.walls?.call?.strike ?? null,
+      putWall: trap.walls?.put?.strike ?? null,
+      gammaFlip: trap.gammaFlip?.flip ?? null,
+      regime: trap.regime ?? trap.gammaFlip?.regime ?? null,
+      totalGex: typeof trap.totalGex === 'number' && Number.isFinite(trap.totalGex) ? trap.totalGex : null,
+      convention: trap.convention ?? null,
+      asOf: chain?.asOf ?? null,
+    };
+  }, [chain]);
 
   const isDark = usePlotlyDarkTheme();
   const tokens = React.useMemo(() => getPlotlyThemeTokens(isDark), [isDark]);
@@ -256,6 +272,7 @@ export function AnalysisOverviewTab({
               barsSource={barsSource}
               breakPoints={structuralBreaks.breakDates}
               cusumSqPoints={structuralBreaks.cusumSqPoints}
+              dealerLevels={dealerLevels}
               title="Price Trajectory & Volatility Regime Shifts"
               subtitle={`${ticker} · ${companyName}`}
             />

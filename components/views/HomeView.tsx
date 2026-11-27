@@ -43,7 +43,7 @@ export type HomeDestinationView =
   | 'regression';
 
 interface HomeViewProps {
-  onNavigate: (view: HomeDestinationView) => void;
+  onNavigate: (view: HomeDestinationView, params?: Record<string, string>) => void;
   onSelectPreset: (ticker: string) => void;
   ticker: string;
   companyName?: string;
@@ -55,12 +55,22 @@ interface HomeViewProps {
 interface WorkstationItem {
   num: string;
   view: HomeDestinationView;
+  params?: Record<string, string>;
   title: string;
   subtitle: string;
   description: string;
   icon: React.ComponentType<{ className?: string }>;
   featured?: boolean;
 }
+
+const formatCompactGex = (v: number): string => {
+  const sign = v >= 0 ? '+' : '-';
+  const abs = Math.abs(v);
+  if (abs >= 1e9) return `${sign}$${(abs / 1e9).toFixed(2)}B`;
+  if (abs >= 1e6) return `${sign}$${(abs / 1e6).toFixed(1)}M`;
+  if (abs >= 1e3) return `${sign}$${(abs / 1e3).toFixed(0)}K`;
+  return `${sign}$${abs.toFixed(0)}`;
+};
 
 const WORKSTATIONS: readonly WorkstationItem[] = [
   {
@@ -103,10 +113,11 @@ const WORKSTATIONS: readonly WorkstationItem[] = [
   {
     num: '05',
     view: 'fno',
+    params: { fno: 'gex' },
     title: 'Options F&O Positioning',
-    subtitle: 'GEX · Dealer Flip · OI Walls',
+    subtitle: 'GEX · Dealer Flip · F&O Chain',
     description:
-      'Dealer gamma exposure profiles, assumed squeeze/inverse zero-gamma flip levels, call/put open-interest walls, and trap state-machine telemetry.',
+      'Unified GEX & F&O workbench: dealer gamma profiles, squeeze/inverse zero-gamma flip curves, call/put OI & gamma walls, expiry matrix, max pain, and option chain.',
     icon: CandlestickChart,
   },
   {
@@ -212,6 +223,25 @@ export function HomeView({
   const volSpreadPts = iv30 !== null && rv20 !== null ? (iv30 - rv20) * 100 : null;
   const vrpBp2 = iv30 !== null && rv20 !== null ? (iv30 * iv30 - rv20 * rv20) * 10000 : null;
 
+  const activeTrap = chainMatchesActive && chain?.trap?.available ? chain.trap : null;
+  const activeNetGex =
+    activeTrap && typeof activeTrap.totalGex === 'number' && Number.isFinite(activeTrap.totalGex)
+      ? activeTrap.totalGex
+      : null;
+  const activeGexRegime = activeTrap
+    ? (activeTrap.regime ?? activeTrap.gammaFlip?.regime ?? null)
+    : null;
+  const activeFlip =
+    activeTrap && typeof activeTrap.gammaFlip?.flip === 'number' && Number.isFinite(activeTrap.gammaFlip.flip)
+      ? activeTrap.gammaFlip.flip
+      : null;
+  const activeFlipDistPct =
+    activeTrap && typeof activeTrap.flipDistPct === 'number' && Number.isFinite(activeTrap.flipDistPct)
+      ? activeTrap.flipDistPct
+      : activeFlip !== null && activeSpotPrice !== null && activeSpotPrice > 0
+        ? activeFlip / activeSpotPrice - 1
+        : null;
+
   // 10-ticker live watchboard cards (sparkline + RV20 + causal HMM state)
   const universeCards = useMemo(() => {
     return HOME_UNIVERSE_SYMBOLS.map((meta) => {
@@ -304,7 +334,7 @@ export function HomeView({
         <TickerTape items={tapeItems} />
 
         <div className="panel overflow-hidden">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 divide-y sm:divide-y-0 sm:divide-x divide-[var(--hairline)]">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 divide-y sm:divide-y-0 sm:divide-x divide-[var(--hairline)]">
             {/* 1. Active Spot */}
             <div className="px-4 py-3.5">
               <div className="text-[10px] font-mono uppercase tracking-[0.09em] text-zinc-500 dark:text-zinc-400">
@@ -417,7 +447,7 @@ export function HomeView({
             </div>
 
             {/* 5. 1d 99% Historical VaR */}
-            <div className="px-4 py-3.5 col-span-2 sm:col-span-1">
+            <div className="px-4 py-3.5">
               <div className="text-[10px] font-mono uppercase tracking-[0.09em] text-zinc-500 dark:text-zinc-400">
                 1d 99% Hist. VaR
               </div>
@@ -432,6 +462,46 @@ export function HomeView({
                   : '1% empirical tail loss'}
               </div>
             </div>
+
+            {/* 6. Active Dealer GEX (Assumed) */}
+            <button
+              type="button"
+              onClick={() => onNavigate('fno', { fno: 'gex' })}
+              title="Open Gamma Exposure & Dealer Positioning workbench (assumed squeeze convention, EOD OI)"
+              className="px-4 py-3.5 text-left transition-colors hover:bg-gold-500/[0.04] cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-gold-500"
+            >
+              <div className="flex items-center justify-between gap-1 text-[10px] font-mono uppercase tracking-[0.09em] text-zinc-500 dark:text-zinc-400">
+                <span className="truncate">Dealer GEX · {activeTickerUpper}</span>
+                <ArrowRight className="w-3 h-3 shrink-0 text-gold-600 dark:text-gold-400" />
+              </div>
+              <div className="mt-1 flex items-baseline gap-2">
+                <span className="font-mono text-lg font-semibold text-zinc-900 dark:text-zinc-100 tabular-nums">
+                  {activeNetGex !== null
+                    ? formatCompactGex(activeNetGex)
+                    : chainLoading && !chainMatchesActive
+                      ? '···'
+                      : '—'}
+                </span>
+                {activeGexRegime && activeGexRegime !== 'unknown' && (
+                  <span
+                    className={`font-mono text-xs font-medium ${
+                      activeGexRegime === 'long'
+                        ? 'text-[var(--positive)]'
+                        : 'text-[var(--negative)]'
+                    }`}
+                  >
+                    {activeGexRegime === 'long' ? 'Long γ' : 'Short γ'}
+                  </span>
+                )}
+              </div>
+              <div className="mt-0.5 text-[11px] font-mono text-zinc-500 dark:text-zinc-400 tabular-nums truncate">
+                {activeFlip !== null || activeFlipDistPct !== null
+                  ? `Flip ${activeFlip !== null ? `$${activeFlip.toFixed(1)}` : '—'}${activeFlipDistPct !== null ? ` (${activeFlipDistPct >= 0 ? '+' : ''}${(activeFlipDistPct * 100).toFixed(1)}%)` : ''}`
+                  : chainLoading && !chainMatchesActive
+                    ? 'Loading EOD OI chain…'
+                    : 'GEX n/a · open workbench'}
+              </div>
+            </button>
           </div>
         </div>
       </section>
@@ -606,7 +676,7 @@ export function HomeView({
               <button
                 key={ws.view}
                 type="button"
-                onClick={() => onNavigate(ws.view)}
+                onClick={() => onNavigate(ws.view, ws.params)}
                 className={`panel p-5 text-left transition-colors hover:border-gold-500/50 dark:hover:border-gold-400/45 group flex flex-col justify-between gap-4 cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-gold-500 ${
                   ws.featured ? 'md:col-span-2' : ''
                 }`}

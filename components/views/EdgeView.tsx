@@ -27,6 +27,33 @@ import { TcnUnifiedDashboard } from '@/components/views/TcnUnifiedDashboard';
 type View = 'home' | 'analysis' | 'modeling' | 'volatility' | 'fno' | 'correlation' | 'regression';
 
 const pct = (v: number | null | undefined, d = 1) => v === null || v === undefined || !isFinite(v) ? '—' : `${(v * 100).toFixed(d)}%`;
+const signedPct = (v: number | null | undefined, d = 1) =>
+  v === null || v === undefined || !isFinite(v) ? '—' : `${v >= 0 ? '+' : ''}${(v * 100).toFixed(d)}%`;
+const fmtGex = (v: number | null | undefined) => {
+  if (v === null || v === undefined || !isFinite(v)) return '—';
+  const sign = v >= 0 ? '+' : '-';
+  const abs = Math.abs(v);
+  if (abs >= 1e9) return `${sign}$${(abs / 1e9).toFixed(2)}B`;
+  if (abs >= 1e6) return `${sign}$${(abs / 1e6).toFixed(1)}M`;
+  if (abs >= 1e3) return `${sign}$${(abs / 1e3).toFixed(0)}K`;
+  return `${sign}$${abs.toFixed(0)}`;
+};
+const regimeBadge = (regime: string | null | undefined) => {
+  if (regime === 'long') {
+    return {
+      label: 'Long γ',
+      cls: 'border-emerald-500/35 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+    };
+  }
+  if (regime === 'short') {
+    return {
+      label: 'Short γ',
+      cls: 'border-rose-500/35 bg-rose-500/10 text-rose-500 dark:text-rose-400',
+    };
+  }
+  return null;
+};
+const GEX_CARD_IDS = new Set(['directional-trap', 'long-gamma', 'premium-harvest']);
 
 const STATE_STYLE: Record<string, string> = {
   ACTIONABLE: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
@@ -250,12 +277,19 @@ export function EdgeView({
     vvixPercentile,
     skewPercentile,
     trap: s.chain?.trap ? {
+      available: s.chain.trap.available === true,
       state: s.chain.trap.state,
       direction: s.chain.trap.direction,
       score: s.chain.trap.score,
       callWall: s.chain.trap.walls.call?.strike ?? null,
       putWall: s.chain.trap.walls.put?.strike ?? null,
       flip: s.chain.trap.gammaFlip.flip ?? null,
+      regime: s.chain.trap.regime ?? s.chain.trap.gammaFlip?.regime ?? null,
+      totalGex: s.chain.trap.totalGex ?? null,
+      flipDistPct: s.chain.trap.flipDistPct ?? null,
+      flipDistSigma: s.chain.trap.flipDistSigma ?? null,
+      gexPerAdv: s.chain.trap.gexPerAdv ?? null,
+      zeroDteShare: s.chain.trap.zeroDteShare ?? null,
       backtestVerdict: backtest.verdict,
       backtestN: backtest.nDedupedEvents,
       convention: s.chain.trap.convention,
@@ -377,6 +411,31 @@ export function EdgeView({
           <span className="text-gold-700 dark:text-gold-300">{counts.watch} watch</span>
           <span className="text-rose-500 dark:text-rose-400">{counts.blocked} blocked</span>
           <span className="text-zinc-400">IV30 {pct(iv30)} · RV20 {pct(rv20)} · VRP {vrp.variancePoints === null ? '—' : `${vrp.variancePoints.toFixed(0)} bp²`}</span>
+          {s.chain?.trap?.available && (() => {
+            const tr = s.chain.trap;
+            const reg = tr.regime ?? tr.gammaFlip?.regime ?? null;
+            const badge = regimeBadge(reg);
+            return (
+              <button
+                type="button"
+                onClick={() => onNavigate('fno', { fno: 'gex' })}
+                title="Open Gamma Exposure & Dealer Positioning workbench"
+                className="ml-auto inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-[var(--hairline)] bg-[var(--bg-inset)] px-2 py-0.5 text-[9.5px] text-zinc-700 transition-colors hover:border-gold-500/50 dark:text-zinc-200"
+              >
+                <span className="text-zinc-400">Net GEX</span>
+                <span className="font-semibold tabular-nums">{fmtGex(tr.totalGex)}</span>
+                {badge && (
+                  <span className={`rounded border px-1 py-px text-[8.5px] font-semibold ${badge.cls}`}>
+                    {badge.label}
+                  </span>
+                )}
+                <span className="tabular-nums text-zinc-400">
+                  Flip {signedPct(tr.flipDistPct)}
+                </span>
+                <ArrowUpRight className="h-3 w-3 text-gold-700 dark:text-gold-300" />
+              </button>
+            );
+          })()}
         </div>
       </section>
 
@@ -428,6 +487,41 @@ export function EdgeView({
                   gates: {o.gates.join(' · ')}
                 </div>
               )}
+              {GEX_CARD_IDS.has(o.id) && s.chain?.trap?.available && (() => {
+                const tr = s.chain.trap;
+                const badge = regimeBadge(tr.regime ?? tr.gammaFlip?.regime ?? null);
+                return (
+                  <button
+                    type="button"
+                    onClick={() => onNavigate('fno', { fno: 'gex' })}
+                    title="Inspect full GEX profile, flip curve, and OI walls"
+                    className="flex w-full cursor-pointer flex-wrap items-center justify-between gap-2 rounded border border-[var(--hairline)] bg-[var(--bg-panel)] px-2.5 py-1.5 text-left font-mono text-[9px] transition-colors hover:border-gold-500/45"
+                  >
+                    <span className="flex flex-wrap items-center gap-2">
+                      {badge && (
+                        <span className={`rounded border px-1.5 py-0.5 text-[8.5px] font-semibold ${badge.cls}`}>
+                          {badge.label}
+                        </span>
+                      )}
+                      <span className="text-zinc-700 dark:text-zinc-200">
+                        Net GEX <strong className="tabular-nums">{fmtGex(tr.totalGex)}</strong>
+                      </span>
+                      <span className="text-zinc-500 tabular-nums">
+                        Flip {signedPct(tr.flipDistPct)}
+                        {tr.gammaFlip?.flip != null ? ` ($${tr.gammaFlip.flip.toFixed(1)})` : ''}
+                      </span>
+                      {tr.gexPerAdv != null && (
+                        <span className="text-zinc-400 tabular-nums">
+                          GEX/ADV {signedPct(tr.gexPerAdv)}
+                        </span>
+                      )}
+                    </span>
+                    <span className="inline-flex items-center gap-0.5 font-semibold text-gold-700 dark:text-gold-300">
+                      GEX <ArrowUpRight className="h-3 w-3" />
+                    </span>
+                  </button>
+                );
+              })()}
               <div className="mt-auto flex items-center justify-between gap-2 border-t border-[var(--hairline)] pt-2">
                 <span className="font-mono text-[9px] text-zinc-400">{o.edge.provenance}</span>
                 {jump(o)}
@@ -439,32 +533,87 @@ export function EdgeView({
 
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="panel p-5">
-          <div className="mb-3 flex items-center justify-between border-b border-[var(--hairline)] pb-3">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--hairline)] pb-3">
             <p className="kicker">Radar · One Scan</p>
-            <button type="button" onClick={() => void s.scanWatchlist(true)} className="cursor-pointer font-mono text-[10px] font-semibold text-gold-700 hover:underline dark:text-gold-300">Re-scan</button>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => onNavigate('fno', { fno: 'gex' })}
+                className="inline-flex cursor-pointer items-center gap-1 font-mono text-[10px] font-semibold text-zinc-500 hover:text-gold-700 dark:text-zinc-400 dark:hover:text-gold-300"
+              >
+                GEX Workbench <ArrowUpRight className="h-3 w-3" />
+              </button>
+              <button type="button" onClick={() => void s.scanWatchlist(true)} className="cursor-pointer font-mono text-[10px] font-semibold text-gold-700 hover:underline dark:text-gold-300">Re-scan</button>
+            </div>
           </div>
           {s.watchRows.length === 0 ? (
             <EmptyState title="Watchlist not scanned" detail="One pass evaluates IV and dealer state for six names" />
           ) : (
-            <table className="table-sticky-first w-full border-collapse font-mono text-[10px]">
-              <thead><tr className="text-left text-[9px] uppercase tracking-wider text-zinc-400"><th className="py-1">Name</th><th className="py-1 text-right">IV30</th><th className="py-1 text-right">IV−RV</th><th className="py-1 text-right">Trap</th></tr></thead>
-              <tbody>
-                {s.watchRows.map((w) => {
-                  const r20 = crossSectional.find((c) => c.symbol === w.symbol)?.rv20 ?? null;
-                  const gap = w.iv30 !== null && r20 !== null ? (w.iv30 - r20) * 100 : null;
-                  return (
-                    <tr key={w.symbol} className="border-t border-[var(--hairline)]">
-                      <td className="py-1 font-semibold">{w.symbol}</td>
-                      <td className="py-1 text-right tabular-nums">{pct(w.iv30)}</td>
-                      <td className="py-1 text-right tabular-nums">{gap === null ? '—' : `${gap.toFixed(1)} pts`}</td>
-                      <td className="py-1 text-right text-zinc-500">{w.trapState?.toUpperCase() ?? '—'}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <div className="overflow-x-auto">
+              <table className="table-sticky-first w-full border-collapse font-mono text-[10px]">
+                <thead>
+                  <tr className="text-left text-[9px] uppercase tracking-wider text-zinc-400">
+                    <th className="py-1">Name</th>
+                    <th className="py-1 text-right">IV30</th>
+                    <th className="py-1 text-right">IV−RV</th>
+                    <th className="py-1 text-right">Net GEX</th>
+                    <th className="py-1 text-right">Gamma Regime</th>
+                    <th className="py-1 text-right">Flip %</th>
+                    <th className="py-1 text-right">Trap</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {s.watchRows.map((w) => {
+                    const r20 = crossSectional.find((c) => c.symbol === w.symbol)?.rv20 ?? null;
+                    const gap = w.iv30 !== null && r20 !== null ? (w.iv30 - r20) * 100 : null;
+                    const badge = regimeBadge(w.regime);
+                    const gexTitle = [
+                      w.gammaFlip !== null ? `Flip $${w.gammaFlip.toFixed(1)}` : null,
+                      w.callWall !== null ? `CW $${w.callWall}` : null,
+                      w.putWall !== null ? `PW $${w.putWall}` : null,
+                      w.gexPerAdv !== null ? `GEX/ADV ${signedPct(w.gexPerAdv)}` : null,
+                    ].filter(Boolean).join(' · ') || 'Open GEX workbench';
+                    return (
+                      <tr key={w.symbol} className="border-t border-[var(--hairline)]">
+                        <td className="py-1.5 font-semibold">{w.symbol}</td>
+                        <td className="py-1.5 text-right tabular-nums">{pct(w.iv30)}</td>
+                        <td className="py-1.5 text-right tabular-nums">{gap === null ? '—' : `${gap.toFixed(1)} pts`}</td>
+                        <td className="py-1.5 text-right tabular-nums">
+                          <button
+                            type="button"
+                            onClick={() => onNavigate('fno', { fno: 'gex' })}
+                            title={gexTitle}
+                            className="cursor-pointer font-semibold text-zinc-700 hover:text-gold-700 hover:underline dark:text-zinc-200 dark:hover:text-gold-300"
+                          >
+                            {fmtGex(w.totalGex)}
+                          </button>
+                        </td>
+                        <td className="py-1.5 text-right">
+                          {badge ? (
+                            <button
+                              type="button"
+                              onClick={() => onNavigate('fno', { fno: 'gex' })}
+                              title={gexTitle}
+                              className={`inline-block cursor-pointer rounded border px-1.5 py-0.5 text-[8.5px] font-semibold ${badge.cls}`}
+                            >
+                              {badge.label}
+                            </button>
+                          ) : '—'}
+                        </td>
+                        <td className="py-1.5 text-right tabular-nums text-zinc-600 dark:text-zinc-300" title={w.gammaFlip !== null ? `Gamma flip $${w.gammaFlip.toFixed(2)}` : undefined}>
+                          {signedPct(w.flipDistPct)}
+                        </td>
+                        <td className="py-1.5 text-right text-zinc-500">
+                          {w.trapState ? `${w.trapState.toUpperCase()}${w.trapScore !== null ? ` ${w.trapScore}` : ''}` : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
-          <p className="mt-2 font-mono text-[9px] text-zinc-400">Single-day IV/RV snapshot — no per-name IV rank until each symbol accrues ~60 sessions.</p>
+          <p className="mt-2 font-mono text-[9px] text-zinc-400">Single-day IV/RV &amp; assumed-squeeze EOD GEX snapshot — no per-name IV rank until each symbol accrues ~60 sessions.</p>
         </div>
 
         <div className="panel p-5">

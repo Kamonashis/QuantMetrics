@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import type { Annotations, Data, Layout, Shape } from 'plotly.js';
-import { Activity, BarChart3 } from 'lucide-react';
+import { Activity, BarChart3, Magnet } from 'lucide-react';
 import { EmptyState } from '@/components/ui/empty-state';
 import { PriceBar } from '@/lib/quant-engine';
 import { computeVolumeProfile, type VolumeProfileResult } from '@/lib/volume-profile';
@@ -10,6 +10,18 @@ import { PlotlyChart, usePlotlyDarkTheme } from '@/components/charts/PlotlyChart
 import { getPlotlyThemeTokens, QUANT_COLORS } from '@/lib/plotly-theme';
 
 const defaultPriceFormatter = (v: number) => `$${v.toFixed(2)}`;
+const isFiniteNum = (v: number | null | undefined): v is number =>
+  typeof v === 'number' && Number.isFinite(v);
+
+export interface DealerLevelsOverlay {
+  callWall: number | null;
+  putWall: number | null;
+  gammaFlip: number | null;
+  regime?: 'long' | 'short' | 'unknown' | null;
+  totalGex?: number | null;
+  convention?: 'squeeze' | 'inverse' | null;
+  asOf?: string | null;
+}
 
 export interface StructuralBreakMarker {
   date: string;
@@ -35,6 +47,7 @@ interface TimeSeriesChartProps {
   valueFormatter?: (val: number) => string;
   breakPoints?: StructuralBreakMarker[];
   cusumSqPoints?: CusumSqPoint[];
+  dealerLevels?: DealerLevelsOverlay | null;
 }
 
 export function TimeSeriesChart({
@@ -46,12 +59,21 @@ export function TimeSeriesChart({
   valueFormatter = defaultPriceFormatter,
   breakPoints = [],
   cusumSqPoints = [],
+  dealerLevels = null,
 }: TimeSeriesChartProps) {
   const isDark = usePlotlyDarkTheme();
   const tokens = useMemo(() => getPlotlyThemeTokens(isDark), [isDark]);
   const [showBreaks, setShowBreaks] = useState<boolean>(true);
   const [showCusumCurve, setShowCusumCurve] = useState<boolean>(false);
   const [showVolumeProfile, setShowVolumeProfile] = useState<boolean>(true);
+  const [showDealerLevels, setShowDealerLevels] = useState<boolean>(false);
+
+  const hasDealerLevels = Boolean(
+    dealerLevels &&
+      (isFiniteNum(dealerLevels.callWall) ||
+        isFiniteNum(dealerLevels.putWall) ||
+        isFiniteNum(dealerLevels.gammaFlip))
+  );
 
   const validBars = useMemo(() => bars || [], [bars]);
 
@@ -268,6 +290,50 @@ export function TimeSeriesChart({
       }
     }
 
+    if (showDealerLevels && hasDealerLevels && dealerLevels) {
+      const addDealerLevel = (y: number | null, label: string, color: string) => {
+        if (!isFiniteNum(y)) return;
+        shapes.push({
+          type: 'line',
+          xref: 'paper',
+          yref: 'y',
+          x0: 0,
+          x1: 1,
+          y0: y,
+          y1: y,
+          line: { color, width: 1.3, dash: 'dash' },
+        });
+        annotations.push({
+          x: 0.01,
+          y,
+          xref: 'paper',
+          yref: 'y',
+          text: label,
+          showarrow: false,
+          xanchor: 'left',
+          yanchor: 'bottom',
+          bgcolor: isDark ? 'rgba(8,8,10,0.82)' : 'rgba(245,244,241,0.88)',
+          font: { size: 9, color },
+        });
+      };
+
+      addDealerLevel(
+        dealerLevels.callWall,
+        `CW ${isFiniteNum(dealerLevels.callWall) ? valueFormatter(dealerLevels.callWall) : ''}`,
+        QUANT_COLORS.gold
+      );
+      addDealerLevel(
+        dealerLevels.putWall,
+        `PW ${isFiniteNum(dealerLevels.putWall) ? valueFormatter(dealerLevels.putWall) : ''}`,
+        QUANT_COLORS.negative
+      );
+      addDealerLevel(
+        dealerLevels.gammaFlip,
+        `Flip ${isFiniteNum(dealerLevels.gammaFlip) ? valueFormatter(dealerLevels.gammaFlip) : ''}`,
+        QUANT_COLORS.slate
+      );
+    }
+
     const layout: Partial<Layout> = {
       shapes,
       annotations,
@@ -303,6 +369,9 @@ export function TimeSeriesChart({
     showBreaks,
     resolvedBreakPoints,
     volumeProfile,
+    showDealerLevels,
+    hasDealerLevels,
+    dealerLevels,
     valueFormatter,
     isDark,
     tokens,
@@ -475,6 +544,28 @@ export function TimeSeriesChart({
             </button>
           )}
 
+          <button
+            type="button"
+            disabled={!hasDealerLevels}
+            aria-pressed={showDealerLevels && hasDealerLevels}
+            onClick={() => setShowDealerLevels((prev) => !prev)}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono font-medium transition-colors whitespace-nowrap shrink-0 ${
+              !hasDealerLevels
+                ? 'bg-zinc-100 dark:bg-zinc-800/60 text-zinc-400 dark:text-zinc-600 border border-transparent cursor-not-allowed opacity-60'
+                : showDealerLevels
+                  ? 'bg-gold-500/15 text-gold-700 dark:text-gold-300 border border-gold-500/40 cursor-pointer'
+                  : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 border border-transparent hover:text-zinc-800 dark:hover:text-zinc-200 cursor-pointer'
+            }`}
+            title={
+              hasDealerLevels
+                ? 'Overlay current EOD Call Wall, Put Wall, and Zero-Gamma Flip (not historical)'
+                : 'Dealer levels unavailable — requires live options chain'
+            }
+          >
+            <Magnet className="w-3.5 h-3.5" />
+            <span>Dealer Levels (CW / PW / Flip)</span>
+          </button>
+
           {lastBar && (
             <div className="flex items-baseline gap-2.5 text-right pl-1">
               <div>
@@ -531,6 +622,37 @@ export function TimeSeriesChart({
           {barsSource && barsSource !== 'live_market' && (
             <span className="text-amber-600 dark:text-amber-400">synthetic volume — illustrative</span>
           )}
+        </div>
+      )}
+
+      {showDealerLevels && hasDealerLevels && dealerLevels && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-2 border-t border-[var(--hairline)] text-[10px] font-mono text-zinc-500 dark:text-zinc-400">
+          <span className="inline-flex items-center rounded border border-amber-500/35 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-300">
+            Current EOD snapshot — not historical
+          </span>
+          {isFiniteNum(dealerLevels.callWall) && (
+            <span className="text-gold-700 dark:text-gold-300">
+              CW {valueFormatter(dealerLevels.callWall)}
+            </span>
+          )}
+          {isFiniteNum(dealerLevels.putWall) && (
+            <span className="text-[var(--negative)]">
+              PW {valueFormatter(dealerLevels.putWall)}
+            </span>
+          )}
+          {isFiniteNum(dealerLevels.gammaFlip) && (
+            <span>
+              Flip {valueFormatter(dealerLevels.gammaFlip)}
+            </span>
+          )}
+          {dealerLevels.regime && dealerLevels.regime !== 'unknown' && (
+            <span className={dealerLevels.regime === 'long' ? 'text-[var(--positive)]' : 'text-[var(--negative)]'}>
+              {dealerLevels.regime === 'long' ? 'Long γ' : 'Short γ'}
+            </span>
+          )}
+          <span className="text-zinc-400">
+            Assumed {dealerLevels.convention ?? 'squeeze'} convention · EOD OI
+          </span>
         </div>
       )}
 
