@@ -37,6 +37,7 @@ export async function getSession(forceRefresh = false): Promise<CrumbSession> {
     const fc = await fetch('https://fc.yahoo.com', {
       headers: { 'User-Agent': UA },
       cache: 'no-store',
+      signal: AbortSignal.timeout(5000),
     }).catch(() => null as Response | null);
     const rawCookies: string[] =
       (fc?.headers as unknown as { getSetCookie?: () => string[] })?.getSetCookie?.() ??
@@ -45,6 +46,7 @@ export async function getSession(forceRefresh = false): Promise<CrumbSession> {
     const crumbRes = await fetch('https://query1.finance.yahoo.com/v1/test/getcrumb', {
       headers: { 'User-Agent': UA, Cookie: cookie },
       cache: 'no-store',
+      signal: AbortSignal.timeout(5000),
     });
     const crumb = await crumbRes.text();
     if (!crumbRes.ok || !crumb || crumb.includes('<') || crumb.length > 64) {
@@ -139,20 +141,24 @@ export interface FullChainResult {
 }
 
 export async function fetchFullChain(symbol: string, dateEpoch?: number): Promise<FullChainResult | null> {
-  const s = await getSession();
+  const s = await getSession().catch(() => null);
   const base = `https://query2.finance.yahoo.com/v7/finance/options/${encodeURIComponent(symbol)}`;
-  const url = dateEpoch
-    ? `${base}?date=${dateEpoch}&crumb=${encodeURIComponent(s.crumb)}`
-    : `${base}?crumb=${encodeURIComponent(s.crumb)}`;
-  let json = (await fetchJson(url, 8000, s.cookie)) as { optionChain?: { result?: FullChainResult[] } } | null;
-  let result = json?.optionChain?.result?.[0];
+  let result: FullChainResult | undefined;
+  if (s) {
+    const url = dateEpoch
+      ? `${base}?date=${dateEpoch}&crumb=${encodeURIComponent(s.crumb)}`
+      : `${base}?crumb=${encodeURIComponent(s.crumb)}`;
+    const json = (await fetchJson(url, 8000, s.cookie)) as { optionChain?: { result?: FullChainResult[] } } | null;
+    result = json?.optionChain?.result?.[0];
+  }
   if (!result) {
     // One forced crumb refresh + retry on failure (rotates)
-    const s2 = await getSession(true);
+    const s2 = await getSession(true).catch(() => null);
+    if (!s2) return null;
     const url2 = dateEpoch
       ? `${base}?date=${dateEpoch}&crumb=${encodeURIComponent(s2.crumb)}`
       : `${base}?crumb=${encodeURIComponent(s2.crumb)}`;
-    json = (await fetchJson(url2, 8000, s2.cookie)) as { optionChain?: { result?: FullChainResult[] } } | null;
+    const json = (await fetchJson(url2, 8000, s2.cookie)) as { optionChain?: { result?: FullChainResult[] } } | null;
     result = json?.optionChain?.result?.[0];
   }
   return result ?? null;
@@ -475,7 +481,8 @@ async function fetchYahooChain(
     .then((res) => {
       if (res) storeChainCache(cacheKey, res);
       return res;
-    });
+    })
+    .catch(() => null);
 
   chainInFlight.set(cacheKey, task);
   try {
