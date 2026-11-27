@@ -31,25 +31,27 @@ export function FnoChainTab({
   // Prefer the nearest expiry with a solvable ATM IV (0-DTE quotes are often stale by close)
   const liquidExpiry = (panel?.expiryLadder ?? []).find((l) => l.atmIv !== null)?.expiry ?? null;
   const [expiry, setExpiry] = useState<string | undefined>(undefined);
-  const effectiveExpiry = expiry ?? liquidExpiry ?? expiries[0] ?? null;
+  const selectedExpiry = expiry && expiries.includes(expiry) ? expiry : undefined;
+  const effectiveExpiry = selectedExpiry ?? liquidExpiry ?? expiries[0] ?? null;
+  const targetKey = effectiveExpiry ? `${symbol}:${effectiveExpiry}` : null;
 
   useEffect(() => {
-    if (!effectiveExpiry) return;
+    if (!effectiveExpiry || !targetKey) return;
     let cancelled = false;
     fetch(`/api/fno?mode=chain&symbol=${encodeURIComponent(symbol)}&expiry=${encodeURIComponent(effectiveExpiry)}`)
       .then((r) => r.json())
       .then((d: ChainPayload) => {
-        if (!cancelled) { setChain(d); setLoadedFor(effectiveExpiry); }
+        if (!cancelled) { setChain(d); setLoadedFor(targetKey); }
       })
       .catch(() => {
-        if (!cancelled) { setChain({ available: false, reason: 'chain fetch failed' }); setLoadedFor(effectiveExpiry); }
+        if (!cancelled) { setChain({ available: false, reason: 'chain fetch failed' }); setLoadedFor(targetKey); }
       });
     return () => {
       cancelled = true;
     };
-  }, [effectiveExpiry, symbol, panel]);
+  }, [effectiveExpiry, targetKey, symbol, panel]);
 
-  const loading = effectiveExpiry !== null && effectiveExpiry !== loadedFor;
+  const loading = targetKey !== null && targetKey !== loadedFor;
 
   const spot = (panel?.quote?.price ?? chain?.quote?.price) ?? 0;
   const atmStrike = chain?.atmStrike ?? panel?.expiryLadder?.find((l) => l.expiry === effectiveExpiry)?.atmStrike ?? 0;
@@ -97,7 +99,9 @@ export function FnoChainTab({
                 <span className={activeTrap.regime === 'long' ? 'text-[var(--positive)]' : activeTrap.regime === 'short' ? 'text-[var(--negative)]' : ''}>
                   {activeTrap.regime === 'long' ? 'Long γ' : activeTrap.regime === 'short' ? 'Short γ' : 'γ unknown'}
                 </span>
-                {activeTrap.gammaFlip?.flip != null ? ` · Flip $${activeTrap.gammaFlip.flip.toFixed(1)}` : ''}
+                {activeTrap.gammaFlip?.flip != null && isFinite(activeTrap.gammaFlip.flip)
+                  ? ` · Flip $${activeTrap.gammaFlip.flip.toFixed(1)}`
+                  : ''}
               </span>
             )}
             <span>{chain?.dte ?? '—'} DTE · as-of last close</span>

@@ -80,6 +80,8 @@ export function TrapPriceChart({
       if (v > maxY) maxY = v;
     }
 
+    const spotInRange = spot > 0 && Number.isFinite(spot) && spot >= minY * 0.5 && spot <= maxY * 2.0;
+
     const list: Data[] = [
       {
         type: 'scatter',
@@ -95,19 +97,23 @@ export function TrapPriceChart({
         fillcolor: 'rgba(222, 192, 132, 0.08)',
         hovertemplate: '<b>%{x}</b><br>Close: $%{y:.2f}<extra></extra>',
       },
-      {
-        type: 'scatter',
-        mode: 'markers',
-        name: 'Chain Spot',
-        x: [xs[xs.length - 1]],
-        y: [spot],
-        marker: {
-          size: 7,
-          color: QUANT_COLORS.goldLight,
-          line: { color: isDark ? '#0B0B0D' : '#FFFFFF', width: 1.5 },
-        },
-        hovertemplate: '<b>Chain Spot</b><br>$%{y:.2f}<extra></extra>',
-      },
+      ...(spotInRange
+        ? [
+            {
+              type: 'scatter' as const,
+              mode: 'markers' as const,
+              name: 'Chain Spot',
+              x: [xs[xs.length - 1]],
+              y: [spot],
+              marker: {
+                size: 7,
+                color: QUANT_COLORS.goldLight,
+                line: { color: isDark ? '#0B0B0D' : '#FFFFFF', width: 1.5 },
+              },
+              hovertemplate: '<b>Chain Spot</b><br>$%{y:.2f}<extra></extra>',
+            },
+          ]
+        : []),
     ];
 
     const shapes: NonNullable<Layout['shapes']> = [];

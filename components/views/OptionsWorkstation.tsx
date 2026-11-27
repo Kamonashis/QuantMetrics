@@ -95,6 +95,10 @@ function resolveTabFromLocation(initialGroup: 'vol' | 'fno', search: string): Ta
     if (f && FNO_PARAM_TO_TAB[f]) return FNO_PARAM_TO_TAB[f];
     const v = p.get('vol');
     if (v && /^t[1-8]$/.test(v)) return `v${v[1]}` as TabId;
+    if (p.get('tab') === 'decision') return 'v8';
+    const view = p.get('view');
+    if (view === 'fno') return 'v7';
+    if (view === 'volatility') return 'v1';
   }
   return initialGroup === 'fno' ? 'v7' : 'v1';
 }
@@ -112,6 +116,7 @@ export function OptionsWorkstation({
   barsSource,
   companyName,
   initialGroup = 'vol',
+  navSeq = 0,
 }: {
   ticker: string;
   bars: PriceBar[];
@@ -120,6 +125,7 @@ export function OptionsWorkstation({
   barsSource?: string | null;
   companyName: string;
   initialGroup?: 'vol' | 'fno';
+  navSeq?: number;
 }) {
   const s = useTickerSnapshot();
   const [tab, setTab] = useState<TabId>(() =>
@@ -139,7 +145,7 @@ export function OptionsWorkstation({
       clearTimeout(timer);
       window.removeEventListener('popstate', syncFromUrl);
     };
-  }, [initialGroup]);
+  }, [initialGroup, navSeq]);
 
   const selectTab = (id: TabId) => {
     setTab(id);
@@ -147,6 +153,7 @@ export function OptionsWorkstation({
     const url = new URL(window.location.href);
     url.searchParams.delete('vol');
     url.searchParams.delete('fno');
+    url.searchParams.delete('tab');
     const fnoSlug = TAB_TO_FNO_PARAM[id];
     if (fnoSlug) {
       url.searchParams.set('fno', fnoSlug);
@@ -255,7 +262,7 @@ export function OptionsWorkstation({
       {tab === 'v4' && <T4ForecastTab chain={s.chain} indices={s.indices} bars={bars} ticker={ticker} ivHistory={s.ivHistory} />}
       {tab === 'v5' && <><T5DensityTab chain={s.chain} bars={bars} barsSource={barsSource} ticker={ticker} research={rnd} /><T5Calibration {...ledger} /></>}
       {tab === 'v6' && <T6CrossAssetTab chain={s.chain} indices={s.indices} bars={bars} ticker={ticker} />}
-      {tab === 'v7' && <T7DealerTab chain={s.chain} panel={s.panel} bars={bars} ticker={ticker} />}
+      {tab === 'v7' && <T7DealerTab chain={s.chain} panel={s.panel} bars={bars} intradayBars={intradayBars} intradaySource={intradaySource} ticker={ticker} />}
       {tab === 'v8' && <T8DecisionTab chain={s.chain} bars={bars} ticker={ticker} ivHistory={s.ivHistory} intradayBars={intradayBars} intradaySource={intradaySource} rvSeries={s.rvSeries} garchFitProp={s.garchFit} earningsProp={s.earnings} />}
       {tab === 'f1' && <FnoChainTab panel={s.fnoPanel} symbol={ticker} trap={s.fnoPanel?.trap ?? s.chain?.trap ?? null} />}
       {tab === 'f2' && <FnoOiTab panel={s.fnoPanel} symbol={ticker} trap={s.fnoPanel?.trap ?? s.chain?.trap ?? null} />}

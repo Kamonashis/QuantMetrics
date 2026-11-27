@@ -39,20 +39,6 @@ import { RegimeTransitionMatrix } from '@/components/ui/RegimeTransitionMatrix';
 import { fitGaussianHmm, type HmmFit } from '@/lib/hmm';
 import { cn } from '@/lib/utils';
 
-type WatchRowView = WatchRow & {
-  totalGex?: number | null;
-  gammaFlip?: number | null;
-  flipDistPct?: number | null;
-  regime?: string | null;
-  callWall?: number | null;
-  putWall?: number | null;
-  gammaCallWall?: number | null;
-  gammaPutWall?: number | null;
-  expiryConcentration7d?: number | null;
-  zeroDteShare?: number | null;
-  gexPerAdv?: number | null;
-};
-
 type GexConvention = 'squeeze' | 'inverse';
 type ScanSortKey = 'score' | 'totalGex' | 'flipDistPct' | 'expiryConcentration7d';
 
@@ -95,15 +81,6 @@ const METHODOLOGY_PRESETS: FinancialFormulaPreset[] = [
   'trap-score',
   'hedge-flow',
 ];
-
-function readWallStrike(val: unknown): number | null {
-  if (typeof val === 'number' && isFinite(val)) return val;
-  if (val && typeof val === 'object' && 'strike' in val) {
-    const s = (val as { strike?: unknown }).strike;
-    return typeof s === 'number' && isFinite(s) ? s : null;
-  }
-  return null;
-}
 
 export interface T7Props {
   ticker: string;
@@ -334,21 +311,32 @@ export function T7DealerTab({
     }
   };
 
-  const watchRows = snapshot.watchRows as WatchRowView[];
+  const watchRows: WatchRow[] = snapshot.watchRows;
   const sortedScan = useMemo(() => {
     if (!watchRows || watchRows.length === 0) return null;
     const convMult = convention === 'inverse' ? -1 : 1;
+    const getVal = (row: WatchRow): number | null => {
+      if (!row.available) return null;
+      if (sortKey === 'score') {
+        return row.trapScore !== null && Number.isFinite(row.trapScore) ? row.trapScore : null;
+      }
+      if (sortKey === 'totalGex') {
+        return row.totalGex !== null && Number.isFinite(row.totalGex) ? row.totalGex * convMult : null;
+      }
+      if (sortKey === 'flipDistPct') {
+        return row.flipDistPct !== null && Number.isFinite(row.flipDistPct) ? row.flipDistPct : null;
+      }
+      return row.expiryConcentration7d !== null && Number.isFinite(row.expiryConcentration7d)
+        ? row.expiryConcentration7d
+        : null;
+    };
     return [...watchRows].sort((a, b) => {
-      const getVal = (row: WatchRowView): number => {
-        if (sortKey === 'score') return row.trapScore ?? -Infinity;
-        if (sortKey === 'totalGex')
-          return row.totalGex !== null && row.totalGex !== undefined
-            ? row.totalGex * convMult
-            : -Infinity;
-        if (sortKey === 'flipDistPct') return row.flipDistPct ?? -Infinity;
-        return row.expiryConcentration7d ?? -Infinity;
-      };
-      return (getVal(a) - getVal(b)) * sortDir;
+      const va = getVal(a);
+      const vb = getVal(b);
+      if (va === null && vb === null) return 0;
+      if (va === null) return 1;
+      if (vb === null) return -1;
+      return (va - vb) * sortDir;
     });
   }, [watchRows, sortKey, sortDir, convention]);
 
@@ -1461,8 +1449,8 @@ export function T7DealerTab({
                             ? 'long'
                             : 'short'
                           : r.regime ?? null;
-                    const cw = readWallStrike(r.callWall);
-                    const pw = readWallStrike(r.putWall);
+                    const cw = r.callWall !== null && Number.isFinite(r.callWall) ? r.callWall : null;
+                    const pw = r.putWall !== null && Number.isFinite(r.putWall) ? r.putWall : null;
 
                     return (
                       <tr key={r.symbol} className="border-t border-[var(--hairline)]">
@@ -1480,7 +1468,7 @@ export function T7DealerTab({
                           </span>
                         </td>
                         <td className="py-1.5 pr-2 text-right tabular-nums text-zinc-800 dark:text-zinc-100">
-                          {r.trapScore ?? '—'}
+                          {r.trapScore !== null && Number.isFinite(r.trapScore) ? r.trapScore : '—'}
                         </td>
                         <td
                           className={cn(

@@ -30,11 +30,13 @@ export function FnoMaxPainTab({
   const maxPainStrike = pain?.maxPainStrike ?? null;
   const activeTrap = panel?.trap ?? trap ?? null;
   const trapReady = activeTrap?.available === true;
-  const callWall = trapReady ? (activeTrap.walls.call?.strike ?? null) : null;
-  const putWall = trapReady ? (activeTrap.walls.put?.strike ?? null) : null;
-  const gammaCallWall = trapReady ? (activeTrap.gammaWalls?.call?.strike ?? null) : null;
-  const gammaPutWall = trapReady ? (activeTrap.gammaWalls?.put?.strike ?? null) : null;
-  const gammaFlip = trapReady ? (activeTrap.gammaFlip?.flip ?? null) : null;
+  const finiteOrNull = (v: number | null | undefined) =>
+    typeof v === 'number' && isFinite(v) ? v : null;
+  const callWall = trapReady ? finiteOrNull(activeTrap.walls.call?.strike) : null;
+  const putWall = trapReady ? finiteOrNull(activeTrap.walls.put?.strike) : null;
+  const gammaCallWall = trapReady ? finiteOrNull(activeTrap.gammaWalls?.call?.strike) : null;
+  const gammaPutWall = trapReady ? finiteOrNull(activeTrap.gammaWalls?.put?.strike) : null;
+  const gammaFlip = trapReady ? finiteOrNull(activeTrap.gammaFlip?.flip) : null;
   const gexRegime = trapReady ? activeTrap.regime : 'unknown';
 
   const { traces, layout } = useMemo(() => {

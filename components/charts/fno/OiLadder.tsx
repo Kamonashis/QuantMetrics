@@ -15,6 +15,9 @@ export interface OiLadderLevels {
   regime?: 'long' | 'short' | 'unknown' | null;
 }
 
+const isFiniteNum = (v: number | null | undefined): v is number =>
+  typeof v === 'number' && Number.isFinite(v);
+
 const fmtLevelPct = (level: number | null | undefined, spot: number) => {
   if (level === null || level === undefined || !isFinite(level) || spot <= 0) return null;
   const pct = (level / spot - 1) * 100;
@@ -83,6 +86,7 @@ export function OiLadder({
       },
     ];
 
+    const hasSpot = typeof spot === 'number' && Number.isFinite(spot) && spot > 0;
     const shapes: NonNullable<Layout['shapes']> = [
       {
         type: 'line',
@@ -94,31 +98,37 @@ export function OiLadder({
         y1: 1,
         line: { color: 'rgba(148,148,160,0.4)', width: 1, dash: 'dot' },
       },
-      {
-        type: 'line',
-        xref: 'paper',
-        yref: 'y',
-        x0: 0,
-        x1: 1,
-        y0: spot,
-        y1: spot,
-        line: { color: QUANT_COLORS.goldLight, width: 1.3, dash: 'dash' },
-      },
+      ...(hasSpot
+        ? [
+            {
+              type: 'line' as const,
+              xref: 'paper' as const,
+              yref: 'y' as const,
+              x0: 0,
+              x1: 1,
+              y0: spot,
+              y1: spot,
+              line: { color: QUANT_COLORS.goldLight, width: 1.3, dash: 'dash' as const },
+            },
+          ]
+        : []),
     ];
 
-    const annotations: NonNullable<Layout['annotations']> = [
-      {
-        x: 0.99,
-        y: spot,
-        xref: 'paper',
-        yref: 'y',
-        text: `Spot $${spot.toFixed(2)}`,
-        showarrow: false,
-        xanchor: 'right',
-        yanchor: 'bottom',
-        font: { size: 9.5, color: QUANT_COLORS.goldLight },
-      },
-    ];
+    const annotations: NonNullable<Layout['annotations']> = hasSpot
+      ? [
+          {
+            x: 0.99,
+            y: spot,
+            xref: 'paper',
+            yref: 'y',
+            text: `Spot $${spot.toFixed(2)}`,
+            showarrow: false,
+            xanchor: 'right',
+            yanchor: 'bottom',
+            font: { size: 9.5, color: QUANT_COLORS.goldLight },
+          },
+        ]
+      : [];
 
     const addRefLine = (
       val: number,
@@ -197,11 +207,11 @@ export function OiLadder({
   const height = Math.max(290, Math.min(520, rows.length * 16 + 76));
   const hasLevels =
     levels &&
-    (levels.callWall != null ||
-      levels.putWall != null ||
-      levels.gammaCallWall != null ||
-      levels.gammaPutWall != null ||
-      levels.gammaFlip != null);
+    (isFiniteNum(levels.callWall) ||
+      isFiniteNum(levels.putWall) ||
+      isFiniteNum(levels.gammaCallWall) ||
+      isFiniteNum(levels.gammaPutWall) ||
+      isFiniteNum(levels.gammaFlip));
 
   return (
     <div>
@@ -232,27 +242,27 @@ export function OiLadder({
               {levels.regime === 'long' ? 'Long γ' : 'Short γ'}
             </span>
           )}
-          {levels.gammaFlip != null && (
+          {isFiniteNum(levels.gammaFlip) && (
             <span className="rounded border border-amber-500/35 bg-amber-500/10 px-1.5 py-0.5 tabular-nums text-amber-700 dark:text-amber-300">
               Flip ${levels.gammaFlip.toFixed(1)} ({fmtLevelPct(levels.gammaFlip, spot) ?? '—'})
             </span>
           )}
-          {levels.callWall != null && (
+          {isFiniteNum(levels.callWall) && (
             <span className="rounded border border-emerald-500/35 bg-emerald-500/10 px-1.5 py-0.5 tabular-nums text-emerald-700 dark:text-emerald-300">
               OI Call Wall ${levels.callWall} ({fmtLevelPct(levels.callWall, spot) ?? '—'})
             </span>
           )}
-          {levels.putWall != null && (
+          {isFiniteNum(levels.putWall) && (
             <span className="rounded border border-rose-500/35 bg-rose-500/10 px-1.5 py-0.5 tabular-nums text-rose-600 dark:text-rose-400">
               OI Put Wall ${levels.putWall} ({fmtLevelPct(levels.putWall, spot) ?? '—'})
             </span>
           )}
-          {levels.gammaCallWall != null && (
+          {isFiniteNum(levels.gammaCallWall) && (
             <span className="rounded border border-[var(--hairline)] bg-[var(--bg-inset)] px-1.5 py-0.5 tabular-nums text-zinc-700 dark:text-zinc-200">
               γ Call Wall ${levels.gammaCallWall} ({fmtLevelPct(levels.gammaCallWall, spot) ?? '—'})
             </span>
           )}
-          {levels.gammaPutWall != null && (
+          {isFiniteNum(levels.gammaPutWall) && (
             <span className="rounded border border-[var(--hairline)] bg-[var(--bg-inset)] px-1.5 py-0.5 tabular-nums text-zinc-700 dark:text-zinc-200">
               γ Put Wall ${levels.gammaPutWall} ({fmtLevelPct(levels.gammaPutWall, spot) ?? '—'})
             </span>

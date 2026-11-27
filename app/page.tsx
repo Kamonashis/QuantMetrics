@@ -56,6 +56,7 @@ interface LiveQuoteEntry {
 export default function App() {
   // Navigation — default landing page is Home (Edge remains available via the nav).
   const [activeView, setActiveView] = useState<AppView>('home');
+  const [navSeq, setNavSeq] = useState<number>(0);
 
   // Dark / Light Theme: default to true on both server and client for matching hydration
   const [isDark, setIsDark] = useState<boolean>(true);
@@ -119,6 +120,7 @@ export default function App() {
       const p = new URLSearchParams(window.location.search);
       const v = p.get('view');
       if (v && (VALID_VIEWS as string[]).includes(v)) setActiveView(v as AppView);
+      else if (!v) setActiveView('home');
       const t = p.get('ticker');
       if (t) {
         const next = t.trim().toUpperCase();
@@ -157,7 +159,10 @@ export default function App() {
   const navigateView = useCallback((view: AppView, params?: Record<string, string>) => {
     // Low-priority render: the nav pill animation and input stay responsive
     // while the destination view mounts its charts.
-    startTransition(() => setActiveView(view));
+    startTransition(() => {
+      setActiveView(view);
+      setNavSeq((n) => n + 1);
+    });
     if (typeof window !== 'undefined') {
       const url = new URL(window.location.href);
       // Clear stale sub-tab keys so a bookmark always lands on the intended panel.
@@ -428,6 +433,7 @@ export default function App() {
       const p = new URLSearchParams(window.location.search);
       const v = p.get('view');
       if (v && (VALID_VIEWS as string[]).includes(v)) setActiveView(v as AppView);
+      else if (!v) setActiveView('home');
       const t = p.get('ticker');
       if (t) {
         const next = t.trim().toUpperCase();
@@ -816,6 +822,7 @@ export default function App() {
             barsSource={currentBarsSource}
             companyName={currentCompanyName}
             initialGroup={activeView === 'fno' ? 'fno' : 'vol'}
+            navSeq={navSeq}
           />
         )}
 

@@ -43,7 +43,7 @@ export function ExpectedMoveConeChart({
   const spot = hist.length > 0 ? hist[hist.length - 1].close : null;
 
   const { traces, layout } = useMemo(() => {
-    if (iv30 === null || !spot || hist.length < 2 || !Number.isFinite(spot) || spot <= 0) {
+    if (iv30 === null || !Number.isFinite(iv30) || iv30 <= 0 || !spot || hist.length < 2 || !Number.isFinite(spot) || spot <= 0) {
       return { traces: [] as Data[], layout: {} as Partial<Layout> };
     }
 
@@ -166,9 +166,8 @@ export function ExpectedMoveConeChart({
       dash: 'dash' | 'dot'
     ) => {
       if (val === null || !Number.isFinite(val) || val <= 0) return;
-      if (Math.abs(val / spot - 1) <= 0.35) {
-        dealerLevels.push(val);
-      }
+      if (Math.abs(val / spot - 1) > 0.35) return;
+      dealerLevels.push(val);
       shapes.push({
         type: 'line',
         xref: 'paper',
@@ -212,7 +211,7 @@ export function ExpectedMoveConeChart({
     };
   }, [hist, spot, iv30, horizonTd, callWall, putWall, gammaFlip]);
 
-  if (iv30 === null || spot === null || hist.length < 2) {
+  if (iv30 === null || !Number.isFinite(iv30) || iv30 <= 0 || spot === null || !Number.isFinite(spot) || spot <= 0 || hist.length < 2) {
     return (
       <div className="flex h-44 flex-col items-center justify-center gap-1 rounded-xl border border-[var(--hairline)] bg-[var(--bg-inset)] px-6 text-center">
         <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500 dark:text-zinc-400">
@@ -258,17 +257,17 @@ export function ExpectedMoveConeChart({
           ±1σ @21td{' '}
           <span className="text-zinc-900 dark:text-zinc-100">${oneSigma(21).toFixed(1)}</span>
         </span>
-        {callWall != null && (
+        {typeof callWall === 'number' && Number.isFinite(callWall) && (
           <span>
             CW <span className="text-[var(--positive)]">${callWall}</span>
           </span>
         )}
-        {putWall != null && (
+        {typeof putWall === 'number' && Number.isFinite(putWall) && (
           <span>
             PW <span className="text-[var(--negative)]">${putWall}</span>
           </span>
         )}
-        {gammaFlip != null && (
+        {typeof gammaFlip === 'number' && Number.isFinite(gammaFlip) && (
           <span>
             Flip <span className="text-amber-600 dark:text-amber-300">${gammaFlip.toFixed(1)}</span>
           </span>

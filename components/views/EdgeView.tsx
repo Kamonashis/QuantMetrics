@@ -378,7 +378,12 @@ export function EdgeView({
               )}
             </div>
             <h1 className="font-display text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
-              {ticker} <span className="font-mono text-base font-semibold tabular-nums text-zinc-500">{pct(s.chain?.quote?.price ?? null)}</span>
+              {ticker}{' '}
+              <span className="font-mono text-base font-semibold tabular-nums text-zinc-500">
+                {s.chain?.quote?.price != null && isFinite(s.chain.quote.price)
+                  ? `$${s.chain.quote.price.toFixed(2)}`
+                  : '—'}
+              </span>
             </h1>
             <p className="mt-2 max-w-3xl text-sm leading-relaxed text-zinc-600 dark:text-zinc-300">
               Six pre-registered setups ranked from the terminal&apos;s existing signals. Every card shows its trigger, invalidation, evidence and data gates. These are studies of one operator&apos;s rules — not orders or advice.
@@ -565,7 +570,8 @@ export function EdgeView({
                 <tbody>
                   {s.watchRows.map((w) => {
                     const r20 = crossSectional.find((c) => c.symbol === w.symbol)?.rv20 ?? null;
-                    const gap = w.iv30 !== null && r20 !== null ? (w.iv30 - r20) * 100 : null;
+                    const rawGap = w.iv30 !== null && r20 !== null ? (w.iv30 - r20) * 100 : null;
+                    const gap = rawGap !== null && isFinite(rawGap) ? rawGap : null;
                     const badge = regimeBadge(w.regime);
                     const gexTitle = [
                       w.gammaFlip !== null ? `Flip $${w.gammaFlip.toFixed(1)}` : null,

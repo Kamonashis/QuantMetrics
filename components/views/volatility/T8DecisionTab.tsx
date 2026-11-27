@@ -79,9 +79,10 @@ function latestOf(series: RollingVolSeries[], window: number): number | null {
   return v === undefined ? null : v;
 }
 
-const pct = (v: number | null, digits = 1) => (v === null ? '—' : `${(v * 100).toFixed(digits)}%`);
+const pct = (v: number | null, digits = 1) =>
+  v === null || !Number.isFinite(v) ? '—' : `${(v * 100).toFixed(digits)}%`;
 const signedPct = (v: number | null, digits = 1) =>
-  v === null ? '—' : `${v >= 0 ? '+' : ''}${(v * 100).toFixed(digits)}%`;
+  v === null || !Number.isFinite(v) ? '—' : `${v >= 0 ? '+' : ''}${(v * 100).toFixed(digits)}%`;
 
 function Tile({ label, value, sub, tone = 'default' }: { label: string; value: string; sub?: string; tone?: 'default' | 'gold' | 'warn' }) {
   const border =
@@ -658,17 +659,17 @@ export function T8DecisionTab({ chain, bars, ticker, ivHistory, intradayBars, in
             </p>
           </div>
           <span className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-[0.18em] text-zinc-400">
-            <Sigma className="h-3 w-3" /> 1σ gold · 2σ faint{chain?.trap?.available ? ' · CW / PW / γ Flip' : ''}
+            <Sigma className="h-3 w-3" /> 1σ gold · 2σ faint{chain?.trap?.available && !chain?.substitution ? ' · CW / PW / γ Flip' : ''}
           </span>
         </div>
         <div className="mt-3">
           <ExpectedMoveConeChart
             bars={bars}
             iv30={iv30}
-            callWall={chain?.trap?.available ? (chain.trap.walls.call?.strike ?? null) : null}
-            putWall={chain?.trap?.available ? (chain.trap.walls.put?.strike ?? null) : null}
-            gammaFlip={chain?.trap?.available ? (chain.trap.gammaFlip.flip ?? null) : null}
-            gexRegime={chain?.trap?.available ? chain.trap.regime : null}
+            callWall={chain?.trap?.available && !chain?.substitution ? (chain.trap.walls.call?.strike ?? null) : null}
+            putWall={chain?.trap?.available && !chain?.substitution ? (chain.trap.walls.put?.strike ?? null) : null}
+            gammaFlip={chain?.trap?.available && !chain?.substitution ? (chain.trap.gammaFlip.flip ?? null) : null}
+            gexRegime={chain?.trap?.available && !chain?.substitution ? chain.trap.regime : null}
           />
         </div>
       </div>

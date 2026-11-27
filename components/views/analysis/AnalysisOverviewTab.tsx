@@ -133,7 +133,7 @@ export function AnalysisOverviewTab({
 
   const { chain } = useTickerSnapshot();
   const dealerLevels = React.useMemo<DealerLevelsOverlay | null>(() => {
-    const trap = chain?.available === true ? chain.trap : null;
+    const trap = chain?.available === true && !chain?.substitution ? chain.trap : null;
     if (!trap || !trap.available) return null;
     return {
       callWall: trap.walls?.call?.strike ?? null,

@@ -76,7 +76,7 @@ export function OptionsVerdictStrip({
         </span>
       )}
       {d.trap && <span className="text-zinc-500 dark:text-zinc-400">Trap <span className="text-zinc-800 dark:text-zinc-100">{d.trap.state.toUpperCase()} {d.trap.score}</span></span>}
-      {d.positioning?.maxPainStrike != null && (
+      {d.positioning?.maxPainStrike != null && isFinite(d.positioning.maxPainStrike) && (
         <span className="text-zinc-500 dark:text-zinc-400">Max pain <span className="tabular-nums text-zinc-800 dark:text-zinc-100">{d.positioning.maxPainStrike.toFixed(0)}</span></span>
       )}
       {d.accruedSessions !== null && <span className="text-zinc-400">{d.accruedSessions} sessions</span>}

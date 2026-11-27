@@ -716,7 +716,7 @@ export function AnalysisView({
               { label: 'IV30', node: <Iv30Chip />, sub: null as string | null, onClick: undefined as (() => void) | undefined, title: undefined as string | undefined },
               {
                 label: 'TRAP',
-                node: <span className={onNavigate ? '[&>span]:cursor-pointer' : undefined}><TrapStateChip /></span>,
+                node: <TrapStateChip interactive={Boolean(onNavigate)} />,
                 sub: trapSub,
                 onClick: onNavigate ? () => onNavigate('fno', { fno: 'gex' }) : undefined,
                 title: trapTitle,

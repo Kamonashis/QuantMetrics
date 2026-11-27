@@ -21,7 +21,7 @@ const STATE_LABEL: Record<TrapState, string> = {
 };
 
 /** Trap-score tile content — reads the shared snapshot, never fabricates a score. */
-export function TrapStateChip() {
+export function TrapStateChip({ interactive = false }: { interactive?: boolean }) {
   const { chain, chainLoading } = useTickerSnapshot();
   const trap = chain?.trap;
   const available = chain?.available === true && trap && typeof trap.score === 'number' && trap.state;
@@ -32,8 +32,8 @@ export function TrapStateChip() {
 
   return (
     <span
-      title={`Dealer trap score ${trap!.score}/100 — ${trap!.state.toUpperCase()}. Assumed positioning, not observed; see T7.`}
-      className="inline-flex cursor-help items-center gap-1.5 font-mono text-sm font-semibold tabular-nums text-zinc-800 dark:text-zinc-100"
+      title={interactive ? undefined : `Dealer trap score ${trap!.score}/100 — ${trap!.state.toUpperCase()}. Assumed positioning, not observed; see GEX workbench.`}
+      className={`inline-flex ${interactive ? 'cursor-pointer' : 'cursor-help'} items-center gap-1.5 font-mono text-sm font-semibold tabular-nums text-zinc-800 dark:text-zinc-100`}
     >
       <Magnet className="h-3.5 w-3.5" aria-hidden="true" />
       {trap!.score}

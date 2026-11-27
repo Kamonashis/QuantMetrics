@@ -235,11 +235,17 @@ export function HomeView({
     activeTrap && typeof activeTrap.gammaFlip?.flip === 'number' && Number.isFinite(activeTrap.gammaFlip.flip)
       ? activeTrap.gammaFlip.flip
       : null;
+  const activeFlipRefSpot =
+    activeTrap && typeof activeTrap.spot === 'number' && Number.isFinite(activeTrap.spot) && activeTrap.spot > 0
+      ? activeTrap.spot
+      : !chain?.substitution
+        ? activeSpotPrice
+        : null;
   const activeFlipDistPct =
     activeTrap && typeof activeTrap.flipDistPct === 'number' && Number.isFinite(activeTrap.flipDistPct)
       ? activeTrap.flipDistPct
-      : activeFlip !== null && activeSpotPrice !== null && activeSpotPrice > 0
-        ? activeFlip / activeSpotPrice - 1
+      : activeFlip !== null && activeFlipRefSpot !== null && activeFlipRefSpot > 0
+        ? activeFlip / activeFlipRefSpot - 1
         : null;
 
   // 10-ticker live watchboard cards (sparkline + RV20 + causal HMM state)

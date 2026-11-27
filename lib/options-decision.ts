@@ -93,7 +93,7 @@ export function buildOptionsDecision({
         : null;
 
   const trap =
-    rawTrap && typeof rawTrap.score === 'number'
+    rawTrap && typeof rawTrap.score === 'number' && isFinite(rawTrap.score)
       ? { state: rawTrap.state, score: rawTrap.score }
       : null;
 
