@@ -251,17 +251,141 @@ export function toRows(
 }
 
 // ---------------------------------------------------------------------------
+// Stratified expiry selection & bounded in-memory chain cache
+// ---------------------------------------------------------------------------
+
+export interface CandidateExpiry {
+  epoch: number;
+  dte: number;
+  t: number;
+  dateUtc: string;
+  isMonthlyOpex: boolean;
+}
+
+/** True when the UTC date of `epochSec` is the 3rd Friday of the month (US monthly OPEX). */
+export function isThirdFridayUtc(epochSec: number): boolean {
+  const d = new Date(epochSec * 1000);
+  return d.getUTCDay() === 5 && d.getUTCDate() >= 15 && d.getUTCDate() <= 21;
+}
+
+/**
+ * Stratified expiry sampler for `maxExpiries` budget within `maxDte`:
+ * prioritizes 0-DTE (dte ≤ 1), near weeklies (7..10 then 2..6 DTE so SVI ≥7d
+ * slices stay populated), 3rd-Friday monthly OPEX dates, and 30/60/90d anchors,
+ * then fills remaining slots chronologically (≤45 DTE first). Returns ascending, deduped.
+ */
+export function selectStratifiedExpiries(
+  expirationDates: number[],
+  nowSec: number,
+  maxExpiries: number,
+  maxDte: number
+): CandidateExpiry[] {
+  if (maxExpiries <= 0 || expirationDates.length === 0) return [];
+
+  const seenDate = new Set<string>();
+  const pool: CandidateExpiry[] = [];
+  const sortedEpochs = [...new Set(expirationDates)].filter((e) => Number.isFinite(e) && e > nowSec).sort((a, b) => a - b);
+
+  for (const epoch of sortedEpochs) {
+    const t = (epoch - nowSec) / (365 * 86400);
+    const dte = Math.max(0, Math.round(t * 365));
+    if (dte > maxDte) continue;
+    const dateUtc = new Date(epoch * 1000).toISOString().split('T')[0];
+    if (seenDate.has(dateUtc)) continue;
+    seenDate.add(dateUtc);
+    pool.push({ epoch, dte, t, dateUtc, isMonthlyOpex: isThirdFridayUtc(epoch) });
+  }
+
+  if (pool.length <= maxExpiries) return pool;
+
+  const picked = new Map<number, CandidateExpiry>();
+  const add = (cand: CandidateExpiry | undefined) => {
+    if (cand && !picked.has(cand.epoch) && picked.size < maxExpiries) {
+      picked.set(cand.epoch, cand);
+    }
+  };
+
+  // 1) Nearest 0-DTE (dte <= 1, prefer dte === 0)
+  const zeroDte = pool.find((c) => c.dte === 0) ?? pool.find((c) => c.dte <= 1);
+  add(zeroDte);
+
+  // 2) Near weeklies (7..10 DTE first for SVI/IV30 stability, then 2..6 DTE Friday/nearest)
+  const weekly7to10 = pool.find((c) => c.dte >= 7 && c.dte <= 10);
+  add(weekly7to10);
+  if (maxExpiries >= 5) {
+    const near2to6 =
+      pool.find((c) => c.dte >= 2 && c.dte <= 6 && new Date(c.epoch * 1000).getUTCDay() === 5) ??
+      pool.find((c) => c.dte >= 2 && c.dte <= 6);
+    add(near2to6);
+  }
+
+  // 3) 3rd-Friday monthly OPEX dates within maxDte
+  for (const cand of pool) {
+    if (cand.isMonthlyOpex) add(cand);
+  }
+
+  // 4) 30 / 60 / 90d term-structure anchors (unless already covered within ±4 DTE)
+  for (const target of [30, 60, 90]) {
+    if (target > maxDte + 10) continue;
+    const covered = Array.from(picked.values()).some((p) => Math.abs(p.dte - target) <= 4);
+    if (covered) continue;
+    const unpicked = pool.filter((c) => !picked.has(c.epoch) && c.dte >= 7);
+    const closest = unpicked.reduce<CandidateExpiry | undefined>((best, c) => {
+      if (!best) return c;
+      return Math.abs(c.dte - target) < Math.abs(best.dte - target) ? c : best;
+    }, undefined);
+    if (closest && Math.abs(closest.dte - target) <= 15) {
+      add(closest);
+    }
+  }
+
+  // 5) Fill remaining slots chronologically (≤ 45 DTE first, then remaining)
+  for (const cand of pool) {
+    if (picked.size >= maxExpiries) break;
+    if (cand.dte <= 45) add(cand);
+  }
+  for (const cand of pool) {
+    if (picked.size >= maxExpiries) break;
+    add(cand);
+  }
+
+  return Array.from(picked.values()).sort((a, b) => a.epoch - b.epoch);
+}
+
+const CHAIN_CACHE_TTL_MS = 5 * 60 * 1000;
+const CHAIN_CACHE_MAX = 32;
+
+const chainCache = new Map<string, { fetchedAt: number; result: ProviderChainResult }>();
+const chainInFlight = new Map<string, Promise<ProviderChainResult | null>>();
+
+export function clearYahooChainCache(): void {
+  chainCache.clear();
+  chainInFlight.clear();
+}
+
+export function getYahooChainCacheStats(): { size: number; inFlight: number } {
+  return { size: chainCache.size, inFlight: chainInFlight.size };
+}
+
+function storeChainCache(key: string, result: ProviderChainResult): void {
+  if (chainCache.has(key)) {
+    chainCache.delete(key);
+  } else if (chainCache.size >= CHAIN_CACHE_MAX) {
+    const oldestKey = chainCache.keys().next().value;
+    if (oldestKey !== undefined) chainCache.delete(oldestKey);
+  }
+  chainCache.set(key, { fetchedAt: Date.now(), result });
+}
+
+// ---------------------------------------------------------------------------
 // Provider implementation
 // ---------------------------------------------------------------------------
 
-async function fetchYahooChain(
-  rawSymbol: string,
-  opts: ChainProviderOptions = {}
+async function fetchYahooChainUncached(
+  symbol: string,
+  maxExpiries: number,
+  maxDte: number
 ): Promise<ProviderChainResult | null> {
-  const { symbol, substitution } = resolveSymbol(rawSymbol);
-  const maxExpiries = opts.maxExpiries ?? 12;
-  const maxDte = opts.maxDte ?? 90;
-
   const core = await fetchFullChain(symbol);
   if (!core) return null;
 
@@ -278,20 +402,16 @@ async function fetchYahooChain(
       : 0;
 
   const now = Date.now() / 1000;
-  const candidates = (core.expirationDates ?? [])
-    .map((epoch) => ({ epoch, t: (epoch - now) / (365 * 86400) }))
-    .filter((e) => e.t > 0)
-    .sort((a, b) => a.t - b.t)
-    .slice(0, maxExpiries);
+  const candidates = selectStratifiedExpiries(core.expirationDates ?? [], now, maxExpiries, maxDte);
 
-  // Sequential per-expiry fetches — they cannot be batched
+  // Sequential per-expiry fetches — Yahoo v7 does not support multi-date batching
   const expiries: ProviderExpiry[] = [];
   const flatRows: RawChainRow[] = [];
   for (const cand of candidates) {
     const expResult = await fetchFullChain(symbol, cand.epoch);
     const expOpts = expResult?.options?.[0];
     if (!expOpts) continue;
-    const dte = Math.round(cand.t * 365);
+    const dte = cand.dte;
     if (dte > maxDte) continue;
     const calls = toRows(expOpts, expOpts.calls ?? [], 'call', dte);
     const puts = toRows(expOpts, expOpts.puts ?? [], 'put', dte);
@@ -307,7 +427,7 @@ async function fetchYahooChain(
 
   return {
     symbol,
-    substitution,
+    substitution: null,
     asOf: new Date().toISOString(),
     spot,
     prevClose: Number.isFinite(quote.regularMarketPreviousClose) && quote.regularMarketPreviousClose! > 0 ? quote.regularMarketPreviousClose! : null,
@@ -326,6 +446,44 @@ async function fetchYahooChain(
     expiries,
     rows: flatRows,
   };
+}
+
+async function fetchYahooChain(
+  rawSymbol: string,
+  opts: ChainProviderOptions = {}
+): Promise<ProviderChainResult | null> {
+  const { symbol, substitution } = resolveSymbol(rawSymbol);
+  const maxExpiries = opts.maxExpiries ?? 12;
+  const maxDte = opts.maxDte ?? 90;
+  const cacheKey = `${symbol}:${maxExpiries}:${maxDte}`;
+
+  const nowMs = Date.now();
+  const cached = chainCache.get(cacheKey);
+  if (cached && nowMs - cached.fetchedAt < CHAIN_CACHE_TTL_MS) {
+    chainCache.delete(cacheKey);
+    chainCache.set(cacheKey, cached);
+    return { ...cached.result, substitution };
+  }
+
+  const inFlight = chainInFlight.get(cacheKey);
+  if (inFlight) {
+    const res = await inFlight;
+    return res ? { ...res, substitution } : null;
+  }
+
+  const task = fetchYahooChainUncached(symbol, maxExpiries, maxDte)
+    .then((res) => {
+      if (res) storeChainCache(cacheKey, res);
+      return res;
+    });
+
+  chainInFlight.set(cacheKey, task);
+  try {
+    const res = await task;
+    return res ? { ...res, substitution } : null;
+  } finally {
+    chainInFlight.delete(cacheKey);
+  }
 }
 
 export const yahooProvider: ChainProvider = {

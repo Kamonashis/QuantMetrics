@@ -26,16 +26,20 @@ import {
   type ProviderChainResult,
 } from '@/lib/options/providers/yahoo';
 import type { RawChainRow } from '@/lib/options/providers/types';
-import { computeTrapBundle, type TrapBundle } from '@/lib/trap-server';
+import {
+  computeTrapBundle,
+  toTrapPanelRow,
+  toTrapPayload,
+  type TrapBundle,
+} from '@/lib/trap-server';
 import {
   writeSnapshot,
   writePanelRow,
   readHistory,
   historyStats,
   readPanel,
-  type PanelRow,
 } from '@/lib/iv-store';
-import type { TrapState, TrapDirection } from '@/lib/gex';
+import type { GexConvention } from '@/lib/gex';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -198,76 +202,15 @@ function todayUtc(): string {
   return new Date().toISOString().split('T')[0];
 }
 
-function trapPanelRow(dateUtc: string, bundle: TrapBundle, atmIv30: number | null): PanelRow {
-  return {
-    date: dateUtc,
-    spot: bundle.spot,
-    atmIv30,
-    expectedMove30: bundle.expectedMove30,
-    totalGex: bundle.totalGex,
-    gammaFlip: bundle.gammaFlip.flip,
-    regime: bundle.gammaFlip.regime,
-    callWall: bundle.walls.call
-      ? { strike: bundle.walls.call.strike, oi: bundle.walls.call.oi, share: bundle.walls.call.share, distPct: bundle.walls.call.distPct, distSigma: bundle.walls.call.distSigma }
-      : null,
-    putWall: bundle.walls.put
-      ? { strike: bundle.walls.put.strike, oi: bundle.walls.put.oi, share: bundle.walls.put.share, distPct: bundle.walls.put.distPct, distSigma: bundle.walls.put.distSigma }
-      : null,
-    expiryConcentration7d: bundle.expiryConcentration7d,
-    oiWallChange1d: bundle.oiChange1d,
-    oiWallChange5d: bundle.oiChange5d,
-    oiWallChangeZ: bundle.oiChange5dZ,
-    trapScore: bundle.trap.score,
-    trapState: bundle.trap.state,
-    trapDirection: bundle.trap.direction,
-    rv20: bundle.rv20,
-    ret5d: bundle.ret5d,
-    computedAt: new Date().toISOString(),
-  };
-}
-
-function trapPayload(bundle: TrapBundle) {
-  return {
-    available: true as const,
-    spot: bundle.spot,
-    forward: bundle.forward,
-    atmIv: bundle.atmIv,
-    headlineDte: bundle.headlineDte,
-    atmIv30: bundle.atmIv30,
-    totalGex: bundle.totalGex,
-    regime: bundle.gammaFlip.regime,
-    gammaFlip: { flip: bundle.gammaFlip.flip, regime: bundle.gammaFlip.regime },
-    flipProfile: bundle.gammaFlip.profile,
-    byStrike: bundle.byStrike,
-    maxAbsGex: bundle.maxAbsGex,
-    walls: bundle.walls,
-    flow: bundle.flow,
-    expiryConcentration7d: bundle.expiryConcentration7d,
-    expectedMove30: bundle.expectedMove30,
-    rv20: bundle.rv20,
-    ret5d: bundle.ret5d,
-    oiChange1d: bundle.oiChange1d,
-    oiChange5d: bundle.oiChange5d,
-    oiChange5dZ: bundle.oiChange5dZ,
-    convention: bundle.convention,
-    previousState: bundle.previousState,
-    score: bundle.trap.score,
-    state: bundle.trap.state,
-    direction: bundle.trap.direction,
-    components: bundle.trap.components,
-    velocityDegraded: bundle.trap.velocityDegraded,
-    nearWall: bundle.trap.nearWall,
-  };
-}
-
-/** Persist today's snapshot (with rows) + derived panel row. Best effort; never throws. */
+/** Persist today's snapshot (with rows) + derived canonical panel row. Best effort; never throws. */
 function persistAccrual(
   chain: ProviderChainResult,
   symbol: string,
   iv30: number | null,
   frontRr25: number | null,
   nContractsUsed: number,
-  bundle: TrapBundle | null
+  bundle: TrapBundle | null,
+  persistPanel = true
 ) {
   const dateUtc = todayUtc();
   const snapshotViable = iv30 !== null || bundle !== null;
@@ -289,9 +232,9 @@ function persistAccrual(
       })
     : { ok: false, error: 'no usable IV in fetched chain — snapshot skipped' };
 
-  if (bundle) {
+  if (bundle && persistPanel) {
     try {
-      writePanelRow(symbol, trapPanelRow(dateUtc, bundle, iv30));
+      writePanelRow(symbol, toTrapPanelRow(dateUtc, bundle, iv30));
     } catch {
       /* panel persistence is best effort */
     }
@@ -391,7 +334,10 @@ export async function GET(req: NextRequest) {
   // --------------------------------------------------------------- trap scan
   if (mode === 'trap-scan') {
     const raw = searchParams.get('symbols') || 'AAPL,MSFT,GOOGL,NVDA,TSLA,SPY';
-    const symbols = raw.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean).slice(0, 6);
+    const symbols = raw.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean).slice(0, 10);
+    const convention: GexConvention = searchParams.get('convention') === 'inverse' ? 'inverse' : 'squeeze';
+    const inc0Param = searchParams.get('include0Dte');
+    const include0Dte = inc0Param === 'false' || inc0Param === '0' ? false : true;
     const rows: Array<Record<string, unknown>> = [];
     for (const sym of symbols) {
       try {
@@ -400,7 +346,7 @@ export async function GET(req: NextRequest) {
           rows.push({ symbol: sym, available: false, reason: 'chain unavailable' });
           continue;
         }
-        const bundle = await computeTrapBundle(chain, {});
+        const bundle = await computeTrapBundle(chain, { convention, include0Dte });
         if (!bundle) {
           rows.push({ symbol: sym, available: false, reason: 'trap computation failed' });
           continue;
@@ -414,11 +360,32 @@ export async function GET(req: NextRequest) {
           state: bundle.trap.state,
           direction: bundle.trap.direction,
           regime: bundle.gammaFlip.regime,
+          totalGex: bundle.totalGex,
+          totalCallGex: bundle.totalCallGex,
+          totalPutGex: bundle.totalPutGex,
+          totalVolumeGex: bundle.totalVolumeGex,
+          flow: bundle.flow,
           gammaFlip: bundle.gammaFlip.flip,
-          callWall: bundle.walls.call ? { strike: bundle.walls.call.strike, share: bundle.walls.call.share, distSigma: bundle.walls.call.distSigma } : null,
-          putWall: bundle.walls.put ? { strike: bundle.walls.put.strike, share: bundle.walls.put.share, distSigma: bundle.walls.put.distSigma } : null,
+          flipDistPct: bundle.flipDistPct,
+          flipDistSigma: bundle.flipDistSigma,
+          callWall: bundle.walls.call
+            ? { strike: bundle.walls.call.strike, share: bundle.walls.call.share, distSigma: bundle.walls.call.distSigma }
+            : null,
+          putWall: bundle.walls.put
+            ? { strike: bundle.walls.put.strike, share: bundle.walls.put.share, distSigma: bundle.walls.put.distSigma }
+            : null,
+          gammaCallWall: bundle.gammaWalls.call
+            ? { strike: bundle.gammaWalls.call.strike, gex: bundle.gammaWalls.call.gex, share: bundle.gammaWalls.call.share, distSigma: bundle.gammaWalls.call.distSigma }
+            : null,
+          gammaPutWall: bundle.gammaWalls.put
+            ? { strike: bundle.gammaWalls.put.strike, gex: bundle.gammaWalls.put.gex, share: bundle.gammaWalls.put.share, distSigma: bundle.gammaWalls.put.distSigma }
+            : null,
           oiChange5d: bundle.oiChange5d,
           expiryConcentration7d: bundle.expiryConcentration7d,
+          zeroDteShare: bundle.zeroDteShare,
+          adv20Dollar: bundle.adv20Dollar,
+          gexPerAdv: bundle.gexPerAdv,
+          convention: bundle.convention,
         });
       } catch (err) {
         rows.push({ symbol: sym, available: false, reason: err instanceof Error ? err.message : 'scan failed' });
@@ -494,6 +461,9 @@ export async function GET(req: NextRequest) {
 
   if (mode === 'chain') {
     const raw = searchParams.get('symbol') || 'NVDA';
+    const convention: GexConvention = searchParams.get('convention') === 'inverse' ? 'inverse' : 'squeeze';
+    const inc0Param = searchParams.get('include0Dte');
+    const include0Dte = inc0Param === 'false' || inc0Param === '0' ? false : true;
     const { symbol, substitution } = resolveSymbol(raw);
     const chain = await fetchYahooChain(symbol, { maxExpiries: 8, maxDte: 90 });
     if (!chain) {
@@ -554,13 +524,21 @@ export async function GET(req: NextRequest) {
       };
     }
 
-    // Trap bundle (GEX, walls, score) — computed for the snapshot and the payload
-    const bundle = await computeTrapBundle(chain, { iv30 });
+    // Trap bundle (GEX, walls, score, expiry buckets, second-order greeks) — both conventions included
+    const bundle = await computeTrapBundle(chain, { iv30, convention, include0Dte });
 
-    // Snapshot accrual (best effort)
+    // Snapshot accrual (best effort; panel row is only written for canonical squeeze + include0Dte)
     const frontRr25 = slices.find((s) => s.dte >= 21 && s.dte <= 45)?.rr25 ?? slices[0].rr25 ?? null;
     const totalUsed = slices.reduce((s, x) => s + x.clean.used, 0);
-    const snapResult = persistAccrual(chain, symbol, iv30, frontRr25, totalUsed, bundle);
+    const snapResult = persistAccrual(
+      chain,
+      symbol,
+      iv30,
+      frontRr25,
+      totalUsed,
+      bundle,
+      convention === 'squeeze' && include0Dte
+    );
     const history = historyStats(symbol);
 
     const ivHistory30 = readHistory(symbol)
@@ -594,7 +572,7 @@ export async function GET(req: NextRequest) {
         slices,
         rnd,
         pricedBand,
-        trap: bundle ? trapPayload(bundle) : null,
+        trap: bundle ? toTrapPayload(bundle) : null,
         snapshot: { ...history, iv30HistoryCount: ivHistory30.length, writeOk: snapResult.ok, snapshotError: snapResult.ok ? null : (snapResult as { error?: string }).error ?? null },
         ivHistory30,
         warnings: substitution ? [substitution] : [],

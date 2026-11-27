@@ -180,9 +180,110 @@ export function bsDelta(S: number, K: number, T: number, r: number, q: number, s
 }
 
 export function bsGamma(S: number, K: number, T: number, r: number, q: number, sigma: number): number {
-  if (T <= 0 || sigma <= 0) return 0;
+  if (T <= 0 || sigma <= 0 || S <= 0 || K <= 0) return 0;
   const { d1 } = d1d2(S, K, T, r, q, sigma);
   return (Math.exp(-q * T) * normPdf(d1)) / (S * sigma * Math.sqrt(T));
+}
+
+/**
+ * European BSM Vanna (∂Δ/∂σ = ∂Vega/∂S), identical for calls and puts.
+ * Units: change in option delta (shares per share) per +1.00 absolute change
+ * in annualized decimal volatility (multiply by 0.01 for +1 vol pt).
+ */
+export function bsVanna(S: number, K: number, T: number, r: number, q: number, sigma: number): number {
+  if (T <= 0 || sigma <= 0 || S <= 0 || K <= 0) return 0;
+  const { d1, d2 } = d1d2(S, K, T, r, q, sigma);
+  return (-Math.exp(-q * T) * normPdf(d1) * d2) / sigma;
+}
+
+/**
+ * European BSM Charm (delta decay with calendar time passage: ∂Δ/∂t = -∂Δ/∂T).
+ * Units: change in option delta per calendar year (yr⁻¹). Divide by 365 (or use
+ * `bsCharmPerDay`) for delta change per calendar day.
+ */
+export function bsCharm(
+  S: number,
+  K: number,
+  T: number,
+  r: number,
+  q: number,
+  sigma: number,
+  type: 'call' | 'put'
+): number {
+  if (T <= 0 || sigma <= 0 || S <= 0 || K <= 0) return 0;
+  const sqrtT = Math.sqrt(T);
+  const { d1, d2 } = d1d2(S, K, T, r, q, sigma);
+  const discQ = Math.exp(-q * T);
+  const common = (discQ * normPdf(d1) * (2 * (r - q) * T - d2 * sigma * sqrtT)) / (2 * T * sigma * sqrtT);
+  return type === 'call' ? q * discQ * normCdf(d1) - common : -q * discQ * normCdf(-d1) - common;
+}
+
+/** Convenience helper: European BSM Charm expressed per calendar day (`bsCharm / 365`). */
+export function bsCharmPerDay(
+  S: number,
+  K: number,
+  T: number,
+  r: number,
+  q: number,
+  sigma: number,
+  type: 'call' | 'put'
+): number {
+  return bsCharm(S, K, T, r, q, sigma, type) / 365;
+}
+
+/**
+ * European BSM Speed (∂Γ/∂S), identical for calls and puts.
+ * Units: rate of change of gamma per unit change in spot price.
+ */
+export function bsSpeed(S: number, K: number, T: number, r: number, q: number, sigma: number): number {
+  if (T <= 0 || sigma <= 0 || S <= 0 || K <= 0) return 0;
+  const sqrtT = Math.sqrt(T);
+  const { d1 } = d1d2(S, K, T, r, q, sigma);
+  const gamma = (Math.exp(-q * T) * normPdf(d1)) / (S * sigma * sqrtT);
+  return -(gamma / S) * (d1 / (sigma * sqrtT) + 1);
+}
+
+/**
+ * Sanitize a raw option implied volatility for GEX / Greeks calculation.
+ * Rejects non-finite, sub-floor (≤ minIv), extreme (> maxIv), and wide/zero-bid
+ * outlier quotes relative to `fallbackIv`, returning a clean positive decimal IV.
+ */
+export function sanitizeIv(
+  rawIv: number | null | undefined,
+  fallbackIv: number,
+  opts: {
+    minIv?: number;
+    maxIv?: number;
+    bid?: number;
+    ask?: number;
+    maxRelSpread?: number;
+  } = {}
+): number {
+  const minIv = opts.minIv ?? 0.02;
+  const maxIv = opts.maxIv ?? 3.0;
+  const maxRelSpread = opts.maxRelSpread ?? 0.5;
+  const fallback =
+    typeof fallbackIv === 'number' && Number.isFinite(fallbackIv) && fallbackIv > minIv && fallbackIv <= maxIv
+      ? fallbackIv
+      : 0.2;
+
+  if (typeof rawIv !== 'number' || !Number.isFinite(rawIv) || rawIv <= minIv || rawIv > maxIv) {
+    return fallback;
+  }
+
+  const bid = opts.bid ?? NaN;
+  const ask = opts.ask ?? NaN;
+  if (Number.isFinite(bid) || Number.isFinite(ask)) {
+    const mid = bid > 0 && ask >= bid ? (bid + ask) / 2 : 0;
+    const relSpread = mid > 0 ? (ask - bid) / mid : Infinity;
+    const badQuote = !(bid > 0 && ask >= bid) || relSpread > maxRelSpread;
+    // Wide/zero-bid wings on Yahoo frequently carry stale or extreme (>150-300%) IV prints.
+    const outlierCap = Math.min(maxIv, Math.max(1.5, fallback * 4));
+    if (badQuote && (rawIv > outlierCap || rawIv < fallback * 0.2)) {
+      return fallback;
+    }
+  }
+  return rawIv;
 }
 
 /**

@@ -115,8 +115,100 @@ export interface WallSnapshot {
   distSigma: number;
 }
 
+export interface GammaWallSnapshot {
+  strike: number;
+  oi: number;
+  gex: number;
+  absGex: number;
+  share: number;
+  distPct: number;
+  distSigma: number;
+}
+
+export type GexExpiryBucketId = '0dte' | 'weekly' | 'monthly' | 'far';
+
+export interface GexStrikeOut {
+  strike: number;
+  callOi: number;
+  putOi: number;
+  gex: number;
+  callVolume?: number;
+  putVolume?: number;
+  callGex?: number;
+  putGex?: number;
+  callVolumeGex?: number;
+  putVolumeGex?: number;
+  volumeGex?: number;
+  callCharm?: number;
+  putCharm?: number;
+  charm?: number;
+  callVanna?: number;
+  putVanna?: number;
+  vanna?: number;
+}
+
+export interface GexFlipPointOut {
+  spot: number;
+  gex: number;
+  callGex?: number;
+  putGex?: number;
+  gexSqueeze?: number;
+  gexInverse?: number;
+}
+
+export interface GexExpiryBucketOut {
+  bucket: GexExpiryBucketId;
+  label: string;
+  dteRange: string;
+  oi: number;
+  callOi: number;
+  putOi: number;
+  callGex: number;
+  putGex: number;
+  totalGex: number;
+  absGex: number;
+  shareOfAbsGex: number;
+  totalVolumeGex: number;
+  totalCharm: number;
+  totalVanna: number;
+  byStrike: GexStrikeOut[];
+}
+
+export interface GexStrikeExpiryMatrixOut {
+  strikes: number[];
+  expiries: {
+    expiry: string;
+    dte: number;
+    bucket: GexExpiryBucketId;
+    totalGex: number;
+    callGex: number;
+    putGex: number;
+    totalOi: number;
+  }[];
+  netGex: number[][];
+  callGex: number[][];
+  putGex: number[][];
+}
+
 export type TrapState = 'idle' | 'building' | 'armed' | 'triggered' | 'exhausted';
 export type TrapDirection = 'up' | 'down' | 'none';
+
+export interface GexConventionSummaryOut {
+  totalGex: number;
+  totalCallGex: number;
+  totalPutGex: number;
+  totalVolumeGex: number;
+  totalCharm: number;
+  totalVanna: number;
+  flip: number | null;
+  regime: 'long' | 'short' | 'unknown';
+  flow: { perPctUp: number; perPctDown: number; net: number };
+  score: number;
+  state: TrapState;
+  direction: TrapDirection;
+  components: { wall: number; proximity: number; regime: number; velocity: number; coil: number };
+  nearWall: 'call' | 'put' | 'none';
+}
 
 export interface TrapPayload {
   available: boolean;
@@ -125,11 +217,26 @@ export interface TrapPayload {
   atmIv: number;
   headlineDte: number;
   atmIv30: number | null;
+  include0Dte?: boolean;
   totalGex: number;
+  totalCallGex?: number;
+  totalPutGex?: number;
+  totalCallVolumeGex?: number;
+  totalPutVolumeGex?: number;
+  totalVolumeGex?: number;
+  totalCallCharm?: number;
+  totalPutCharm?: number;
+  totalCharm?: number;
+  totalCallVanna?: number;
+  totalPutVanna?: number;
+  totalVanna?: number;
   regime: 'long' | 'short' | 'unknown';
   gammaFlip: { flip: number | null; regime: 'long' | 'short' | 'unknown' };
-  flipProfile: { spot: number; gex: number }[];
-  byStrike: { strike: number; callOi: number; putOi: number; gex: number }[];
+  gammaFlipInverse?: { flip: number | null; regime: 'long' | 'short' | 'unknown' };
+  flipDistPct?: number | null;
+  flipDistSigma?: number | null;
+  flipProfile: GexFlipPointOut[];
+  byStrike: GexStrikeOut[];
   maxAbsGex: number;
   walls: {
     call: WallSnapshot | null;
@@ -138,15 +245,31 @@ export interface TrapPayload {
     runnerUpPut: WallSnapshot | null;
     totalOiLocal: number;
   };
+  gammaWalls?: {
+    call: GammaWallSnapshot | null;
+    put: GammaWallSnapshot | null;
+    runnerUpCall: GammaWallSnapshot | null;
+    runnerUpPut: GammaWallSnapshot | null;
+    totalAbsGex: number;
+  };
+  expiryBuckets?: GexExpiryBucketOut[];
+  strikeExpiryMatrix?: GexStrikeExpiryMatrixOut;
   flow: { perPctUp: number; perPctDown: number; net: number };
   expiryConcentration7d: number;
+  zeroDteShare?: number;
   expectedMove30: number | null;
   rv20: number | null;
   ret5d: number | null;
+  adv20Dollar?: number | null;
+  gexPerAdv?: number | null;
   oiChange1d: number | null;
   oiChange5d: number | null;
   oiChange5dZ: number | null;
   convention: 'squeeze' | 'inverse';
+  byConvention?: {
+    squeeze: GexConventionSummaryOut;
+    inverse: GexConventionSummaryOut;
+  };
   previousState: TrapState | null;
   score: number;
   state: TrapState;

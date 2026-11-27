@@ -4,7 +4,7 @@
 // OI history accrues only via app usage (.cache/iv) — it can never be backfilled.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { totalVarianceInterpolate, impliedVol, bsVega, bsDelta, type OptionContract } from '@/lib/options';
+import { totalVarianceInterpolate, impliedVol, bsVega, bsDelta, bsGamma } from '@/lib/options';
 import {
   fetchYahooChain,
   resolveSymbol,
@@ -15,7 +15,8 @@ import { oiLadder, pcr, maxPain } from '@/lib/fno/positioning';
 import { buildTermStructure } from '@/lib/fno/term-structure';
 import { expectedMoves } from '@/lib/fno/expected-move';
 import { readHistory, historyStats, writeSnapshot, writePanelRow } from '@/lib/iv-store';
-import { computeTrapBundle } from '@/lib/trap-server';
+import { computeTrapBundle, toTrapPanelRow, toTrapPayload, type TrapBundle } from '@/lib/trap-server';
+import type { GexConvention } from '@/lib/gex';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -36,14 +37,14 @@ async function persistAccrual(
   symbol: string,
   iv30: number | null,
   frontRr25: number | null,
-  totalUsed: number
+  totalUsed: number,
+  bundle: TrapBundle | null
 ) {
-  // Short-circuit: if today's snapshot is fresh (< 20 min), skip the heavy trap bundle recompute.
+  // Short-circuit disk write if today's snapshot is fresh (< 20 min)
   const history = readHistory(symbol);
   const fresh = history.some((h) => h.date === todayUtc() && (Date.now() - new Date(h.fetchedAt).getTime()) < 20 * 60 * 1000);
   if (fresh && iv30 !== null) return { ok: true, reused: true };
 
-  const bundle = await computeTrapBundle(chain, { iv30 });
   const dateUtc = todayUtc();
   const snapshotViable = iv30 !== null || bundle !== null;
   const snapResult = snapshotViable
@@ -66,31 +67,7 @@ async function persistAccrual(
 
   if (bundle) {
     try {
-      writePanelRow(symbol, {
-        date: dateUtc,
-        spot: bundle.spot,
-        atmIv30: iv30,
-        expectedMove30: bundle.expectedMove30,
-        totalGex: bundle.totalGex,
-        gammaFlip: bundle.gammaFlip.flip,
-        regime: bundle.gammaFlip.regime,
-        callWall: bundle.walls.call
-          ? { strike: bundle.walls.call.strike, oi: bundle.walls.call.oi, share: bundle.walls.call.share, distPct: bundle.walls.call.distPct, distSigma: bundle.walls.call.distSigma }
-          : null,
-        putWall: bundle.walls.put
-          ? { strike: bundle.walls.put.strike, oi: bundle.walls.put.oi, share: bundle.walls.put.share, distPct: bundle.walls.put.distPct, distSigma: bundle.walls.put.distSigma }
-          : null,
-        expiryConcentration7d: bundle.expiryConcentration7d,
-        oiWallChange1d: bundle.oiChange1d,
-        oiWallChange5d: bundle.oiChange5d,
-        oiWallChangeZ: bundle.oiChange5dZ,
-        trapScore: bundle.trap.score,
-        trapState: bundle.trap.state,
-        trapDirection: bundle.trap.direction,
-        rv20: bundle.rv20,
-        ret5d: bundle.ret5d,
-        computedAt: new Date().toISOString(),
-      });
+      writePanelRow(symbol, toTrapPanelRow(dateUtc, bundle, iv30));
     } catch {
       /* panel persistence is best effort */
     }
@@ -125,6 +102,9 @@ export async function GET(req: NextRequest) {
   // ------------------------------------------------------------------ panel
   if (mode === 'panel') {
     const raw = searchParams.get('symbol') || 'NVDA';
+    const convention: GexConvention = searchParams.get('convention') === 'inverse' ? 'inverse' : 'squeeze';
+    const inc0Param = searchParams.get('include0Dte');
+    const include0Dte = inc0Param === 'false' || inc0Param === '0' ? false : true;
     const { symbol, substitution } = resolveSymbol(raw);
     const chain = await fetchYahooChain(symbol, { maxExpiries: 12, maxDte: 90 });
     if (!chain) {
@@ -158,9 +138,19 @@ export async function GET(req: NextRequest) {
     const strikesTotal = rows.length;
     const strikesUsed = rows.filter((r) => r.bid > 0).length;
 
+    // Always compute & expose the trap/GEX summary even when disk accrual (<20m) dedupes
+    const bundle = await computeTrapBundle(chain, { iv30, convention, include0Dte });
+
     // Persist accrual (best effort) — keeps both F&O and IV/Trap features learning from the same snapshot
     const frontRr25 = termStructure.points.find((p) => p.dte >= 15 && p.dte <= 45)?.rr25 ?? null;
-    persistAccrual(chain, symbol, iv30, frontRr25, strikesUsed).catch(() => undefined);
+    persistAccrual(
+      chain,
+      symbol,
+      iv30,
+      frontRr25,
+      strikesUsed,
+      convention === 'squeeze' && include0Dte ? bundle : null
+    ).catch(() => undefined);
 
     const stats = historyStats(symbol);
     const staleDays = stats.lastDate
@@ -212,6 +202,7 @@ export async function GET(req: NextRequest) {
         concentration7d,
         strikesUsed,
         strikesTotal,
+        trap: bundle ? toTrapPayload(bundle) : null,
         fetchedAt: new Date().toISOString(),
       },
       { headers: { 'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=900' } }
@@ -255,9 +246,12 @@ export async function GET(req: NextRequest) {
         if (!r) return null;
         const mid = (r.bid + r.ask) / 2;
         const iv = impliedVol(mid, spot, strike, t, rate, q, type);
-        const ivValid = iv !== null && isFinite(iv) && iv > 0.001 && iv < 4;
+        const ivValid = iv !== null && isFinite(iv) && iv > 0.005 && iv < 3;
         const vega = ivValid ? bsVega(spot, strike, t, rate, q, iv as number) : null;
         const delta = ivValid ? bsDelta(spot, strike, t, rate, q, iv as number, type) : null;
+        const gamma = ivValid ? bsGamma(spot, strike, t, rate, q, iv as number) : null;
+        const sideSign = type === 'call' ? 1 : -1;
+        const gex = gamma !== null ? sideSign * gamma * r.oi * 100 * spot * spot * 0.01 : null;
         const spreadPct = mid > 0 ? ((r.ask - r.bid) / mid) * 100 : null;
         return {
           bid: r.bid,
@@ -268,10 +262,24 @@ export async function GET(req: NextRequest) {
           volume: r.volume,
           vega: vega !== null ? Number((vega / 100).toFixed(4)) : null,
           delta: delta !== null ? Number(delta.toFixed(4)) : null,
+          gamma: gamma !== null ? Number(gamma.toFixed(6)) : null,
+          gex: gex !== null ? Number(gex.toFixed(2)) : null,
           spreadPct: spreadPct !== null ? Number(spreadPct.toFixed(2)) : null,
         };
       };
-      return { strike, call: side('call'), put: side('put') };
+      const call = side('call');
+      const put = side('put');
+      const callGex = call?.gex ?? null;
+      const putGex = put?.gex ?? null;
+      const netGex =
+        callGex !== null || putGex !== null ? Number(((callGex ?? 0) + (putGex ?? 0)).toFixed(2)) : null;
+      return {
+        strike,
+        call,
+        put,
+        gamma: call?.gamma ?? put?.gamma ?? null,
+        gex: { callGex, putGex, netGex },
+      };
     });
 
     return NextResponse.json(
