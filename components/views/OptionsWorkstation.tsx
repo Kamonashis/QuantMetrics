@@ -41,15 +41,25 @@ import { FnoExpectedMoveTab } from './fno/FnoExpectedMoveTab';
 
 type TabId = 'v1' | 'v2' | 'v3' | 'v4' | 'v5' | 'v6' | 'v7' | 'v8' | 'f1' | 'f2' | 'f3' | 'f4' | 'f5' | 'f6';
 
-const TABS: { id: TabId; label: string; icon: LucideIcon; meta: string }[] = [
+interface WorkstationTabDef {
+  id: TabId;
+  label: string;
+  icon: LucideIcon;
+  meta: string;
+}
+
+const VOL_TABS: WorkstationTabDef[] = [
   { id: 'v1', label: 'State', icon: Gauge, meta: 'V1' },
   { id: 'v2', label: 'Surface & Smile', icon: Waves, meta: 'V2' },
   { id: 'v3', label: 'Term Structure & VRP', icon: Activity, meta: 'V3' },
   { id: 'v4', label: 'Forecast Validation', icon: Crosshair, meta: 'V4' },
   { id: 'v5', label: 'Risk-Neutral Density', icon: PieChart, meta: 'V5' },
   { id: 'v6', label: 'Cross-Asset & Regime', icon: Network, meta: 'V6' },
-  { id: 'v7', label: 'Dealer Positioning', icon: Magnet, meta: 'V7' },
   { id: 'v8', label: 'Decision', icon: Scale, meta: 'V8' },
+];
+
+const POSITION_TABS: WorkstationTabDef[] = [
+  { id: 'v7', label: 'Gamma Exposure (GEX)', icon: Magnet, meta: 'GEX' },
   { id: 'f1', label: 'Option Chain', icon: Activity, meta: 'F1' },
   { id: 'f2', label: 'OI Positioning', icon: Waves, meta: 'F2' },
   { id: 'f3', label: 'PCR', icon: Scale, meta: 'F3' },
@@ -57,6 +67,37 @@ const TABS: { id: TabId; label: string; icon: LucideIcon; meta: string }[] = [
   { id: 'f5', label: 'F&O Term Structure', icon: Activity, meta: 'F5' },
   { id: 'f6', label: 'Expected vs Realized', icon: ArrowLeftRight, meta: 'F6' },
 ];
+
+const FNO_PARAM_TO_TAB: Record<string, TabId> = {
+  gex: 'v7',
+  chain: 'f1',
+  oi: 'f2',
+  pcr: 'f3',
+  maxpain: 'f4',
+  termstructure: 'f5',
+  expectedmove: 'f6',
+};
+
+const TAB_TO_FNO_PARAM: Partial<Record<TabId, string>> = {
+  v7: 'gex',
+  f1: 'chain',
+  f2: 'oi',
+  f3: 'pcr',
+  f4: 'maxpain',
+  f5: 'termstructure',
+  f6: 'expectedmove',
+};
+
+function resolveTabFromLocation(initialGroup: 'vol' | 'fno', search: string): TabId {
+  if (search) {
+    const p = new URLSearchParams(search);
+    const f = p.get('fno');
+    if (f && FNO_PARAM_TO_TAB[f]) return FNO_PARAM_TO_TAB[f];
+    const v = p.get('vol');
+    if (v && /^t[1-8]$/.test(v)) return `v${v[1]}` as TabId;
+  }
+  return initialGroup === 'fno' ? 'v7' : 'v1';
+}
 
 /**
  * One options workstation. The former "Implied Vol" and "F&O" peer views are
@@ -81,23 +122,24 @@ export function OptionsWorkstation({
   initialGroup?: 'vol' | 'fno';
 }) {
   const s = useTickerSnapshot();
-  const [tab, setTab] = useState<TabId>(initialGroup === 'fno' ? 'f1' : 'v1');
+  const [tab, setTab] = useState<TabId>(() =>
+    resolveTabFromLocation(initialGroup, typeof window !== 'undefined' ? window.location.search : '')
+  );
 
+  // Sync section switches (Options · Vol <-> Options · Position) and browser history
+  // while honoring explicit ?fno= / ?vol= deep-link overrides.
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const timer = setTimeout(() => {
-      const p = new URLSearchParams(window.location.search);
-      const f = p.get('fno');
-      const v = p.get('vol');
-      if (f) {
-        const map: Record<string, TabId> = { chain: 'f1', oi: 'f2', pcr: 'f3', maxpain: 'f4', termstructure: 'f5', expectedmove: 'f6' };
-        if (map[f]) setTab(map[f]);
-      } else if (v && /^t[1-8]$/.test(v)) {
-        setTab(`v${v[1]}` as TabId);
-      }
-    }, 0);
-    return () => clearTimeout(timer);
-  }, []);
+    const syncFromUrl = () => {
+      setTab(resolveTabFromLocation(initialGroup, window.location.search));
+    };
+    const timer = setTimeout(syncFromUrl, 0);
+    window.addEventListener('popstate', syncFromUrl);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('popstate', syncFromUrl);
+    };
+  }, [initialGroup]);
 
   const selectTab = (id: TabId) => {
     setTab(id);
@@ -105,10 +147,11 @@ export function OptionsWorkstation({
     const url = new URL(window.location.href);
     url.searchParams.delete('vol');
     url.searchParams.delete('fno');
-    if (id.startsWith('v')) url.searchParams.set('vol', `t${id[1]}`);
-    else {
-      const map: Record<string, string> = { f1: 'chain', f2: 'oi', f3: 'pcr', f4: 'maxpain', f5: 'termstructure', f6: 'expectedmove' };
-      url.searchParams.set('fno', map[id]);
+    const fnoSlug = TAB_TO_FNO_PARAM[id];
+    if (fnoSlug) {
+      url.searchParams.set('fno', fnoSlug);
+    } else if (id.startsWith('v')) {
+      url.searchParams.set('vol', `t${id[1]}`);
     }
     window.history.replaceState(null, '', url.toString());
   };
@@ -147,7 +190,7 @@ export function OptionsWorkstation({
               Price, Positioning &amp; Decision — One Surface
             </h2>
             <p className="mt-0.5 font-mono text-[10px] uppercase tracking-[0.16em] text-zinc-400 dark:text-zinc-500">
-              volatility panels V1–V8 · positioning panels F1–F6 · one refresh, one verdict
+              volatility panels V1–V6, V8 · positioning panels GEX &amp; F1–F6 · one refresh, one verdict
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
@@ -183,11 +226,28 @@ export function OptionsWorkstation({
 
       <OptionsVerdictStrip chain={s.chain} fnoPanel={s.fnoPanel} rv20={rv20} rndQuality={rnd?.quality} />
 
-      <AnimatedTabs
-        value={tab}
-        onChange={(id) => selectTab(id as TabId)}
-        tabs={TABS.map((t) => ({ id: t.id, label: t.label, icon: t.icon, meta: t.meta }))}
-      />
+      <div className="space-y-2.5">
+        <div className="space-y-1">
+          <div className={`font-mono text-[9px] font-semibold uppercase tracking-[0.16em] ${tab !== 'v7' && tab.startsWith('v') ? 'text-gold-700 dark:text-gold-300' : 'text-zinc-400 dark:text-zinc-500'}`}>
+            Volatility · V1–V6, V8
+          </div>
+          <AnimatedTabs
+            value={tab}
+            onChange={(id) => selectTab(id as TabId)}
+            tabs={VOL_TABS}
+          />
+        </div>
+        <div className="space-y-1">
+          <div className={`font-mono text-[9px] font-semibold uppercase tracking-[0.16em] ${tab === 'v7' || tab.startsWith('f') ? 'text-gold-700 dark:text-gold-300' : 'text-zinc-400 dark:text-zinc-500'}`}>
+            Positioning · GEX &amp; F1–F6
+          </div>
+          <AnimatedTabs
+            value={tab}
+            onChange={(id) => selectTab(id as TabId)}
+            tabs={POSITION_TABS}
+          />
+        </div>
+      </div>
 
       {tab === 'v1' && <T1StateTab chain={s.chain} indices={s.indices} rv20={s.rv20} vix={s.vix} />}
       {tab === 'v2' && <T2SurfaceTab chain={s.chain} indices={s.indices} />}
@@ -197,10 +257,10 @@ export function OptionsWorkstation({
       {tab === 'v6' && <T6CrossAssetTab chain={s.chain} indices={s.indices} bars={bars} ticker={ticker} />}
       {tab === 'v7' && <T7DealerTab chain={s.chain} panel={s.panel} bars={bars} ticker={ticker} />}
       {tab === 'v8' && <T8DecisionTab chain={s.chain} bars={bars} ticker={ticker} ivHistory={s.ivHistory} intradayBars={intradayBars} intradaySource={intradaySource} rvSeries={s.rvSeries} garchFitProp={s.garchFit} earningsProp={s.earnings} />}
-      {tab === 'f1' && <FnoChainTab panel={s.fnoPanel} symbol={ticker} />}
-      {tab === 'f2' && <FnoOiTab panel={s.fnoPanel} symbol={ticker} />}
+      {tab === 'f1' && <FnoChainTab panel={s.fnoPanel} symbol={ticker} trap={s.fnoPanel?.trap ?? s.chain?.trap ?? null} />}
+      {tab === 'f2' && <FnoOiTab panel={s.fnoPanel} symbol={ticker} trap={s.fnoPanel?.trap ?? s.chain?.trap ?? null} />}
       {tab === 'f3' && <FnoPcrTab panel={s.fnoPanel} symbol={ticker} />}
-      {tab === 'f4' && <FnoMaxPainTab panel={s.fnoPanel} symbol={ticker} />}
+      {tab === 'f4' && <FnoMaxPainTab panel={s.fnoPanel} symbol={ticker} trap={s.fnoPanel?.trap ?? s.chain?.trap ?? null} />}
       {tab === 'f5' && <FnoTermStructureTab panel={s.fnoPanel} symbol={ticker} />}
       {tab === 'f6' && <FnoExpectedMoveTab panel={s.fnoPanel} bars={bars} symbol={ticker} />}
     </div>

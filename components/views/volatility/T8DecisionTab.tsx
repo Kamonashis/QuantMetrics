@@ -315,8 +315,9 @@ export function T8DecisionTab({ chain, bars, ticker, ivHistory, intradayBars, in
         hmmCrisisProb: hmmMeta?.crisisProb ?? null,
         hmmDominantState: hmmMeta?.dominant ?? null,
         rr25Front,
+        trap: chain?.trap ?? null,
       }),
-    [iv30, rvL, skew60, vrMinZ, adfResidualP, cusumBreakSessionsAgo, hmmMeta, rr25Front],
+    [iv30, rvL, skew60, vrMinZ, adfResidualP, cusumBreakSessionsAgo, hmmMeta, rr25Front, chain],
   );
 
   const signalSummary = useMemo(() => {
@@ -657,11 +658,18 @@ export function T8DecisionTab({ chain, bars, ticker, ivHistory, intradayBars, in
             </p>
           </div>
           <span className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-[0.18em] text-zinc-400">
-            <Sigma className="h-3 w-3" /> 1σ gold · 2σ faint
+            <Sigma className="h-3 w-3" /> 1σ gold · 2σ faint{chain?.trap?.available ? ' · CW / PW / γ Flip' : ''}
           </span>
         </div>
         <div className="mt-3">
-          <ExpectedMoveConeChart bars={bars} iv30={iv30} />
+          <ExpectedMoveConeChart
+            bars={bars}
+            iv30={iv30}
+            callWall={chain?.trap?.available ? (chain.trap.walls.call?.strike ?? null) : null}
+            putWall={chain?.trap?.available ? (chain.trap.walls.put?.strike ?? null) : null}
+            gammaFlip={chain?.trap?.available ? (chain.trap.gammaFlip.flip ?? null) : null}
+            gexRegime={chain?.trap?.available ? chain.trap.regime : null}
+          />
         </div>
       </div>
 

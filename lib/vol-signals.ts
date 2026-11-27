@@ -198,6 +198,17 @@ export interface SignalRuleResult {
   action: string;
 }
 
+export interface VolSignalTrapInput {
+  available?: boolean;
+  regime?: 'long' | 'short' | 'unknown' | string | null;
+  totalGex?: number | null;
+  gammaFlip?: { flip: number | null; regime?: string } | null;
+  flipDistPct?: number | null;
+  gexPerAdv?: number | null;
+  spot?: number | null;
+  convention?: 'squeeze' | 'inverse' | string;
+}
+
 export interface VolSignalInputs {
   iv30: number | null;
   rv5: number | null;
@@ -221,11 +232,18 @@ export interface VolSignalInputs {
   hmmDominantState: number | null;
   /** 25Δ risk reversal (call IV − put IV), decimal; null when unfit. */
   rr25Front: number | null;
+  /** Optional dealer-gamma / GEX context from live options chain (assumed convention). */
+  trap?: VolSignalTrapInput | null;
 }
 
 const pct = (v: number): string => `${(v * 100).toFixed(1)}%`;
 const pts = (v: number): string => `${(v * 100).toFixed(1)} pts`;
 const fmtZ = (v: number): string => v.toFixed(2);
+const fmtGexM = (v: number): string => {
+  const sign = v >= 0 ? '+' : '-';
+  const absM = Math.abs(v) / 1e6;
+  return `${sign}$${absM.toFixed(absM > 0 && absM < 1 ? 2 : 1)}M`;
+};
 
 /**
  * Evaluate the pre-registered vol signal table. Pure: every rule degrades to
@@ -237,11 +255,19 @@ export function evaluateVolSignals(inp: VolSignalInputs): SignalRuleResult[] {
     ? varianceBaseline(inp.rv10, inp.rv30, 10, 30)
     : null;
   const breakeven = inp.iv30 !== null ? breakevenVol(inp.iv30) : null;
+  const trapReady = inp.trap?.available === true && (inp.trap.regime === 'long' || inp.trap.regime === 'short');
+  const gexRegime: 'long' | 'short' | null = trapReady ? (inp.trap!.regime as 'long' | 'short') : null;
 
   // 1 — Long-gamma engagement: RV5 clears the cost-adjusted breakeven
   {
     const ok = inp.rv5 !== null && breakeven !== null;
     const met = ok && (inp.rv5 as number) > (breakeven as number);
+    const gammaNote =
+      gexRegime === 'short'
+        ? ' Dealer Short γ supports breakout convexity.'
+        : gexRegime === 'long'
+          ? ' Caution: Dealer Long γ dampens realized moves.'
+          : '';
     rules.push({
       id: 'long-gamma',
       label: 'Long front-end gamma',
@@ -249,7 +275,7 @@ export function evaluateVolSignals(inp: VolSignalInputs): SignalRuleResult[] {
       measured: ok ? `${pct(inp.rv5 as number)} vs ${pct(breakeven as number)}` : null,
       trigger: `RV5 > 1.25 × IV30 (${breakeven !== null ? pct(breakeven) : '—'})`,
       state: ok ? (met ? 'met' : 'not-met') : 'insufficient-data',
-      action: 'Long 7–14 DTE ATM straddle, delta-hedge at ~0.75σ band. Size for ±$24 at 10 DTE (~$2.4k/lot).',
+      action: `Long 7–14 DTE ATM straddle, delta-hedge at ~0.75σ band. Size for ±$24 at 10 DTE (~$2.4k/lot).${gammaNote}`,
     });
   }
 
@@ -277,6 +303,12 @@ export function evaluateVolSignals(inp: VolSignalInputs): SignalRuleResult[] {
     const ok = inp.iv30 !== null && baseline !== null;
     const spread = ok ? (inp.iv30 as number) - (baseline as number) : null;
     const met = spread !== null && spread > SHORT_PREMIUM_RICH_POINTS;
+    const gammaNote =
+      gexRegime === 'short'
+        ? ' Dealer Short γ hazard: avoid naked short premium / halve size.'
+        : gexRegime === 'long'
+          ? ' Dealer Long γ dampens intraday swings, supporting harvest.'
+          : '';
     rules.push({
       id: 'short-premium-engage',
       label: 'Short back-month strangle',
@@ -284,7 +316,7 @@ export function evaluateVolSignals(inp: VolSignalInputs): SignalRuleResult[] {
       measured: spread !== null ? pts(spread) : null,
       trigger: `IV30 − baseline > +${SHORT_PREMIUM_RICH_POINTS * 100} pts (IV30 > ${baseline !== null ? pct((baseline as number) + SHORT_PREMIUM_RICH_POINTS) : '—'})`,
       state: ok ? (met ? 'met' : 'not-met') : 'insufficient-data',
-      action: '30–45 DTE ~16Δ strangle, ALWAYS defined-risk 5Δ wings. Half size if HMM ≠ calm. Never into earnings.',
+      action: `30–45 DTE ~16Δ strangle, ALWAYS defined-risk 5Δ wings. Half size if HMM ≠ calm. Never into earnings.${gammaNote}`,
     });
   }
 
@@ -406,6 +438,50 @@ export function evaluateVolSignals(inp: VolSignalInputs): SignalRuleResult[] {
       trigger: `RR25 > +${(RR25_CALL_RICH * 100).toFixed(1)} pts ⇒ calls richer than puts`,
       state: ok ? (met ? 'met' : 'not-met') : 'insufficient-data',
       action: 'Calls richer than puts — the +skew asymmetry is priced. Skip the long-call-wing trade. If RR25 ≤ 0, wings are not disqualified (size 10–15 Δ, defined-risk).',
+    });
+  }
+
+  // 10 — Dealer gamma regime: Short γ amplifies moves vs Long γ dampens RV (assumed convention)
+  {
+    const regime = gexRegime;
+    const totalGex =
+      typeof inp.trap?.totalGex === 'number' && isFinite(inp.trap.totalGex)
+        ? inp.trap.totalGex
+        : null;
+    const flip =
+      inp.trap?.gammaFlip && typeof inp.trap.gammaFlip.flip === 'number' && isFinite(inp.trap.gammaFlip.flip)
+        ? inp.trap.gammaFlip.flip
+        : null;
+    const flipDist =
+      typeof inp.trap?.flipDistPct === 'number' && isFinite(inp.trap.flipDistPct)
+        ? inp.trap.flipDistPct
+        : flip !== null && typeof inp.trap?.spot === 'number' && isFinite(inp.trap.spot) && inp.trap.spot > 0
+          ? flip / inp.trap.spot - 1
+          : null;
+    const ok = regime !== null;
+    const met = regime === 'short';
+    const measuredParts: string[] = [];
+    if (ok) {
+      measuredParts.push(regime === 'short' ? 'Short γ' : 'Long γ');
+      if (totalGex !== null) measuredParts.push(fmtGexM(totalGex));
+      if (flip !== null) {
+        measuredParts.push(
+          `Flip $${flip.toFixed(1)}${flipDist !== null ? ` (${flipDist >= 0 ? '+' : ''}${(flipDist * 100).toFixed(1)}%)` : ''}`
+        );
+      }
+    }
+    rules.push({
+      id: 'dealer-gamma-regime',
+      label: 'Dealer gamma regime',
+      metric: 'Net GEX · γ Flip',
+      measured: ok ? measuredParts.join(' · ') : null,
+      trigger: 'Short γ (Net GEX < 0 under assumed squeeze)',
+      state: ok ? (met ? 'met' : 'not-met') : 'insufficient-data',
+      action: !ok
+        ? 'Live dealer GEX unavailable. Long γ dampens RV (supports harvest); Short γ amplifies breakouts (avoid naked short premium).'
+        : met
+          ? 'Short γ active: dealer re-hedging amplifies realized volatility — supports long-gamma breakouts; avoid naked short premium / halve short-vol size.'
+          : 'Long γ active: dealer hedging sells rallies & buys dips, dampening realized vol — supports defined-risk short-vol harvest; raise hurdle for chasing breakouts.',
     });
   }
 

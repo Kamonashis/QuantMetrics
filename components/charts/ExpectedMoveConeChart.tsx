@@ -26,10 +26,18 @@ export function ExpectedMoveConeChart({
   bars,
   iv30,
   horizonTd = 21,
+  callWall = null,
+  putWall = null,
+  gammaFlip = null,
+  gexRegime = null,
 }: {
   bars: PriceBar[];
   iv30: number | null;
   horizonTd?: number;
+  callWall?: number | null;
+  putWall?: number | null;
+  gammaFlip?: number | null;
+  gexRegime?: 'long' | 'short' | 'unknown' | null;
 }) {
   const hist = useMemo(() => (bars ?? []).slice(-180), [bars]);
   const spot = hist.length > 0 ? hist[hist.length - 1].close : null;
@@ -150,11 +158,59 @@ export function ExpectedMoveConeChart({
       },
     ];
 
+    const dealerLevels: number[] = [];
+    const addDealerLevel = (
+      val: number | null,
+      label: string,
+      color: string,
+      dash: 'dash' | 'dot'
+    ) => {
+      if (val === null || !Number.isFinite(val) || val <= 0) return;
+      if (Math.abs(val / spot - 1) <= 0.35) {
+        dealerLevels.push(val);
+      }
+      shapes.push({
+        type: 'line',
+        xref: 'paper',
+        yref: 'y',
+        x0: 0,
+        x1: 1,
+        y0: val,
+        y1: val,
+        line: { color, width: 1.25, dash },
+      });
+      annotations.push({
+        x: 0.01,
+        y: val,
+        xref: 'paper',
+        yref: 'y',
+        text: `${label} $${val.toFixed(1)}`,
+        showarrow: false,
+        xanchor: 'left',
+        yanchor: 'bottom',
+        font: { size: 9, color },
+      });
+    };
+
+    addDealerLevel(callWall, 'CW', QUANT_COLORS.positive, 'dash');
+    addDealerLevel(putWall, 'PW', QUANT_COLORS.negative, 'dash');
+    addDealerLevel(gammaFlip, 'γ Flip', QUANT_COLORS.amber, 'dot');
+
+    let yaxis: Partial<Layout['yaxis']> | undefined;
+    if (dealerLevels.length > 0) {
+      const allY = [...histCloses, ...up2, ...dn2, ...dealerLevels];
+      const minY = Math.min(...allY);
+      const maxY = Math.max(...allY);
+      const span = Math.max(maxY - minY, spot * 0.02);
+      const pad = span * 0.06;
+      yaxis = { range: [Math.max(0, minY - pad), maxY + pad] };
+    }
+
     return {
       traces: list,
-      layout: { shapes, annotations } as Partial<Layout>,
+      layout: { shapes, annotations, ...(yaxis ? { yaxis } : {}) } as Partial<Layout>,
     };
-  }, [hist, spot, iv30, horizonTd]);
+  }, [hist, spot, iv30, horizonTd, callWall, putWall, gammaFlip]);
 
   if (iv30 === null || spot === null || hist.length < 2) {
     return (
@@ -202,6 +258,26 @@ export function ExpectedMoveConeChart({
           ±1σ @21td{' '}
           <span className="text-zinc-900 dark:text-zinc-100">${oneSigma(21).toFixed(1)}</span>
         </span>
+        {callWall != null && (
+          <span>
+            CW <span className="text-[var(--positive)]">${callWall}</span>
+          </span>
+        )}
+        {putWall != null && (
+          <span>
+            PW <span className="text-[var(--negative)]">${putWall}</span>
+          </span>
+        )}
+        {gammaFlip != null && (
+          <span>
+            Flip <span className="text-amber-600 dark:text-amber-300">${gammaFlip.toFixed(1)}</span>
+          </span>
+        )}
+        {gexRegime && gexRegime !== 'unknown' && (
+          <span className={gexRegime === 'long' ? 'text-[var(--positive)]' : 'text-[var(--negative)]'}>
+            {gexRegime === 'long' ? 'Long γ' : 'Short γ'}
+          </span>
+        )}
         <span className="ml-auto">±k·σ·√(t/252) · no drift · European BSM</span>
       </div>
     </div>

@@ -3,18 +3,38 @@
 import React from 'react';
 import { Layers, Flame } from 'lucide-react';
 import type { PanelPayload } from './types';
+import type { TrapPayload } from '@/components/views/volatility/types';
 import { OiLadder } from '@/components/charts/fno/OiLadder';
 import { ChartFullscreen } from '@/components/ui/ChartFullscreen';
 
 const fmtOi = (v: number | null | undefined) =>
   v === null || v === undefined ? '—' : v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v.toLocaleString();
 
-export function FnoOiTab({ panel, symbol }: { panel: PanelPayload | null; symbol: string }) {
+export function FnoOiTab({
+  panel,
+  symbol,
+  trap = null,
+}: {
+  panel: PanelPayload | null;
+  symbol: string;
+  trap?: TrapPayload | null;
+}) {
   const spot = panel?.quote?.price ?? 0;
   const ladder = panel?.oiLadder ?? [];
   const concentration = panel?.concentration7d ?? null;
   const expiries = panel?.expiryLadder ?? [];
   const totalOi = expiries.reduce((s, l) => s + l.totalOi, 0);
+  const activeTrap = panel?.trap ?? trap ?? null;
+  const levels = activeTrap?.available
+    ? {
+        callWall: activeTrap.walls.call?.strike ?? null,
+        putWall: activeTrap.walls.put?.strike ?? null,
+        gammaCallWall: activeTrap.gammaWalls?.call?.strike ?? null,
+        gammaPutWall: activeTrap.gammaWalls?.put?.strike ?? null,
+        gammaFlip: activeTrap.gammaFlip?.flip ?? null,
+        regime: activeTrap.regime ?? null,
+      }
+    : null;
 
   return (
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
@@ -24,15 +44,15 @@ export function FnoOiTab({ panel, symbol }: { panel: PanelPayload | null; symbol
           <div>
             <p className="kicker mb-1 flex items-center gap-2"><Layers className="h-3.5 w-3.5" /> OI Ladder</p>
             <h3 className="font-display text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-              OI by strike — where the positioning lives (±15%)
+              {symbol} OI by strike — walls &amp; gamma flip (±15%)
             </h3>
           </div>
           <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-zinc-400">
             total OI {fmtOi(totalOi)} · as-of last close
           </span>
         </div>
-        <ChartFullscreen title="OI by Strike — Positioning (±15%)">
-          <OiLadder rows={ladder} spot={spot} />
+        <ChartFullscreen title={`${symbol} OI by Strike — Positioning (±15%)`}>
+          <OiLadder rows={ladder} spot={spot} levels={levels} />
         </ChartFullscreen>
       </div>
 

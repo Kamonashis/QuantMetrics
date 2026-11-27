@@ -1,5 +1,7 @@
 // Client-side types for the F&O tab payloads — mirrors app/api/fno response.
 
+import type { TrapPayload } from '@/components/views/volatility/types';
+
 export interface ExpiryLadderEntry {
   expiry: string;
   dte: number;
@@ -82,6 +84,7 @@ export interface PanelPayload {
   concentration7d?: number;
   strikesUsed?: number;
   strikesTotal?: number;
+  trap?: TrapPayload | null;
   fetchedAt?: string;
 }
 
@@ -94,6 +97,8 @@ export interface ChainSide {
   volume: number;
   vega: number | null;
   delta: number | null;
+  gamma?: number | null;
+  gex?: number | null;
   spreadPct: number | null;
 }
 
@@ -101,6 +106,12 @@ export interface ChainRowOut {
   strike: number;
   call: ChainSide | null;
   put: ChainSide | null;
+  gamma?: number | null;
+  gex?: {
+    callGex: number | null;
+    putGex: number | null;
+    netGex: number | null;
+  } | null;
 }
 
 export interface ChainPayload {
