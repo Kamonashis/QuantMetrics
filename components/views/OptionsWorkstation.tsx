@@ -132,7 +132,7 @@ export function OptionsWorkstation({
     resolveTabFromLocation(initialGroup, typeof window !== 'undefined' ? window.location.search : '')
   );
 
-  // Sync section switches (Options · Vol <-> Options · Position) and browser history
+  // Sync URL deep-link switches and browser history
   // while honoring explicit ?fno= / ?vol= deep-link overrides.
   useEffect(() => {
     if (typeof window === 'undefined') return;

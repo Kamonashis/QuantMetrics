@@ -24,7 +24,7 @@ import {
 import { summarizeHitRates, type HitRate, type SignalJournalRecord } from '@/lib/signal-outcomes';
 import { TcnUnifiedDashboard } from '@/components/views/TcnUnifiedDashboard';
 
-type View = 'home' | 'analysis' | 'modeling' | 'volatility' | 'fno' | 'correlation' | 'regression';
+type View = 'home' | 'analysis' | 'modeling' | 'options' | 'correlation' | 'regression';
 
 const pct = (v: number | null | undefined, d = 1) => v === null || v === undefined || !isFinite(v) ? '—' : `${(v * 100).toFixed(d)}%`;
 const signedPct = (v: number | null | undefined, d = 1) =>
@@ -423,7 +423,7 @@ export function EdgeView({
             return (
               <button
                 type="button"
-                onClick={() => onNavigate('fno', { fno: 'gex' })}
+                onClick={() => onNavigate('options', { fno: 'gex' })}
                 title="Open Gamma Exposure & Dealer Positioning workbench"
                 className="ml-auto inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-[var(--hairline)] bg-[var(--bg-inset)] px-2 py-0.5 text-[9.5px] text-zinc-700 transition-colors hover:border-gold-500/50 dark:text-zinc-200"
               >
@@ -498,7 +498,7 @@ export function EdgeView({
                 return (
                   <button
                     type="button"
-                    onClick={() => onNavigate('fno', { fno: 'gex' })}
+                    onClick={() => onNavigate('options', { fno: 'gex' })}
                     title="Inspect full GEX profile, flip curve, and OI walls"
                     className="flex w-full cursor-pointer flex-wrap items-center justify-between gap-2 rounded border border-[var(--hairline)] bg-[var(--bg-panel)] px-2.5 py-1.5 text-left font-mono text-[9px] transition-colors hover:border-gold-500/45"
                   >
@@ -543,7 +543,7 @@ export function EdgeView({
             <div className="flex items-center gap-3">
               <button
                 type="button"
-                onClick={() => onNavigate('fno', { fno: 'gex' })}
+                onClick={() => onNavigate('options', { fno: 'gex' })}
                 className="inline-flex cursor-pointer items-center gap-1 font-mono text-[10px] font-semibold text-zinc-500 hover:text-gold-700 dark:text-zinc-400 dark:hover:text-gold-300"
               >
                 GEX Workbench <ArrowUpRight className="h-3 w-3" />
@@ -587,7 +587,7 @@ export function EdgeView({
                         <td className="py-1.5 text-right tabular-nums">
                           <button
                             type="button"
-                            onClick={() => onNavigate('fno', { fno: 'gex' })}
+                            onClick={() => onNavigate('options', { fno: 'gex' })}
                             title={gexTitle}
                             className="cursor-pointer font-semibold text-zinc-700 hover:text-gold-700 hover:underline dark:text-zinc-200 dark:hover:text-gold-300"
                           >
@@ -598,7 +598,7 @@ export function EdgeView({
                           {badge ? (
                             <button
                               type="button"
-                              onClick={() => onNavigate('fno', { fno: 'gex' })}
+                              onClick={() => onNavigate('options', { fno: 'gex' })}
                               title={gexTitle}
                               className={`inline-block cursor-pointer rounded border px-1.5 py-0.5 text-[8.5px] font-semibold ${badge.cls}`}
                             >

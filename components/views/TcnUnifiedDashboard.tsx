@@ -48,8 +48,7 @@ type EdgeNavView =
   | 'home'
   | 'analysis'
   | 'modeling'
-  | 'volatility'
-  | 'fno'
+  | 'options'
   | 'correlation'
   | 'regression';
 

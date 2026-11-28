@@ -7,8 +7,8 @@ import { TickerSuggest } from '@/components/ui/TickerSuggest';
 import { ProvenanceBadge } from '@/components/ui/provenance-badge';
 
 interface NavbarProps {
-  activeView: 'home' | 'analysis' | 'modeling' | 'volatility' | 'fno' | 'correlation' | 'regression' | 'now';
-  onViewChange: (view: 'home' | 'analysis' | 'modeling' | 'volatility' | 'fno' | 'correlation' | 'regression' | 'now') => void;
+  activeView: 'home' | 'analysis' | 'modeling' | 'options' | 'correlation' | 'regression' | 'now';
+  onViewChange: (view: 'home' | 'analysis' | 'modeling' | 'options' | 'correlation' | 'regression' | 'now') => void;
   isDark: boolean;
   onToggleTheme: () => void;
   activeTicker: string;
@@ -23,8 +23,7 @@ const NAV_ITEMS = [
   { id: 'home', label: 'Home', shortLabel: 'Home', icon: Home },
   { id: 'analysis', label: 'Analysis', shortLabel: 'Analysis', icon: Activity },
   { id: 'modeling', label: 'Modeling', shortLabel: 'Model', icon: Sigma },
-  { id: 'volatility', label: 'Options · Vol', shortLabel: 'Vol', icon: Waves },
-  { id: 'fno', label: 'Options · Position', shortLabel: 'Pos', icon: CandlestickChart },
+  { id: 'options', label: 'Options', shortLabel: 'Options', icon: Waves },
   { id: 'correlation', label: 'Correlation', shortLabel: 'Corr.', icon: Network },
   { id: 'regression', label: 'Regression', shortLabel: 'Regr.', icon: TrendingUp },
   { id: 'now', label: 'Edge', shortLabel: 'Edge', icon: LayoutDashboard },
@@ -176,7 +175,7 @@ export function Navbar({
         className="fixed inset-x-0 bottom-0 z-40 border-t border-zinc-200/80 bg-[#f5f4f1]/92 backdrop-blur-xl dark:border-white/[0.07] dark:bg-[#0e0e11]/92 md:hidden pb-safe"
         aria-label="Primary"
       >
-        <div className="grid grid-cols-8">
+        <div className="grid grid-cols-7">
           {NAV_ITEMS.map((item) => {
             const active = item.id === activeView;
             const Icon = item.icon;

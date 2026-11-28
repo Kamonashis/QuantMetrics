@@ -71,8 +71,7 @@ type AnalysisNavView =
   | 'home'
   | 'analysis'
   | 'modeling'
-  | 'volatility'
-  | 'fno'
+  | 'options'
   | 'correlation'
   | 'regression'
   | 'now';
@@ -718,7 +717,7 @@ export function AnalysisView({
                 label: 'TRAP',
                 node: <TrapStateChip interactive={Boolean(onNavigate)} />,
                 sub: trapSub,
-                onClick: onNavigate ? () => onNavigate('fno', { fno: 'gex' }) : undefined,
+                onClick: onNavigate ? () => onNavigate('options', { fno: 'gex' }) : undefined,
                 title: trapTitle,
               },
               { label: 'Ann Vol', node: <span className="font-mono text-sm font-semibold tabular-nums text-zinc-800 dark:text-zinc-100">{(returnStats.annualizedVol * 100).toFixed(2)}%</span>, sub: null, onClick: undefined, title: undefined },

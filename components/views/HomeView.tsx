@@ -37,8 +37,7 @@ export type HomeDestinationView =
   | 'now'
   | 'analysis'
   | 'modeling'
-  | 'volatility'
-  | 'fno'
+  | 'options'
   | 'correlation'
   | 'regression';
 
@@ -103,7 +102,7 @@ const WORKSTATIONS: readonly WorkstationItem[] = [
   },
   {
     num: '04',
-    view: 'volatility',
+    view: 'options',
     title: 'Implied Volatility Suite',
     subtitle: 'SVI Surface · Term Structure · VRP',
     description:
@@ -112,7 +111,7 @@ const WORKSTATIONS: readonly WorkstationItem[] = [
   },
   {
     num: '05',
-    view: 'fno',
+    view: 'options',
     params: { fno: 'gex' },
     title: 'Options F&O Positioning',
     subtitle: 'GEX · Dealer Flip · F&O Chain',
@@ -472,7 +471,7 @@ export function HomeView({
             {/* 6. Active Dealer GEX (Assumed) */}
             <button
               type="button"
-              onClick={() => onNavigate('fno', { fno: 'gex' })}
+              onClick={() => onNavigate('options', { fno: 'gex' })}
               title="Open Gamma Exposure & Dealer Positioning workbench (assumed squeeze convention, EOD OI)"
               className="px-4 py-3.5 text-left transition-colors hover:bg-gold-500/[0.04] cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-gold-500"
             >
@@ -680,7 +679,7 @@ export function HomeView({
             const Icon = ws.icon;
             return (
               <button
-                key={ws.view}
+                key={ws.num}
                 type="button"
                 onClick={() => onNavigate(ws.view, ws.params)}
                 className={`panel p-5 text-left transition-colors hover:border-gold-500/50 dark:hover:border-gold-400/45 group flex flex-col justify-between gap-4 cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-gold-500 ${

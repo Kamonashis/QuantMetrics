@@ -37,8 +37,8 @@ const ModelingView = dynamic(() => import('@/components/views/ModelingView').the
 const CorrelationView = dynamic(() => import('@/components/views/CorrelationView').then((m) => m.CorrelationView), { ssr: false, loading: ViewLoading });
 const RegressionView = dynamic(() => import('@/components/views/RegressionView').then((m) => m.RegressionView), { ssr: false, loading: ViewLoading });
 
-type AppView = 'home' | 'analysis' | 'modeling' | 'volatility' | 'fno' | 'correlation' | 'regression' | 'now';
-const VALID_VIEWS: AppView[] = ['home', 'analysis', 'modeling', 'volatility', 'fno', 'correlation', 'regression', 'now'];
+type AppView = 'home' | 'analysis' | 'modeling' | 'options' | 'correlation' | 'regression' | 'now';
+const VALID_VIEWS: AppView[] = ['home', 'analysis', 'modeling', 'options', 'correlation', 'regression', 'now'];
 const DEFAULT_TICKER = 'NVDA';
 const DEFAULT_UNIVERSE = ['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'TSLA', 'SPY', 'QQQ', 'AMZN', 'META', 'JPM'] as const;
 /** Looked-up tickers kept resident beyond the protected set (LRU). */
@@ -119,7 +119,8 @@ export default function App() {
     const timer = setTimeout(() => {
       const p = new URLSearchParams(window.location.search);
       const v = p.get('view');
-      if (v && (VALID_VIEWS as string[]).includes(v)) setActiveView(v as AppView);
+      if (v === 'volatility' || v === 'fno') setActiveView('options');
+      else if (v && (VALID_VIEWS as string[]).includes(v)) setActiveView(v as AppView);
       else if (!v) setActiveView('home');
       const t = p.get('ticker');
       if (t) {
@@ -432,7 +433,8 @@ export default function App() {
     const onPopState = () => {
       const p = new URLSearchParams(window.location.search);
       const v = p.get('view');
-      if (v && (VALID_VIEWS as string[]).includes(v)) setActiveView(v as AppView);
+      if (v === 'volatility' || v === 'fno') setActiveView('options');
+      else if (v && (VALID_VIEWS as string[]).includes(v)) setActiveView(v as AppView);
       else if (!v) setActiveView('home');
       const t = p.get('ticker');
       if (t) {
@@ -813,7 +815,7 @@ export default function App() {
           />
         )}
 
-        {(activeView === 'volatility' || activeView === 'fno') && (
+        {activeView === 'options' && (
           <OptionsWorkstation
             ticker={activeTicker}
             bars={currentBars}
@@ -821,7 +823,6 @@ export default function App() {
             intradaySource={currentIntradaySource}
             barsSource={currentBarsSource}
             companyName={currentCompanyName}
-            initialGroup={activeView === 'fno' ? 'fno' : 'vol'}
             navSeq={navSeq}
           />
         )}

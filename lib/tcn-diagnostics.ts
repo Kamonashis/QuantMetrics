@@ -46,7 +46,7 @@ export interface OosScorecardRow {
   verdict: string;
   verdictTone: 'positive' | 'gold' | 'negative' | 'neutral';
   oosSampleCount: number | null;
-  targetView: 'modeling' | 'analysis' | 'regression' | 'volatility';
+  targetView: 'modeling' | 'analysis' | 'regression' | 'options';
   targetParams?: Record<string, string>;
   targetLabel: string;
 }
@@ -391,7 +391,7 @@ export function buildUnifiedOosScorecard(params: {
     verdict: confluence.alignment,
     verdictTone: confTone,
     oosSampleCount: volatility ? volatility.horizons[22].holdoutCount : null,
-    targetView: 'volatility',
+    targetView: 'options',
     targetParams: { tab: 'decision' },
     targetLabel: 'T8 Decision',
   };

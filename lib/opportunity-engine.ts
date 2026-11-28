@@ -36,7 +36,7 @@ export interface OpportunitySize {
 }
 
 export interface OpportunityEvidence {
-  view: 'volatility' | 'fno' | 'analysis' | 'now';
+  view: 'options' | 'analysis' | 'now';
   params: Record<string, string>;
   label: string;
 }
@@ -236,7 +236,7 @@ function premiumHarvest(i: OpportunityInputs): Opportunity {
     },
     size: size(i, 'carry worst month + max drawdown', sizeExtra),
     horizon: '30–45 DTE',
-    evidence: { view: 'volatility', params: { vol: 't3' }, label: 'T3 · VRP & carry' },
+    evidence: { view: 'options', params: { vol: 't3' }, label: 'T3 · VRP & carry' },
     confidence,
     staleness: stalenessOf(i),
     gates,
@@ -294,7 +294,7 @@ function longGamma(i: OpportunityInputs): Opportunity {
     },
     size: size(i, 'expected-move cone', sizeExtra),
     horizon: '7–14 DTE',
-    evidence: { view: 'volatility', params: { vol: 't8' }, label: 'T8 · decision rules' },
+    evidence: { view: 'options', params: { vol: 't8' }, label: 'T8 · decision rules' },
     confidence,
     staleness: stalenessOf(i),
     gates,
@@ -358,7 +358,7 @@ function directionalTrap(i: OpportunityInputs): Opportunity {
     },
     size: size(i, 'wall distance in σ', sizeExtra),
     horizon: '2–10 sessions',
-    evidence: { view: 'fno', params: { fno: 'gex' }, label: 'GEX · dealer positioning' },
+    evidence: { view: 'options', params: { fno: 'gex' }, label: 'GEX · dealer positioning' },
     confidence,
     staleness: stalenessOf(i),
     gates,
@@ -388,7 +388,7 @@ function eventStraddle(i: OpportunityInputs): Opportunity {
     edge: { estimate: e?.percentile !== null && e?.percentile !== undefined ? `${(100 - e.percentile).toFixed(0)}th pctile cheapness` : null, n: e?.n ?? null, provenance: 'F&O expected-vs-realized study · historical |log move| base rate' },
     size: size(i, 'straddle breakeven', e?.impliedPct !== null && e?.impliedPct !== undefined ? `priced move ${pct(e.impliedPct)}` : null),
     horizon: e?.dte ? `${e.dte} DTE` : 'nearest expiry',
-    evidence: { view: 'fno', params: { fno: 'expectedmove' }, label: 'F6 · expected vs realized' },
+    evidence: { view: 'options', params: { fno: 'expectedmove' }, label: 'F6 · expected vs realized' },
     confidence: (e?.n ?? 0) >= 100 ? 'medium' : 'low',
     staleness: stalenessOf(i),
     gates,
@@ -415,7 +415,7 @@ function skewTail(i: OpportunityInputs): Opportunity {
     edge: { estimate: i.skewPercentile !== null ? `${i.skewPercentile.toFixed(0)}th SKEW pctile · VVIX ${i.vvixPercentile !== null ? `${i.vvixPercentile.toFixed(0)}th` : '—'}` : null, n: i.accruedSessions || null, provenance: 'T1 skew tiles + T6 VIX-family percentiles' },
     size: size(i, 'defined-risk wings only', i.vvix !== null ? `VVIX ${i.vvix.toFixed(1)}` : null),
     horizon: '30–90 DTE',
-    evidence: { view: 'volatility', params: { vol: 't1' }, label: 'T1 · skew & VIX context' },
+    evidence: { view: 'options', params: { vol: 't1' }, label: 'T1 · skew & VIX context' },
     confidence: i.ivRankReady ? 'medium' : 'low',
     staleness: stalenessOf(i),
     gates: blockers,
@@ -445,7 +445,7 @@ function crossSectional(i: OpportunityInputs): Opportunity {
     edge: { estimate: spread !== null ? `${spread.toFixed(1)} vol pts spread` : null, n: rows.length || null, provenance: 'combined watchlist scan · single-day IV/RV snapshot, not accrued IV rank' },
     size: size(i, 'pairwise, market-neutral sizing', longLeg && shortLeg ? `long ${longLeg.symbol} / short ${shortLeg.symbol}` : null),
     horizon: '20 sessions',
-    evidence: { view: 'volatility', params: { vol: 't6' }, label: 'T6 · cross-asset matrix' },
+    evidence: { view: 'options', params: { vol: 't6' }, label: 'T6 · cross-asset matrix' },
     confidence: 'low',
     staleness: stalenessOf(i),
     gates: blockers,

@@ -18,7 +18,7 @@ import { useTickerSnapshot } from '@/components/providers/TickerSnapshotProvider
 import { canonicalVrp, selectFrontSlice } from '@/lib/ticker-snapshot';
 import { useWatchlist } from '@/hooks/use-watchlist';
 
-type View = 'home' | 'analysis' | 'modeling' | 'volatility' | 'fno' | 'correlation' | 'regression';
+type View = 'home' | 'analysis' | 'modeling' | 'options' | 'correlation' | 'regression';
 
 const pct = (v: number | null | undefined, d = 1) =>
   v === null || v === undefined || !isFinite(v) ? '—' : `${(v * 100).toFixed(d)}%`;
@@ -151,7 +151,7 @@ export function NowView({
       <section className="panel p-5">
         <div className="mb-3 flex items-center justify-between border-b border-[var(--hairline)] pb-3">
           <p className="kicker flex items-center gap-2"><TrendingUp className="h-3.5 w-3.5" /> Implied vs Realized</p>
-          {jump('volatility', { vol: 't3' })}
+          {jump('options', { vol: 't3' })}
         </div>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <div>
@@ -185,8 +185,8 @@ export function NowView({
         <div className="mb-3 flex items-center justify-between border-b border-[var(--hairline)] pb-3">
           <p className="kicker flex items-center gap-2"><Magnet className="h-3.5 w-3.5" /> Trade &amp; Risk Context</p>
           <div className="flex gap-3">
-            {jump('volatility', { vol: 't7' })}
-            {jump('fno')}
+            {jump('options', { vol: 't7' })}
+            {jump('options', { fno: 'gex' })}
           </div>
         </div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -267,7 +267,7 @@ export function NowView({
         <div className="panel p-5">
           <div className="mb-3 flex items-center justify-between border-b border-[var(--hairline)] pb-3">
             <p className="kicker flex items-center gap-2"><Gauge className="h-3.5 w-3.5" /> Cross-Section</p>
-            <div className="flex gap-3">{jump('volatility', { vol: 't6' })}{jump('correlation')}</div>
+            <div className="flex gap-3">{jump('options', { vol: 't6' })}{jump('correlation')}</div>
           </div>
           <div className="max-h-72 overflow-y-auto font-mono text-[10px]">
             {tapeItems.length === 0 && <p className="text-zinc-400">No cached prices yet.</p>}
@@ -283,7 +283,7 @@ export function NowView({
         <div className="panel p-5">
           <div className="mb-3 flex items-center justify-between border-b border-[var(--hairline)] pb-3">
             <p className="kicker flex items-center gap-2"><ShieldAlert className="h-3.5 w-3.5" /> Model Trust</p>
-            <div className="flex gap-3">{jump('modeling')}{jump('volatility', { vol: 't4' })}</div>
+            <div className="flex gap-3">{jump('modeling')}{jump('options', { vol: 't4' })}</div>
           </div>
           <p className="text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
             Every cone is an in-sample fit. A walk-forward trust card now scores GJR-GARCH and HMM alongside EWMA/GARCH/historical on a held-out tail (Volatility → T4 and Modeling). T4&apos;s in-sample horse race still covers only GARCH(1,1), EWMA and HAR-RV. Read each cone with its <span className="font-mono text-gold-600 dark:text-gold-300">QLIKE score</span> in view.
